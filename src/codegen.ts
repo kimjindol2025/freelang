@@ -2,6 +2,7 @@
 // Converts AI's IR to compilable C code.
 
 import { Op, Inst, AIIntent, CompileResult } from './types';
+import { getBuiltinC } from './engine/builtins';
 
 export class CodeGen {
   generate(intent: AIIntent): string {
