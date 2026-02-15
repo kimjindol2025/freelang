@@ -750,7 +750,164 @@ intent "배열 정렬"`;
   });
 
   // ============================================================================
-  // PART 9: 신뢰도 조정 (Confidence Adjustment)
+  // PART 9: Phase 5 Task 4 - 함수 본체 파싱 (Dynamic Interpretation)
+  // ============================================================================
+  describe('Phase 5 Task 4: 함수 본체 파싱', () => {
+    test('본체 없는 형식: 기존 호환성 유지', () => {
+      const freeCode = `fn sum
+input: array<number>
+output: number
+intent: "배열 합산"`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.fnName).toBe('sum');
+      expect(ast.body).toBeUndefined();
+    });
+
+    test('기본 본체 파싱', () => {
+      const freeCode = `fn sum input array<number> output number {
+        return 0;
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.fnName).toBe('sum');
+      expect(ast.body).toBeDefined();
+      expect(ast.body).toContain('return');
+    });
+
+    test('복잡한 본체 (루프 포함)', () => {
+      const freeCode = `fn sum input array<number> output number {
+        let result = 0;
+        for i in 0..arr.len() {
+          result += arr[i];
+        }
+        return result;
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.body).toBeDefined();
+      expect(ast.body).toContain('for');
+      expect(ast.body).toContain('result');
+    });
+
+    test('중첩 중괄호 처리', () => {
+      const freeCode = `fn nested input array<number> output number {
+        for i in 0..10 {
+          if i > 5 {
+            return i;
+          }
+        }
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.body).toBeDefined();
+      expect(ast.body).toContain('if');
+      expect(ast.body).toContain('return');
+    });
+
+    test('빈 본체', () => {
+      const freeCode = `fn empty input number output number { }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.body).toBe('');
+    });
+
+    test('본체 + 모든 선택사항', () => {
+      const freeCode = `@minimal fn process input array<string> output array<string> intent "변환" {
+        let result = [];
+        for item in input {
+          result.push(item.to_upper());
+        }
+        return result;
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.decorator).toBe('minimal');
+      expect(ast.fnName).toBe('process');
+      expect(ast.intent).toBe('변환');
+      expect(ast.body).toBeDefined();
+      expect(ast.body).toContain('to_upper');
+    });
+
+    test('본체만 있고 intent 없음', () => {
+      const freeCode = `fn calculate input number output number {
+        return input * 2;
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.intent).toBeUndefined();
+      expect(ast.body).toBeDefined();
+    });
+
+    test('에러: 닫지 않은 중괄호', () => {
+      const freeCode = `fn broken input number output number {
+        return 42;`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+
+      expect(() => parseMinimalFunction(buffer)).toThrow('Unclosed brace');
+    });
+
+    test('본체 내 주석 포함 (주석도 수집)', () => {
+      const freeCode = `fn commented input number output number {
+        // This is a comment
+        return input + 1;
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.body).toBeDefined();
+      // 렉서에서 주석을 토큰으로 제공하면 body에 포함됨
+    });
+
+    test('극한: 최소 선언 + 복잡한 본체', () => {
+      const freeCode = `fn x input output {
+        for i in 0..100 {
+          for j in 0..100 {
+            if i == j {
+              return i;
+            }
+          }
+        }
+      }`;
+
+      const lexer = new Lexer(freeCode);
+      const buffer = new TokenBuffer(lexer);
+      const ast = parseMinimalFunction(buffer);
+
+      expect(ast.fnName).toBe('x');
+      expect(ast.inputType).toBe('');
+      expect(ast.outputType).toBe('');
+      expect(ast.body).toBeDefined();
+    });
+  });
+
+  // ============================================================================
+  // PART 10: 신뢰도 조정 (Confidence Adjustment)
   // ============================================================================
   describe('신뢰도 조정: 명시적 vs 추론 타입', () => {
     test('명시적 타입: 신뢰도 0.98 (높음)', () => {

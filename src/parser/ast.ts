@@ -15,6 +15,10 @@
  * Minimal Function AST
  *
  * .free 파일의 함수 선언을 나타내는 최소 구조
+ *
+ * Phase 5 Tasks:
+ *   Task 1-3: 헤더만 (decorator, fnName, types, intent)
+ *   Task 4: 본체 지원 (body 필드)
  */
 export interface MinimalFunctionAST {
   // 선언 타입
@@ -28,6 +32,9 @@ export interface MinimalFunctionAST {
   // 의도 및 설명
   intent?: string;       // 의도 (예: "배열 합산")
   reason?: string;       // 추가 설명 (선택사항)
+
+  // Phase 5 Task 4: 함수 본체 (선택사항)
+  body?: string;         // 함수 본체 코드 (예: "return arr.reduce(...)")
 
   // 원본 정보
   source?: {

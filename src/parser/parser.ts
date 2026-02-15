@@ -152,16 +152,75 @@ export class Parser {
       }
     }
 
-    // Expect EOF
-    this.expect(TokenType.EOF, 'Expected end of file');
+    // Phase 5 Task 4: Parse optional function body
+    let body: string | undefined;
+    if (this.check(TokenType.LBRACE)) {
+      body = this.parseBody();
+    }
+
+    // Expect EOF (또는 선택적 - 기존 형식도 지원)
+    if (this.check(TokenType.EOF)) {
+      this.advance();
+    }
 
     return {
       decorator: decorator as 'minimal' | undefined,
       fnName,
       inputType,
       outputType,
-      intent
+      intent,
+      body
     };
+  }
+
+  /**
+   * Phase 5 Task 4: 함수 본체 파싱
+   *
+   * 형식: { ... }
+   *
+   * 동작:
+   *   1. LBRACE 만남 ({)
+   *   2. 중괄호 깊이를 추적하며 토큰 수집
+   *   3. RBRACE 만남 (})
+   *   4. 본체 내용을 문자열로 반환
+   *
+   * 예시:
+   *   { let x = 0; for i in 0..10 { x += i; } return x; }
+   */
+  private parseBody(): string {
+    this.expect(TokenType.LBRACE, 'Expected "{"');
+
+    const bodyTokens: string[] = [];
+    let braceDepth = 1; // Opening brace이미 소비했으므로 1부터 시작
+
+    while (braceDepth > 0 && !this.check(TokenType.EOF)) {
+      if (this.check(TokenType.LBRACE)) {
+        braceDepth++;
+        bodyTokens.push('{');
+        this.advance();
+      } else if (this.check(TokenType.RBRACE)) {
+        braceDepth--;
+        if (braceDepth > 0) {
+          bodyTokens.push('}');
+        }
+        this.advance();
+      } else {
+        // 모든 토큰을 문자열로 수집
+        const token = this.current();
+        bodyTokens.push(token.value || token.type);
+        this.advance();
+      }
+    }
+
+    if (braceDepth !== 0) {
+      throw new ParseError(
+        this.current().line,
+        this.current().column,
+        'Unclosed brace in function body'
+      );
+    }
+
+    return bodyTokens.join(' ').trim();
   }
 
   /**
@@ -173,13 +232,16 @@ export class Parser {
    *   - input: array            → "array" 반환
    *   - input: result           → "result" 반환
    *   - input: (output 바로)    → "" 반환 (타입 생략)
+   *   - input: (본체 바로)       → "" 반환 (Phase 5 Task 4)
    */
   private parseOptionalType(): string {
-    // intent나 output 또는 EOF를 만나면 타입 생략
+    // intent, output, 본체({), 또는 EOF를 만나면 타입 생략
+    // Phase 5 Task 4: LBRACE는 함수 본체의 시작
     if (
       this.check(TokenType.INTENT) ||
       this.check(TokenType.OUTPUT) ||
       this.check(TokenType.INPUT) ||
+      this.check(TokenType.LBRACE) ||
       this.check(TokenType.EOF)
     ) {
       return ''; // 타입 생략됨
