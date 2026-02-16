@@ -1,96 +1,47 @@
 /**
  * Phase 4 Step 4: AI-First Type Inference Engine
  *
- * Step 1-3 (FunctionNameEnhancer, VariableNameEnhancer, CommentAnalyzer)
- * + 기존 분석기 (SemanticAnalyzer, ContextTracker) 통합
+ * 철학: "100% 확신은 없다. 다만 70% 이상의 확률로 맞는 타입을 제안한다"
  *
- * 신뢰도 가중치:
- *   - 함수명 분석: 25%
- *   - 변수명 분석: 25%
- *   - 주석 분석: 15%
- *   - 시맨틱 분석: 25%
- *   - 컨텍스트 추적: 10%
+ * 동작:
+ * 1. FunctionNameEnhancer → 함수명 분석
+ * 2. VariableNameEnhancer → 변수명 분석
+ * 3. CommentAnalyzer → 주석 분석
+ * 4. 이 3가지를 통합하여 최종 타입 결정
+ *
+ * 핵심 규칙:
+ * - 신뢰도 0.95 이상: 확정 타입
+ * - 신뢰도 0.70-0.94: 제안 (선택 가능)
+ * - 신뢰도 < 0.70: unknown
+ *
+ * AI의 특징:
+ * - "이것이 최선이다"가 아니라 "70% 확률로 맞습니다"라고 말함
+ * - 불확실성을 명시적으로 표현
+ * - 다중 선택지 제공
  */
 
-import { FunctionNameEnhancer, FunctionNameAnalysis } from './function-name-enhancer';
-import { VariableNameEnhancer, VariableNameAnalysis } from './variable-name-enhancer';
-import { CommentAnalyzer, CommentInfo } from './comment-analyzer';
-import { SemanticAnalyzer } from './semantic-analyzer';
-import { ContextTracker } from './context-tracker';
+import { FunctionNameAnalysis, FunctionNameEnhancer } from './function-name-enhancer';
+import { VariableNameAnalysis, VariableNameEnhancer } from './variable-name-enhancer';
+import { CommentInfo, CommentAnalyzer } from './comment-analyzer';
 
-/**
- * 변수 타입 정보 (통합)
- */
-export interface VariableTypeInfo {
-  variableName: string;
-  inferredType?: string;
-  domain?: string;
-  confidence: number;
-
-  // 분석 단계별 신뢰도
-  nameAnalysisConfidence?: number;        // VariableNameEnhancer
-  commentAnalysisConfidence?: number;     // CommentAnalyzer
-  semanticAnalysisConfidence?: number;    // SemanticAnalyzer
-  contextAnalysisConfidence?: number;     // ContextTracker
-
-  // 분석 근거
-  fromName?: boolean;
-  fromComment?: boolean;
-  fromSemantic?: boolean;
-  fromContext?: boolean;
-
-  reasoning: string[];
+export interface TypeInferenceSource {
+  fromFunctionName?: FunctionNameAnalysis;
+  fromVariableName?: VariableNameAnalysis;
+  fromComment?: CommentInfo;
 }
 
-/**
- * 함수 시그니처 (통합)
- */
-export interface FunctionSignature {
-  functionName: string;
-  returnType?: string;
-  parameters?: {
-    name: string;
-    type?: string;
-    domain?: string;
-    confidence: number;
-  }[];
-  domain?: string;
-  confidence: number;
-
-  // 분석 단계별 신뢰도
-  nameAnalysisConfidence?: number;        // FunctionNameEnhancer
-  commentAnalysisConfidence?: number;     // CommentAnalyzer
-  semanticAnalysisConfidence?: number;    // SemanticAnalyzer
-  contextAnalysisConfidence?: number;     // ContextTracker
-
-  reasoning: string[];
-}
-
-/**
- * 타입 충돌 정보
- */
-export interface TypeConflict {
-  variableName: string;
-  conflictingTypes: Array<{
+export interface InferredType {
+  type: string;                    // 최종 추론 타입
+  confidence: number;              // 0.0-1.0
+  sources: string[];               // 어디서 나온 정보?
+  alternatives: Array<{            // 다른 가능성
     type: string;
-    source: 'name' | 'comment' | 'semantic' | 'context';
     confidence: number;
+    reason: string;
   }>;
-  severity: 'info' | 'warning' | 'error';
-  suggestion?: string;
-  reasoning: string[];
-}
-
-/**
- * 타입 추론 결과 (전체)
- */
-export interface TypeInferenceResult {
-  functionName: string;
-  signature: FunctionSignature;
-  variables: VariableTypeInfo[];
-  conflicts: TypeConflict[];
-  overallConfidence: number;  // 전체 신뢰도
-  reasoning: string[];
+  reasoning: string[];             // 왜 이 타입인가?
+  uncertainty: string;             // 불확실성 설명
+  recommendation: string;          // AI의 제안
 }
 
 /**
@@ -100,342 +51,414 @@ export class AIFirstTypeInferenceEngine {
   private functionNameEnhancer: FunctionNameEnhancer;
   private variableNameEnhancer: VariableNameEnhancer;
   private commentAnalyzer: CommentAnalyzer;
-  private semanticAnalyzer: SemanticAnalyzer;
-  private contextTracker: ContextTracker;
+
+  /**
+   * 타입 호환성 매트릭스 (신뢰도 기반)
+   * 같은 도메인 내에서는 타입이 일관되어야 함
+   */
+  private typeCompatibility = new Map<string, Set<string>>([
+    // Finance 도메인
+    ['currency', new Set(['decimal', 'number', 'float'])],
+    ['percentage', new Set(['decimal', 'number', 'float'])],
+    ['decimal', new Set(['currency', 'percentage', 'number', 'float'])],
+
+    // Web 도메인
+    ['validated_string', new Set(['string'])],
+    ['email', new Set(['validated_string', 'string'])],
+    ['url', new Set(['validated_string', 'string'])],
+
+    // Data Science 도메인
+    ['array<number>', new Set(['vector', 'array'])],
+    ['vector', new Set(['array<number>', 'array'])],
+    ['matrix', new Set(['array<array<number>>'])],
+
+    // Crypto 도메인
+    ['hash_string', new Set(['string', 'validated_string'])],
+    ['encrypted', new Set(['string'])],
+  ]);
 
   constructor() {
     this.functionNameEnhancer = new FunctionNameEnhancer();
     this.variableNameEnhancer = new VariableNameEnhancer();
     this.commentAnalyzer = new CommentAnalyzer();
-    this.semanticAnalyzer = new SemanticAnalyzer();
-    this.contextTracker = new ContextTracker();
   }
 
   /**
-   * 함수 전체 분석
-   * @param functionName 함수명
-   * @param functionCode 함수 코드
-   * @param comments 주석 배열 (함수명 위의 주석들)
+   * 코드 요소(함수/변수)의 최종 타입을 추론
    */
-  public inferTypes(
-    functionName: string,
-    functionCode: string,
-    comments: string[] = []
-  ): TypeInferenceResult {
-    const reasoning: string[] = [];
-    reasoning.push(`Analyzing function: "${functionName}"`);
+  inferType(
+    name: string,
+    nameType: 'function' | 'variable',
+    comment?: string
+  ): InferredType {
+    const sources: TypeInferenceSource = {};
+    const inferenceLogs: string[] = [];
 
-    // Step 1: 함수명 분석 (25%)
-    const fnNameAnalysis = this.functionNameEnhancer.analyzeFunctionName(functionName);
-    reasoning.push(`1. Function name analysis: ${fnNameAnalysis.returnTypeHint} (confidence: ${fnNameAnalysis.confidence})`);
+    // Step 1: 함수명/변수명 분석
+    if (nameType === 'function') {
+      sources.fromFunctionName = this.functionNameEnhancer.analyzeFunctionName(name);
+      inferenceLogs.push(`[Function] "${name}" analyzed`);
+    } else {
+      sources.fromVariableName = this.variableNameEnhancer.analyzeVariableName(name);
+      inferenceLogs.push(`[Variable] "${name}" analyzed`);
+    }
 
-    // Step 2: 주석 분석 (15%)
-    const commentInfos = this.analyzeComments(comments);
-    reasoning.push(`2. Comment analysis: ${commentInfos.length} comments analyzed`);
+    // Step 2: 주석 분석 (있으면)
+    if (comment) {
+      sources.fromComment = this.commentAnalyzer.analyzeComment(comment);
+      inferenceLogs.push(`[Comment] "${comment.substring(0, 50)}" analyzed`);
+    }
 
-    // Step 3: 함수 시그니처 구성
-    const signature = this.buildFunctionSignature(
-      functionName,
-      fnNameAnalysis,
-      commentInfos,
-      reasoning
-    );
+    // Step 3: 3개 소스를 통합하여 최종 타입 결정
+    const result = this.synthesizeType(name, nameType, sources, inferenceLogs);
 
-    // Step 4: 함수 내 변수 분석
-    const variables = this.analyzeVariablesInFunction(
-      functionCode,
-      functionName,
-      comments,
-      reasoning
-    );
-
-    // Step 5: 타입 충돌 감지
-    const conflicts = this.detectTypeConflicts(variables, signature, reasoning);
-
-    // Step 6: 전체 신뢰도 계산
-    const overallConfidence = this.calculateOverallConfidence(
-      signature.confidence,
-      variables
-    );
-
-    return {
-      functionName,
-      signature,
-      variables,
-      conflicts,
-      overallConfidence,
-      reasoning
-    };
+    return result;
   }
 
   /**
-   * 단일 변수 타입 추론
+   * 3개 소스의 정보를 통합
    */
-  public inferVariableType(
-    variableName: string,
-    functionName: string,
-    functionCode: string,
-    comments: string[] = []
-  ): VariableTypeInfo {
-    const reasoning: string[] = [];
+  private synthesizeType(
+    name: string,
+    nameType: 'function' | 'variable',
+    sources: TypeInferenceSource,
+    logs: string[]
+  ): InferredType {
+    const candidates: Array<{
+      type: string;
+      confidence: number;
+      source: string;
+    }> = [];
 
-    // Step 1: 변수명 분석 (25%)
-    const nameAnalysis = this.variableNameEnhancer.analyzeVariableName(variableName);
-    const nameConfidence = nameAnalysis.confidence;
-    reasoning.push(`1. Variable name analysis: ${nameAnalysis.inferredType} (confidence: ${nameConfidence})`);
-
-    // Step 2: 주석 분석 (15%)
-    const commentInfos = this.analyzeComments(comments);
-    let commentConfidence = 0;
-    let commentType: string | undefined;
-    if (commentInfos.length > 0) {
-      const relevantComment = commentInfos.find(c =>
-        c.domain || c.format || c.range
-      );
-      if (relevantComment) {
-        commentConfidence = relevantComment.confidence;
-        // 포맷에서 타입 유추
-        if (relevantComment.format === 'currency') {
-          commentType = 'currency';
-        } else if (relevantComment.format === 'percent') {
-          commentType = 'percentage';
-        } else if (relevantComment.format === 'hash_string') {
-          commentType = 'hash_string';
-        }
-        reasoning.push(`2. Comment analysis: ${commentType} (confidence: ${commentConfidence})`);
+    // 각 소스에서 타입 추출
+    if (sources.fromFunctionName) {
+      if (sources.fromFunctionName.returnTypeHint) {
+        candidates.push({
+          type: sources.fromFunctionName.returnTypeHint,
+          confidence: sources.fromFunctionName.confidence,
+          source: 'function_name',
+        });
       }
     }
 
-    // Step 3: 신뢰도 통합
-    const weights = {
-      name: 0.25,
-      comment: 0.15,
-      semantic: 0.25,
-      context: 0.10
-    };
-
-    const confidences = [
-      { source: 'name', confidence: nameConfidence, weight: weights.name },
-      { source: 'comment', confidence: commentConfidence, weight: weights.comment }
-    ];
-
-    const finalConfidence = this.calculateWeightedConfidence(confidences);
-    const finalType = commentType || nameAnalysis.inferredType;
-
-    return {
-      variableName,
-      inferredType: finalType,
-      domain: nameAnalysis.domain || (commentInfos[0]?.domain),
-      confidence: finalConfidence,
-      nameAnalysisConfidence: nameConfidence,
-      commentAnalysisConfidence: commentConfidence,
-      fromName: nameConfidence > 0,
-      fromComment: commentConfidence > 0,
-      reasoning
-    };
-  }
-
-  /**
-   * 함수 내 모든 변수 분석
-   */
-  private analyzeVariablesInFunction(
-    functionCode: string,
-    functionName: string,
-    comments: string[],
-    parentReasoning: string[]
-  ): VariableTypeInfo[] {
-    // 함수에서 변수명 추출 (간단한 정규식)
-    const variablePattern = /(?:const|let|var)\s+(\w+)/g;
-    const matches = [...functionCode.matchAll(variablePattern)];
-    const variables: VariableTypeInfo[] = [];
-
-    for (const match of matches) {
-      const varName = match[1];
-      const varType = this.inferVariableType(varName, functionName, functionCode, comments);
-      variables.push(varType);
+    if (sources.fromVariableName) {
+      if (sources.fromVariableName.inferredType) {
+        candidates.push({
+          type: sources.fromVariableName.inferredType,
+          confidence: sources.fromVariableName.confidence,
+          source: 'variable_name',
+        });
+      }
     }
 
-    parentReasoning.push(`3. Variable analysis: ${variables.length} variables found`);
-    return variables;
+    if (sources.fromComment) {
+      // 주석에서 명시적 도메인/포맷 정보를 타입으로 변환
+      if (sources.fromComment.format) {
+        const typeFromFormat = this.formatToType(sources.fromComment.format);
+        candidates.push({
+          type: typeFromFormat,
+          confidence: sources.fromComment.confidence,
+          source: 'comment_format',
+        });
+      }
+
+      if (sources.fromComment.domain && !sources.fromComment.format) {
+        const typeFromDomain = this.domainToDefaultType(sources.fromComment.domain);
+        candidates.push({
+          type: typeFromDomain,
+          confidence: sources.fromComment.confidence * 0.8, // 도메인만으로는 신뢰도 감소
+          source: 'comment_domain',
+        });
+      }
+    }
+
+    // 후보가 없으면 unknown
+    if (candidates.length === 0) {
+      return {
+        type: 'unknown',
+        confidence: 0,
+        sources: [],
+        alternatives: [],
+        reasoning: ['No type hints found'],
+        uncertainty: 'No information available to infer type',
+        recommendation: 'Consider adding type annotation or comments',
+      };
+    }
+
+    // 가장 높은 신뢰도의 타입 선택
+    const sorted = candidates.sort((a, b) => b.confidence - a.confidence);
+    const primaryType = sorted[0];
+
+    // 타입 충돌 확인
+    const conflict = this.detectConflict(candidates, logs);
+
+    // 최종 결과 구성
+    const result: InferredType = {
+      type: primaryType.type,
+      confidence: primaryType.confidence,
+      sources: [primaryType.source],
+      alternatives: sorted
+        .slice(1)
+        .map((c) => ({
+          type: c.type,
+          confidence: c.confidence,
+          reason: c.source,
+        })),
+      reasoning: [
+        `Primary source: ${primaryType.source}`,
+        `Confidence: ${(primaryType.confidence * 100).toFixed(0)}%`,
+        ...logs,
+      ],
+      uncertainty: this.assessUncertainty(
+        primaryType.confidence,
+        candidates.length,
+        conflict
+      ),
+      recommendation: this.generateRecommendation(
+        primaryType.confidence,
+        nameType,
+        conflict
+      ),
+    };
+
+    return result;
   }
 
   /**
-   * 함수 시그니처 구성
+   * 포맷 정보 → 타입 변환
    */
-  private buildFunctionSignature(
-    functionName: string,
-    fnNameAnalysis: FunctionNameAnalysis,
-    commentInfos: CommentInfo[],
-    reasoning: string[]
-  ): FunctionSignature {
-    // 신뢰도 결합: 함수명(25%) + 주석(15%) = 40% (총 100%는 다른 분석기들과 함께)
-    const nameConfidence = fnNameAnalysis.confidence;
-    const commentConfidence = commentInfos[0]?.confidence || 0;
-
-    const weights = [
-      { source: 'name', confidence: nameConfidence, weight: 0.25 },
-      { source: 'comment', confidence: commentConfidence, weight: 0.15 }
-    ];
-
-    const finalConfidence = this.calculateWeightedConfidence(weights);
-
-    return {
-      functionName,
-      returnType: fnNameAnalysis.returnTypeHint,
-      domain: fnNameAnalysis.domainHint || commentInfos[0]?.domain,
-      confidence: finalConfidence,
-      nameAnalysisConfidence: nameConfidence,
-      commentAnalysisConfidence: commentConfidence,
-      reasoning: [
-        `Function name suggests: ${fnNameAnalysis.returnTypeHint}`,
-        `Domain hint: ${fnNameAnalysis.domainHint || 'none'}`
-      ]
+  private formatToType(format: string): string {
+    const formatTypeMap: { [key: string]: string } = {
+      percent: 'decimal',
+      percentage: 'decimal',
+      currency: 'decimal',
+      cents: 'number',
+      bytes: 'number',
+      hex: 'string',
+      hash: 'hash_string',
+      encrypted: 'encrypted',
+      validated: 'validated_string',
     };
+    return formatTypeMap[format] || 'unknown';
+  }
+
+  /**
+   * 도메인 → 기본 타입 매핑
+   */
+  private domainToDefaultType(domain: string): string {
+    const domainTypeMap: { [key: string]: string } = {
+      finance: 'decimal',
+      web: 'string',
+      crypto: 'string',
+      'data-science': 'array<number>',
+      iot: 'number',
+    };
+    return domainTypeMap[domain] || 'unknown';
   }
 
   /**
    * 타입 충돌 감지
    */
-  private detectTypeConflicts(
-    variables: VariableTypeInfo[],
-    signature: FunctionSignature,
-    reasoning: string[]
-  ): TypeConflict[] {
-    const conflicts: TypeConflict[] = [];
+  private detectConflict(
+    candidates: Array<{ type: string; confidence: number; source: string }>,
+    logs: string[]
+  ): { hasConflict: boolean; conflictTypes: string[] } {
+    if (candidates.length <= 1) {
+      return { hasConflict: false, conflictTypes: [] };
+    }
 
-    // 검사 1: 변수 타입 불일치
-    for (const variable of variables) {
-      const conflictingSources: TypeConflict['conflictingTypes'] = [];
+    const types = new Set(candidates.map((c) => c.type));
+    if (types.size <= 1) {
+      return { hasConflict: false, conflictTypes: [] };
+    }
 
-      if (variable.nameAnalysisConfidence && variable.nameAnalysisConfidence > 0) {
-        conflictingSources.push({
-          type: variable.inferredType || 'unknown',
-          source: 'name',
-          confidence: variable.nameAnalysisConfidence
+    // 타입이 호환되지 않으면 충돌
+    const primaryType = candidates[0].type;
+    const compatible = this.typeCompatibility.get(primaryType) || new Set();
+
+    const conflictTypes = candidates
+      .slice(1)
+      .filter((c) => !compatible.has(c.type))
+      .map((c) => c.type);
+
+    if (conflictTypes.length > 0) {
+      logs.push(`[CONFLICT] Incompatible types detected: ${conflictTypes.join(', ')}`);
+      return { hasConflict: true, conflictTypes };
+    }
+
+    return { hasConflict: false, conflictTypes: [] };
+  }
+
+  /**
+   * 불확실성 평가
+   */
+  private assessUncertainty(
+    confidence: number,
+    sourceCount: number,
+    conflict: { hasConflict: boolean; conflictTypes: string[] }
+  ): string {
+    if (confidence >= 0.95) {
+      return 'Very high confidence - type is likely correct';
+    }
+    if (confidence >= 0.80) {
+      return 'High confidence - type is probably correct';
+    }
+    if (confidence >= 0.70) {
+      return 'Moderate confidence - type is likely but not certain';
+    }
+    if (confidence >= 0.50) {
+      return 'Low confidence - consider explicit annotation';
+    }
+
+    return 'Very low confidence - type is uncertain';
+  }
+
+  /**
+   * AI의 추천 생성
+   */
+  private generateRecommendation(
+    confidence: number,
+    nameType: 'function' | 'variable',
+    conflict: { hasConflict: boolean; conflictTypes: string[] }
+  ): string {
+    if (conflict.hasConflict) {
+      return `⚠️ Type conflict detected. Please add explicit type annotation. Conflicting types: ${conflict.conflictTypes.join(', ')}`;
+    }
+
+    if (confidence >= 0.95) {
+      return `✅ Confident: Use type "${nameType === 'function' ? 'return type' : 'variable type'}" as inferred`;
+    }
+
+    if (confidence >= 0.80) {
+      return `✓ Likely correct: Use inferred type, but consider adding comment for clarity`;
+    }
+
+    if (confidence >= 0.70) {
+      return `◐ Probable: Type seems likely (~${(confidence * 100).toFixed(0)}% confidence). Consider adding type annotation`;
+    }
+
+    return `✗ Uncertain: Add explicit type annotation. AI confidence is too low (${(confidence * 100).toFixed(0)}%)`;
+  }
+
+  /**
+   * 복수 타입 추론 (E2E 통합용)
+   */
+  inferTypes(name: string, code: string, comments?: string[]): {
+    signature: { domain?: string; confidence: number };
+    variables: Array<{
+      name: string;
+      inferredType: string;
+      domain?: string;
+      confidence: number;
+    }>;
+  } {
+    const comment = comments ? comments[0] : undefined;
+    const result = this.inferType(name, 'function', comment);
+
+    // 변수 추출 (간단한 정규식 기반)
+    const variableMatches = code.match(/(?:const|let|var|function)\s+(\w+)/g) || [];
+    const variables: Array<{
+      name: string;
+      inferredType: string;
+      domain?: string;
+      confidence: number;
+    }> = [];
+
+    for (const match of variableMatches) {
+      const varName = match.replace(/(?:const|let|var|function)\s+/, '');
+      if (varName !== name) {
+        const varResult = this.inferType(varName, 'variable');
+        variables.push({
+          name: varName,
+          inferredType: varResult.type,
+          domain: this.extractDomain(varResult.reasoning),
+          confidence: varResult.confidence,
         });
       }
-
-      if (variable.commentAnalysisConfidence && variable.commentAnalysisConfidence > 0) {
-        // 주석에서 다른 타입 발견 시 충돌 기록
-        conflictingSources.push({
-          type: variable.domain || 'unknown',
-          source: 'comment',
-          confidence: variable.commentAnalysisConfidence
-        });
-      }
-
-      // 같은 변수에서 여러 소스가 다른 타입을 제시하면 충돌
-      if (conflictingSources.length > 1) {
-        const types = new Set(conflictingSources.map(s => s.type));
-        if (types.size > 1) {
-          conflicts.push({
-            variableName: variable.variableName,
-            conflictingTypes: conflictingSources,
-            severity: variable.confidence < 0.5 ? 'warning' : 'info',
-            reasoning: [`Multiple type hints from different sources`]
-          });
-        }
-      }
     }
 
-    if (conflicts.length > 0) {
-      reasoning.push(`4. Type conflicts detected: ${conflicts.length}`);
-    }
-
-    return conflicts;
+    return {
+      signature: {
+        domain: this.extractDomain(result.reasoning),
+        confidence: result.confidence,
+      },
+      variables,
+    };
   }
 
   /**
-   * 전체 신뢰도 계산 (함수 + 변수)
+   * 변수 타입 추론
    */
-  private calculateOverallConfidence(
-    signatureConfidence: number,
-    variables: VariableTypeInfo[]
-  ): number {
-    if (variables.length === 0) {
-      return signatureConfidence;
-    }
-
-    const avgVariableConfidence = variables.reduce((sum, v) => sum + v.confidence, 0) / variables.length;
-    // 함수 시그니처(40%) + 변수들 평균(60%)
-    return signatureConfidence * 0.4 + avgVariableConfidence * 0.6;
-  }
-
-  /**
-   * 가중치 기반 신뢰도 계산
-   */
-  private calculateWeightedConfidence(
-    items: Array<{ source: string; confidence: number; weight: number }>
-  ): number {
-    let totalWeight = 0;
-    let totalConfidence = 0;
-
-    for (const item of items) {
-      if (item.confidence > 0) {
-        totalConfidence += item.confidence * item.weight;
-        totalWeight += item.weight;
-      }
-    }
-
-    if (totalWeight === 0) {
-      return 0;
-    }
-
-    // 정규화
-    return Math.min(0.95, Math.max(0.0, totalConfidence / totalWeight));
-  }
-
-  /**
-   * 주석들 분석
-   */
-  private analyzeComments(comments: string[]): CommentInfo[] {
-    return this.commentAnalyzer.analyzeComments(comments);
+  inferVariableType(
+    name: string,
+    value: string,
+    code?: string
+  ): InferredType {
+    return this.inferType(name, 'variable', code);
   }
 
   /**
    * 도메인별로 변수 그룹화
    */
-  public groupVariablesByDomain(
-    variables: VariableTypeInfo[]
-  ): Map<string, VariableTypeInfo[]> {
-    const groups = new Map<string, VariableTypeInfo[]>();
+  groupVariablesByDomain(
+    variables: Array<{ name: string; inferredType: string; domain?: string; confidence: number }>
+  ): { [domain: string]: typeof variables } {
+    const grouped: { [key: string]: typeof variables } = {};
 
     for (const variable of variables) {
-      const domain = variable.domain || 'generic';
-      if (!groups.has(domain)) {
-        groups.set(domain, []);
+      const domain = variable.domain || 'unknown';
+      if (!grouped[domain]) {
+        grouped[domain] = [];
       }
-      groups.get(domain)!.push(variable);
+      grouped[domain].push(variable);
     }
 
-    return groups;
+    return grouped;
   }
 
   /**
-   * 최소 신뢰도로 필터링
+   * 신뢰도 기준으로 필터링
    */
-  public filterByConfidence(
-    variables: VariableTypeInfo[],
-    minConfidence: number
-  ): VariableTypeInfo[] {
-    return variables.filter(v => v.confidence >= minConfidence);
+  filterByConfidence(
+    variables: Array<{ name: string; inferredType: string; domain?: string; confidence: number }>,
+    threshold: number
+  ): typeof variables {
+    return variables.filter((v) => v.confidence >= threshold);
   }
 
   /**
-   * 고신뢰도 타입만 추출
+   * 높은 신뢰도 타입 추출
    */
-  public getHighConfidenceTypes(
-    result: TypeInferenceResult,
-    minConfidence: number = 0.75
-  ): TypeInferenceResult {
-    return {
-      ...result,
-      signature: result.signature.confidence >= minConfidence ? result.signature : {
-        ...result.signature,
-        returnType: undefined,
-        confidence: 0
-      },
-      variables: this.filterByConfidence(result.variables, minConfidence)
-    };
+  getHighConfidenceTypes(
+    result: InferredType,
+    threshold: number
+  ): InferredType[] {
+    if (result.confidence >= threshold) {
+      return [result];
+    }
+
+    return result.alternatives.filter((alt) => alt.confidence >= threshold).map((alt) => ({
+      type: alt.type,
+      confidence: alt.confidence,
+      sources: ['alternative'],
+      alternatives: [],
+      reasoning: [alt.reason],
+      uncertainty: `Alternative from ${alt.reason}`,
+      recommendation: `Consider: ${alt.type}`,
+    }));
+  }
+
+  /**
+   * 헬퍼: reasoning에서 도메인 추출
+   */
+  private extractDomain(reasoning: string[]): string | undefined {
+    for (const line of reasoning) {
+      if (line.includes('finance')) return 'finance';
+      if (line.includes('web')) return 'web';
+      if (line.includes('crypto')) return 'crypto';
+      if (line.includes('data-science')) return 'data-science';
+      if (line.includes('iot')) return 'iot';
+    }
+    return undefined;
   }
 }
