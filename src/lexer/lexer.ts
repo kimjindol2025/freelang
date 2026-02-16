@@ -418,6 +418,26 @@ export class Lexer {
     tokens.push(token); // Add EOF
     return tokens;
   }
+
+  /**
+   * Tokenize with newlines preserved
+   *
+   * Used by Phase 1 StatementParser for semicolon-optional parsing
+   * Newlines are significant as statement terminators
+   */
+  public tokenizeWithNewlines(): Token[] {
+    const tokens: Token[] = [];
+    let token = this.nextToken();
+
+    while (token.type !== TokenType.EOF) {
+      // Keep all tokens including NEWLINE
+      tokens.push(token);
+      token = this.nextToken();
+    }
+
+    tokens.push(token); // Add EOF
+    return tokens;
+  }
 }
 
 /**
@@ -438,10 +458,16 @@ export class TokenBuffer {
   private readonly CLEANUP_THRESHOLD = this.BUFFER_SIZE / 2; // 50% 도달 시 정리
   private lexer: Lexer;
   private isEOF: boolean = false;
+  private preserveNewlines: boolean = false;
 
-  constructor(lexer: Lexer) {
+  constructor(lexer: Lexer, options?: { preserveNewlines?: boolean }) {
     this.lexer = lexer;
-    this.fillBuffer();
+    this.preserveNewlines = options?.preserveNewlines ?? false;
+    if (this.preserveNewlines) {
+      this.fillBufferWithNewlines();
+    } else {
+      this.fillBuffer();
+    }
   }
 
   /**
@@ -484,6 +510,40 @@ export class TokenBuffer {
   }
 
   /**
+   * fillBuffer with newlines preserved
+   * Used for StatementParser (Phase 1) where newlines are statement terminators
+   */
+  private fillBufferWithNewlines(): void {
+    while (this.buffer.length < this.BUFFER_SIZE && !this.isEOF) {
+      const token = this.lexer.nextToken();
+
+      // Keep all tokens including NEWLINE
+      // SHR (>>) 토큰을 GT 두 개로 분해 (nested generics 지원)
+      if (token.type === TokenType.SHR) {
+        // SHR >> 를 GT > 두 개로 분해
+        this.buffer.push({
+          type: TokenType.GT,
+          value: '>',
+          line: token.line,
+          column: token.column,
+        });
+        this.buffer.push({
+          type: TokenType.GT,
+          value: '>',
+          line: token.line,
+          column: token.column + 1,
+        });
+      } else {
+        this.buffer.push(token);
+      }
+
+      if (token.type === TokenType.EOF) {
+        this.isEOF = true;
+      }
+    }
+  }
+
+  /**
    * 현재 토큰 반환
    */
   current(): Token {
@@ -501,7 +561,11 @@ export class TokenBuffer {
 
     // 필요한 토큰이 버퍼에 없으면 채우기
     while (this.buffer.length <= targetIdx && !this.isEOF) {
-      this.fillBuffer();
+      if (this.preserveNewlines) {
+        this.fillBufferWithNewlines();
+      } else {
+        this.fillBuffer();
+      }
     }
 
     if (targetIdx >= this.buffer.length) {
@@ -525,7 +589,11 @@ export class TokenBuffer {
       this.position -= removeCount;
 
       // 버퍼 다시 채우기
-      this.fillBuffer();
+      if (this.preserveNewlines) {
+        this.fillBufferWithNewlines();
+      } else {
+        this.fillBuffer();
+      }
     }
 
     return currentToken;
