@@ -148,31 +148,32 @@ describe('Project Ouroboros: Phase 5 Wave 2 - Functions & Recursion', () => {
     // is_odd(n) = if n == 0 { false } else { is_even(n-1) }
     const ir = [
       // is_even(4) 호출 → true
-      { op: 'PUSH', arg: '4' },
-      { op: 'CALL', arg: 'even' },
-      { op: 'RET' },
+      { op: 'PUSH', arg: '4' },      // 0
+      { op: 'CALL', arg: 'even' },   // 1
+      { op: 'RET' },                 // 2
 
       // is_even 함수 (위치 100)
-      { op: 'FRAME', arg: '1' },
-      { op: 'LOAD', arg: 'n' },
-      { op: 'PUSH', arg: '0' },
-      { op: '==' },                   // n == 0?
-      { op: 'JMP_IF', arg: '9' },     // true → 1 반환
+      { op: 'FRAME', arg: '1' },     // 3
+      { op: 'LOAD', arg: 'n' },      // 4
+      { op: 'PUSH', arg: '0' },      // 5
+      { op: '==' },                  // 6: n == 0?
+      { op: 'JMP_IF', arg: '13' },   // 7: true → 1 반환
 
-      { op: 'LOAD', arg: 'n' },       // 8
-      { op: 'PUSH', arg: '1' },
-      { op: 'SUB' },
-      { op: 'CALL', arg: 'odd' },     // is_odd(n-1)
-      { op: 'RET' },
+      // 재귀: is_odd(n-1)
+      { op: 'LOAD', arg: 'n' },      // 8
+      { op: 'PUSH', arg: '1' },      // 9
+      { op: 'SUB' },                 // 10
+      { op: 'CALL', arg: 'odd' },    // 11: is_odd(n-1)
+      { op: 'RET' },                 // 12
 
       // true 반환
-      { op: 'PUSH', arg: '1' },
-      { op: 'RET' }
+      { op: 'PUSH', arg: '1' },      // 13
+      { op: 'RET' }                  // 14
     ];
 
     console.log(`✅ 상호 재귀: is_even(4) = true, is_odd(3) 호출`);
     expect(ir[1].op).toBe('CALL');
-    expect(ir[10].op).toBe('CALL');
+    expect(ir[11].op).toBe('CALL');
   });
 
   test('6) 로컬 변수 스코프', () => {
@@ -285,38 +286,38 @@ describe('Project Ouroboros: Phase 5 Wave 2 - Functions & Recursion', () => {
     // fib(10) = 55
     // fib(n) = if n <= 1 { n } else { fib(n-1) + fib(n-2) }
     const ir = [
-      { op: 'PUSH', arg: '10' },
-      { op: 'CALL', arg: 'fib' },
-      { op: 'RET' },
+      { op: 'PUSH', arg: '10' },     // 0
+      { op: 'CALL', arg: 'fib' },    // 1
+      { op: 'RET' },                 // 2
 
       // fib 함수
-      { op: 'FRAME', arg: '1' },
-      { op: 'LOAD', arg: 'n' },
-      { op: 'PUSH', arg: '1' },
-      { op: '<=' },                   // n <= 1?
-      { op: 'JMP_IF', arg: '12' },    // 기저: return n
+      { op: 'FRAME', arg: '1' },     // 3
+      { op: 'LOAD', arg: 'n' },      // 4
+      { op: 'PUSH', arg: '1' },      // 5
+      { op: '<=' },                  // 6: n <= 1?
+      { op: 'JMP_IF', arg: '18' },   // 7: 기저: return n
 
       // 재귀: fib(n-1) + fib(n-2)
-      { op: 'LOAD', arg: 'n' },       // 8
-      { op: 'PUSH', arg: '1' },
-      { op: 'SUB' },
-      { op: 'CALL', arg: 'fib' },     // 11: fib(n-1)
-      { op: 'LOAD', arg: 'n' },
-      { op: 'PUSH', arg: '2' },
-      { op: 'SUB' },
-      { op: 'CALL', arg: 'fib' },     // 16: fib(n-2)
-      { op: 'ADD' },
-      { op: 'RET' },
+      { op: 'LOAD', arg: 'n' },      // 8
+      { op: 'PUSH', arg: '1' },      // 9
+      { op: 'SUB' },                 // 10
+      { op: 'CALL', arg: 'fib' },    // 11: fib(n-1)
+      { op: 'LOAD', arg: 'n' },      // 12
+      { op: 'PUSH', arg: '2' },      // 13
+      { op: 'SUB' },                 // 14
+      { op: 'CALL', arg: 'fib' },    // 15: fib(n-2)
+      { op: 'ADD' },                 // 16
+      { op: 'RET' },                 // 17
 
       // 기저
-      { op: 'LOAD', arg: 'n' },
-      { op: 'RET' }
+      { op: 'LOAD', arg: 'n' },      // 18
+      { op: 'RET' }                  // 19
     ];
 
     console.log(`✅ 복잡한 재귀: fib(10) = 55 (이중 재귀)`);
     expect(ir[1].op).toBe('CALL');
     expect(ir[11].op).toBe('CALL');
-    expect(ir[16].op).toBe('CALL');
+    expect(ir[15].op).toBe('CALL');
   });
 
   test('12) 재귀와 루프 혼합', () => {
