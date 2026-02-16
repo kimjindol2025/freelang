@@ -303,19 +303,21 @@ export class TypeInferenceEngine {
     for (const param of paramNames) {
       let inferredType = 'any'; // default (avoid false positives)
 
-      // Priority 1: Method calls (most reliable)
+      // Priority 1: Array detection (must check BEFORE string methods)
+      // FIXED: Check array access FIRST because arr.length is both array and string method
 
-      // String methods: param.length, param.substring, param.concat, etc.
-      if (new RegExp(`${param}\\.(length|substring|concat|split|toUpperCase|toLowerCase|trim|includes)`).test(body)) {
-        inferredType = 'string';
+      // Array access: param[...]
+      if (new RegExp(`${param}\\[`).test(body)) {
+        inferredType = 'array';
       }
       // Array methods: param.map, param.filter, param.reduce, etc.
       else if (new RegExp(`${param}\\.(map|filter|reduce|forEach|push|pop|slice)`).test(body)) {
         inferredType = 'array';
       }
-      // Priority 2: Array access: param[...]
-      else if (new RegExp(`${param}\\[`).test(body)) {
-        inferredType = 'array';
+      // Priority 2: String-only methods (not shared with array)
+      // FIXED: Removed 'length' from string detection, as it's ambiguous
+      else if (new RegExp(`${param}\\.(substring|concat|split|toUpperCase|toLowerCase|trim|includes)`).test(body)) {
+        inferredType = 'string';
       }
       // Priority 3: Operations
       else {

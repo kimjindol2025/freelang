@@ -48,8 +48,12 @@ export class BlockParser {
   private analyzer: IndentationAnalyzer;
   private statements: Statement[] = [];
   private blocks: BlockStatement[] = [];
+  private source: string;  // FIXED: Store source code for line tracking
+  private sourceLines: string[];  // FIXED: Cache source lines
 
   constructor(source: string, statements: Statement[]) {
+    this.source = source;
+    this.sourceLines = source.split('\n');
     this.analyzer = new IndentationAnalyzer(source);
     this.statements = statements;
     this.parseBlocks();
@@ -334,27 +338,87 @@ export class BlockParser {
 
   /**
    * Get block at specific line number (block start)
+   * FIXED: Find block by matching actual source line
    */
   public getBlockAt(line: number): BlockStatement | undefined {
-    return this.blocks.find(b => b.line === line);
+    // Find which statement text matches this line
+    if (line >= this.sourceLines.length) return undefined;
+
+    const targetLine = this.sourceLines[line].trim();
+    if (!targetLine) return undefined;
+
+    // Find block whose header matches this line
+    for (const block of this.blocks) {
+      // Check if block header text matches the source line
+      if (block.header.includes(targetLine) || targetLine.includes(block.header.split(/\s+/)[0])) {
+        // Verify by checking indentation matches
+        const blockIndent = this.getLineIndent(this.sourceLines[line]);
+        if (blockIndent === block.indent) {
+          return block;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   /**
    * Check if a line is inside a block
-   * Fixed: Use actual statement lines instead of body.length
+   * FIXED: Look for block header with strictly less indentation
    */
   public isInBlock(line: number): boolean {
-    return this.blocks.some(block => {
-      // Block starts at this line
-      if (block.line >= line) return false;
+    if (line >= this.sourceLines.length) return false;
 
-      // Get the actual last line of block content
-      if (block.body.length === 0) return false;
-      const lastStmtLine = block.body[block.body.length - 1]?.line ?? block.line;
+    const targetLine = this.sourceLines[line];
+    const targetIndent = this.getLineIndent(targetLine);
 
-      // Check if line is within block range
-      return line <= lastStmtLine;
-    });
+    // Skip empty lines
+    if (targetLine.trim() === '') return false;
+
+    // Look backwards for a line with STRICTLY LESS indentation
+    for (let i = line - 1; i >= 0; i--) {
+      const checkLine = this.sourceLines[i];
+      if (checkLine.trim() === '') continue;
+
+      const checkIndent = this.getLineIndent(checkLine);
+      const checkText = checkLine.trim();
+
+      // If we find a line with LESS indentation
+      if (checkIndent < targetIndent) {
+        // Check if it's a block starter
+        if (checkText.startsWith('if ') || checkText.startsWith('for ') ||
+            checkText.startsWith('while ') || checkText.startsWith('fn ') ||
+            checkText.startsWith('match ')) {
+          // This line is inside the block
+          return true;
+        } else {
+          // Found a less-indented non-block line, so target is NOT in any block
+          return false;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Find the actual source line where block starts
+   */
+  private findActualBlockStartLine(block: BlockStatement): number | undefined {
+    const headerStart = block.header.split(/\s+/)[0];  // 'if', 'for', 'while', 'fn'
+
+    for (let i = 0; i < this.sourceLines.length; i++) {
+      const line = this.sourceLines[i].trim();
+      if (line.startsWith(headerStart) &&
+          (line === block.header || block.header.includes(line.split(/\s+/)[0]))) {
+        const lineIndent = this.getLineIndent(this.sourceLines[i]);
+        if (lineIndent === block.indent) {
+          return i;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   /**
