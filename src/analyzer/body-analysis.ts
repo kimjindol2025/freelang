@@ -5,9 +5,13 @@
  * 1. 루프 감지 (for, while)
  * 2. 누적 패턴 (+=, -=, *=, /=)
  * 3. 메모리 사용 추정 (변수 선언)
+ * 4. (Phase 5 Stage 3.2) 변수 타입 추론
  *
- * 분석 결과는 directive 결정에 사용됩니다.
+ * 분석 결과는 directive 결정 및 타입 추론에 사용됩니다.
  */
+
+import { AdvancedTypeInferenceEngine } from './advanced-type-inference-engine';
+import { VariableTypeInfo } from './variable-type-recommender';
 
 /**
  * 루프 분석 결과
@@ -51,22 +55,32 @@ export interface BodyAnalysisResult {
   suggestedDirective: 'speed' | 'memory' | 'safety';
   confidence: number;         // 분석 신뢰도 (0.0 ~ 1.0)
   details: string;            // 분석 상세 설명
+
+  // Phase 5 Stage 3.2: 변수 타입 추론
+  inferredVariableTypes?: Map<string, VariableTypeInfo>; // 변수명 → 타입 정보
 }
 
 /**
  * Body Pattern Analyzer
  *
  * 함수 본체 코드를 토큰 수준에서 분석
+ * Phase 5 Stage 3.2: 변수 타입 추론 기능 포함
  */
 export class BodyAnalyzer {
   private bodyTokens: string[];
   private keywordCounts: Map<string, number> | null = null; // Cache
+  private body: string;  // Phase 5 Stage 3.2: 원본 본체 코드 저장
+  private advancedEngine: AdvancedTypeInferenceEngine; // Phase 5 Stage 3.2: 타입 추론 엔진
 
   constructor(body: string) {
     // 본체를 토큰으로 분해 (공백 기준)
     this.bodyTokens = body
       .split(/\s+/)
       .filter(t => t.length > 0);
+
+    // Phase 5 Stage 3.2: 원본 본체 코드와 타입 추론 엔진 저장
+    this.body = body;
+    this.advancedEngine = new AdvancedTypeInferenceEngine();
   }
 
   /**
@@ -99,6 +113,7 @@ export class BodyAnalyzer {
 
   /**
    * 전체 분석 실행
+   * Phase 5 Stage 3.2: 변수 타입 추론 포함
    */
   public analyze(): BodyAnalysisResult {
     // Pre-compute all keyword counts once (O(n))
@@ -112,13 +127,17 @@ export class BodyAnalyzer {
     const confidence = this.calculateConfidence(loops, accumulation, memory);
     const details = this.generateDetails(loops, accumulation, memory);
 
+    // Phase 5 Stage 3.2: 변수 타입 추론
+    const inferredVariableTypes = this.inferVariableTypes();
+
     return {
       loops,
       accumulation,
       memory,
       suggestedDirective,
       confidence,
-      details
+      details,
+      inferredVariableTypes
     };
   }
 
@@ -317,6 +336,53 @@ export class BodyAnalyzer {
 
     // 루프가 2개 이상이고, 중괄호가 깊으면 중첩으로 판단
     return loopCount >= 2 && braceCount >= 2;
+  }
+
+  /**
+   * Phase 5 Stage 3.2: 변수 타입 추론
+   *
+   * 함수 본체에서 변수 선언을 감지하고, AdvancedTypeInferenceEngine을 사용하여
+   * 각 변수의 타입을 추론합니다.
+   *
+   * 동작:
+   * 1. 본체에서 변수 선언 패턴 추출 (let x = 5, const arr = [], 등)
+   * 2. AdvancedTypeInferenceEngine에 본체 전체를 전달
+   * 3. 추론된 타입 정보를 반환
+   *
+   * 예시:
+   *   body: "let total = 0; for i in arr { total = total + i; }"
+   *   returns: {
+   *     total: { name: 'total', inferredType: 'number', confidence: 0.95, ... },
+   *     i: { name: 'i', inferredType: 'number', confidence: 0.85, ... }
+   *   }
+   */
+  private inferVariableTypes(): Map<string, VariableTypeInfo> {
+    const result = new Map<string, VariableTypeInfo>();
+
+    try {
+      // AdvancedTypeInferenceEngine을 사용하여 변수 타입 추론
+      const inferenceResults = this.advancedEngine.infer(this.body);
+
+      // 추론 결과를 VariableTypeInfo 형식으로 변환
+      // AdvancedTypeInfo의 variableName을 name으로 매핑
+      inferenceResults.forEach((advancedInfo) => {
+        const variableTypeInfo: VariableTypeInfo = {
+          name: advancedInfo.variableName,  // ← variableName을 name으로 매핑
+          inferredType: advancedInfo.inferredType,
+          confidence: advancedInfo.confidence,
+          source: advancedInfo.source,
+          reasoning: advancedInfo.reasoning,
+          relatedVariables: advancedInfo.relatedVariables
+        };
+        result.set(advancedInfo.variableName, variableTypeInfo);
+      });
+
+      return result;
+    } catch (error) {
+      // 추론 실패 시 빈 Map 반환 (안전성)
+      console.warn('Variable type inference failed:', error);
+      return result;
+    }
   }
 }
 

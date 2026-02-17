@@ -10,6 +10,7 @@ import { Corrector, CorrectionResult } from './correction';
 import { Learner } from './learner';
 import { OptimizationDetector, OptimizationSuggestion } from './analyzer/optimization-detector';
 import { OptimizationApplier, OptimizationDecision } from './analyzer/optimization-applier';
+import { OptimizationTracker, OptimizationResult } from './analyzer/optimization-tracker';
 
 export interface PipelineInput {
   instruction: string;        // free-form input: "sum array", "filter > 5", etc
@@ -26,6 +27,8 @@ export interface PipelineOutput {
   optimizations?: OptimizationSuggestion[]; // AI-detected optimization opportunities
   optimization_decisions?: OptimizationDecision[]; // AI decisions on applying optimizations
   optimization_summary?: string;    // Human-readable optimization report
+  optimization_results?: OptimizationResult[]; // Measured effectiveness of applied optimizations
+  learning_summary?: string;        // Learning data from this execution
 }
 
 export class Pipeline {
@@ -37,6 +40,7 @@ export class Pipeline {
   private learner: Learner;
   private optimizer: OptimizationDetector;
   private applier: OptimizationApplier;
+  private tracker: OptimizationTracker;
 
   constructor(outDir?: string) {
     this.engine = new AutoHeaderEngine();
@@ -47,6 +51,7 @@ export class Pipeline {
     this.learner = new Learner();
     this.optimizer = new OptimizationDetector();
     this.applier = new OptimizationApplier();
+    this.tracker = new OptimizationTracker();
   }
 
   /**
@@ -85,10 +90,25 @@ export class Pipeline {
     // Apply approved optimizations to the IR
     let appliedOptimizations = intent.body;
     let optimizationSummary = '';
+    let appliedDecisions: OptimizationDecision[] = [];
     if (decisions.length > 0 && decisions.some(d => d.shouldApply)) {
       const applyResult = this.applier.applyOptimizations(intent.body, decisions);
       appliedOptimizations = applyResult.optimized;
+      appliedDecisions = applyResult.applied;
       optimizationSummary = this.applier.summarize(decisions);
+    }
+
+    // Step 2.8: 🤖 AUTOMATIC OPTIMIZATION MEASUREMENT (AI-First)
+    // Measure effectiveness of applied optimizations
+    let optimizationResults: OptimizationResult[] = [];
+    let learningSummary = '';
+    if (appliedDecisions.length > 0) {
+      optimizationResults = this.tracker.measureAll(
+        appliedDecisions,
+        intent.body,
+        appliedOptimizations
+      );
+      learningSummary = this.tracker.summarize();
     }
 
     // Step 3: Execute on VM (with optimized IR)
@@ -121,6 +141,8 @@ export class Pipeline {
       optimizations: optimizations.length > 0 ? optimizations : undefined,
       optimization_decisions: decisions.length > 0 ? decisions : undefined,
       optimization_summary: optimizationSummary || undefined,
+      optimization_results: optimizationResults.length > 0 ? optimizationResults : undefined,
+      learning_summary: learningSummary || undefined,
     };
   }
 
