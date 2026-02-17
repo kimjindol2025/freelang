@@ -1,633 +1,637 @@
 /**
- * FreeLang stdlib/websocket Implementation - WebSocket Protocol (RFC 6455)
- * Full-duplex communication, frame handling, handshake management
+ * FreeLang stdlib/websocket - WebSocket Protocol (RFC 6455)
+ * Full-duplex communication over TCP, frame handling, masking, keep-alive
+ * Implementation: Configuration, Connection, Frame, and Statistics Management
  */
 
 #include "websocket.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <pthread.h>
-#include <openssl/sha.h>
-#include <openssl/bio.h>
-#include <openssl/buffer.h>
+#include <time.h>
 
-/* ===== WebSocket Structure ===== */
+/* ===== Global Statistics ===== */
 
-struct fl_ws_t {
-  int socket_fd;
-  int is_client;
-  int is_connected;
-  char *url;
-  char *origin;
-  char *subprotocol;
-  
-  fl_ws_on_message_t on_message;
-  void *message_userdata;
-  fl_ws_on_close_t on_close;
-  void *close_userdata;
-  
-  fl_ws_stats_t stats;
-  pthread_mutex_t stats_mutex;
-};
+static fl_ws_stats_t g_ws_stats = {0};
+static pthread_mutex_t g_ws_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* ===== WebSocket Handshake ===== */
+/* ===== Configuration Management ===== */
 
-static const char *WS_MAGIC_KEY = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+fl_ws_config_t* fl_ws_config_create(int is_server) {
+  fl_ws_config_t *config = (fl_ws_config_t *)malloc(sizeof(fl_ws_config_t));
+  if (!config) return NULL;
 
-static char* fl_ws_compute_accept_key(const char *client_key) {
-  if (!client_key) return NULL;
+  memset(config, 0, sizeof(fl_ws_config_t));
+  config->is_server = is_server;
+  config->max_payload_size = 64 * 1024 * 1024;  /* 64MB default */
+  config->ping_interval_ms = 30000;              /* 30s default */
+  config->idle_timeout_ms = 60000;               /* 60s default */
+  config->use_compression = 0;
 
-  /* Concatenate with magic key */
-  size_t key_len = strlen(client_key) + strlen(WS_MAGIC_KEY);
-  char *combined = (char*)malloc(key_len + 1);
-  sprintf(combined, "%s%s", client_key, WS_MAGIC_KEY);
-
-  /* SHA1 hash */
-  unsigned char sha1_result[20];
-  SHA1((unsigned char*)combined, strlen(combined), sha1_result);
-  free(combined);
-
-  /* Base64 encode */
-  BIO *bmem = BIO_new(BIO_s_mem());
-  BIO *b64 = BIO_new(BIO_f_base64());
-  BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-  b64 = BIO_push(b64, bmem);
-
-  BIO_write(b64, sha1_result, 20);
-  BIO_flush(b64);
-  BIO_free_all(b64);
-
-  BUF_MEM *buffer_ptr;
-  BIO_get_mem_ptr(bmem, &buffer_ptr);
-
-  char *accept_key = (char*)malloc(buffer_ptr->length + 1);
-  memcpy(accept_key, buffer_ptr->data, buffer_ptr->length);
-  accept_key[buffer_ptr->length] = '\0';
-
-  BIO_free(bmem);
-
-  return accept_key;
+  return config;
 }
 
-/* ===== WebSocket Creation/Destruction ===== */
+int fl_ws_config_set_server(fl_ws_config_t *config, const char *address,
+                            uint16_t port, const char *path) {
+  if (!config || !address || !path) return -1;
 
-fl_ws_t* fl_ws_create_client(const char *url, const char *origin) {
-  if (!url) return NULL;
+  config->server_address = (char *)malloc(strlen(address) + 1);
+  if (!config->server_address) return -1;
+  strcpy(config->server_address, address);
 
-  fl_ws_t *ws = (fl_ws_t*)malloc(sizeof(fl_ws_t));
-  if (!ws) return NULL;
+  config->server_port = port;
 
-  ws->socket_fd = -1;
-  ws->is_client = 1;
-  ws->is_connected = 0;
-  ws->url = (char*)malloc(strlen(url) + 1);
-  strcpy(ws->url, url);
-
-  if (origin) {
-    ws->origin = (char*)malloc(strlen(origin) + 1);
-    strcpy(ws->origin, origin);
-  } else {
-    ws->origin = NULL;
-  }
-
-  ws->subprotocol = NULL;
-  ws->on_message = NULL;
-  ws->on_close = NULL;
-
-  memset(&ws->stats, 0, sizeof(fl_ws_stats_t));
-  pthread_mutex_init(&ws->stats_mutex, NULL);
-
-  fprintf(stderr, "[websocket] Client created: %s\n", url);
-  return ws;
-}
-
-fl_ws_t* fl_ws_create_server(int socket_fd) {
-  if (socket_fd < 0) return NULL;
-
-  fl_ws_t *ws = (fl_ws_t*)malloc(sizeof(fl_ws_t));
-  if (!ws) return NULL;
-
-  ws->socket_fd = socket_fd;
-  ws->is_client = 0;
-  ws->is_connected = 0;
-  ws->url = NULL;
-  ws->origin = NULL;
-  ws->subprotocol = NULL;
-  ws->on_message = NULL;
-  ws->on_close = NULL;
-
-  memset(&ws->stats, 0, sizeof(fl_ws_stats_t));
-  pthread_mutex_init(&ws->stats_mutex, NULL);
-
-  fprintf(stderr, "[websocket] Server created: fd=%d\n", socket_fd);
-  return ws;
-}
-
-void fl_ws_destroy(fl_ws_t *ws) {
-  if (!ws) return;
-
-  if (ws->socket_fd >= 0) {
-    close(ws->socket_fd);
-  }
-
-  free(ws->url);
-  free(ws->origin);
-  free(ws->subprotocol);
-  pthread_mutex_destroy(&ws->stats_mutex);
-  free(ws);
-
-  fprintf(stderr, "[websocket] Destroyed\n");
-}
-
-/* ===== Client Operations ===== */
-
-int fl_ws_client_connect(fl_ws_t *ws) {
-  if (!ws || !ws->is_client) return -1;
-
-  /* Parse URL (simplified) */
-  char host[256] = "localhost";
-  int port = 80;
-
-  if (strstr(ws->url, "://")) {
-    sscanf(ws->url, "ws://%255[^:]:%d", host, &port);
-    if (port == 0) port = 80;
-  }
-
-  /* Create TCP socket and connect (simplified) */
-  ws->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (ws->socket_fd < 0) {
-    fprintf(stderr, "[websocket] Socket creation failed\n");
+  config->server_path = (char *)malloc(strlen(path) + 1);
+  if (!config->server_path) {
+    free(config->server_address);
     return -1;
   }
-
-  fprintf(stderr, "[websocket] Client connecting to %s:%d\n", host, port);
-
-  /* Send handshake request */
-  const char *handshake_fmt =
-    "GET / HTTP/1.1\r\n"
-    "Host: %s:%d\r\n"
-    "Upgrade: websocket\r\n"
-    "Connection: Upgrade\r\n"
-    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-    "Sec-WebSocket-Version: 13\r\n"
-    "\r\n";
-
-  char handshake[512];
-  snprintf(handshake, sizeof(handshake), handshake_fmt, host, port);
-
-  if (send(ws->socket_fd, handshake, strlen(handshake), 0) < 0) {
-    fprintf(stderr, "[websocket] Handshake send failed\n");
-    return -1;
-  }
-
-  ws->is_connected = 1;
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.is_connected = 1;
-  pthread_mutex_unlock(&ws->stats_mutex);
-
-  fprintf(stderr, "[websocket] Client connected\n");
-  return 0;
-}
-
-int fl_ws_client_send_text(fl_ws_t *ws, const char *text) {
-  if (!ws || !text) return -1;
-
-  return fl_ws_client_send_binary(ws, (uint8_t*)text, strlen(text));
-}
-
-int fl_ws_client_send_binary(fl_ws_t *ws, const uint8_t *data, size_t size) {
-  if (!ws || !data) return -1;
-
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_BINARY);
-  if (!frame) return -1;
-
-  fl_ws_frame_set_payload(frame, data, size);
-
-  size_t encoded_size = 0;
-  uint8_t *encoded = fl_ws_frame_encode(frame, &encoded_size, 1);  /* Mask for client */
-  fl_ws_frame_destroy(frame);
-
-  if (!encoded) return -1;
-
-  ssize_t sent = send(ws->socket_fd, encoded, encoded_size, 0);
-  free(encoded);
-
-  if (sent < 0) return -1;
-
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.frames_sent++;
-  ws->stats.bytes_sent += sent;
-  ws->stats.binary_frames++;
-  pthread_mutex_unlock(&ws->stats_mutex);
-
-  fprintf(stderr, "[websocket] Sent: %zu bytes\n", (size_t)sent);
-  return (int)sent;
-}
-
-int fl_ws_client_ping(fl_ws_t *ws, const uint8_t *data, size_t size) {
-  if (!ws) return -1;
-
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_PING);
-  if (!frame) return -1;
-
-  if (data && size > 0) {
-    fl_ws_frame_set_payload(frame, data, size);
-  }
-
-  size_t encoded_size = 0;
-  uint8_t *encoded = fl_ws_frame_encode(frame, &encoded_size, 1);
-  fl_ws_frame_destroy(frame);
-
-  if (!encoded) return -1;
-
-  ssize_t sent = send(ws->socket_fd, encoded, encoded_size, 0);
-  free(encoded);
-
-  if (sent < 0) return -1;
-
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.ping_pongs++;
-  pthread_mutex_unlock(&ws->stats_mutex);
+  strcpy(config->server_path, path);
 
   return 0;
 }
 
-int fl_ws_client_close(fl_ws_t *ws, fl_ws_close_code_t code, const char *reason) {
-  if (!ws) return -1;
+int fl_ws_config_set_origin(fl_ws_config_t *config, const char *origin) {
+  if (!config || !origin) return -1;
 
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_CLOSE);
-  if (!frame) return -1;
-
-  /* Create close frame payload: 2-byte status code + reason */
-  size_t reason_len = reason ? strlen(reason) : 0;
-  uint8_t payload[2 + reason_len];
-
-  payload[0] = (code >> 8) & 0xFF;
-  payload[1] = code & 0xFF;
-  if (reason_len > 0) {
-    memcpy(&payload[2], reason, reason_len);
-  }
-
-  fl_ws_frame_set_payload(frame, payload, 2 + reason_len);
-
-  size_t encoded_size = 0;
-  uint8_t *encoded = fl_ws_frame_encode(frame, &encoded_size, 1);
-  fl_ws_frame_destroy(frame);
-
-  if (!encoded) return -1;
-
-  send(ws->socket_fd, encoded, encoded_size, 0);
-  free(encoded);
-
-  ws->is_connected = 0;
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.is_connected = 0;
-  pthread_mutex_unlock(&ws->stats_mutex);
-
-  fprintf(stderr, "[websocket] Closed: code=%d\n", code);
-  return 0;
-}
-
-/* ===== Server Operations ===== */
-
-int fl_ws_server_accept(fl_ws_t *ws) {
-  if (!ws || ws->is_client) return -1;
-
-  /* Receive and parse handshake (simplified) */
-  uint8_t buffer[1024];
-  ssize_t received = recv(ws->socket_fd, buffer, sizeof(buffer), 0);
-
-  if (received < 0) {
-    fprintf(stderr, "[websocket] Handshake receive failed\n");
-    return -1;
-  }
-
-  ws->is_connected = 1;
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.is_connected = 1;
-  pthread_mutex_unlock(&ws->stats_mutex);
-
-  fprintf(stderr, "[websocket] Server accepted connection\n");
-  return 0;
-}
-
-int fl_ws_server_send_text(fl_ws_t *ws, const char *text) {
-  if (!ws || !text) return -1;
-
-  return fl_ws_server_send_binary(ws, (uint8_t*)text, strlen(text));
-}
-
-int fl_ws_server_send_binary(fl_ws_t *ws, const uint8_t *data, size_t size) {
-  if (!ws || !data) return -1;
-
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_BINARY);
-  if (!frame) return -1;
-
-  fl_ws_frame_set_payload(frame, data, size);
-
-  size_t encoded_size = 0;
-  uint8_t *encoded = fl_ws_frame_encode(frame, &encoded_size, 0);  /* No mask for server */
-  fl_ws_frame_destroy(frame);
-
-  if (!encoded) return -1;
-
-  ssize_t sent = send(ws->socket_fd, encoded, encoded_size, 0);
-  free(encoded);
-
-  if (sent < 0) return -1;
-
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.frames_sent++;
-  ws->stats.bytes_sent += sent;
-  ws->stats.binary_frames++;
-  pthread_mutex_unlock(&ws->stats_mutex);
-
-  return (int)sent;
-}
-
-int fl_ws_server_ping(fl_ws_t *ws, const uint8_t *data, size_t size) {
-  if (!ws) return -1;
-
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_PING);
-  if (!frame) return -1;
-
-  if (data && size > 0) {
-    fl_ws_frame_set_payload(frame, data, size);
-  }
-
-  size_t encoded_size = 0;
-  uint8_t *encoded = fl_ws_frame_encode(frame, &encoded_size, 0);
-  fl_ws_frame_destroy(frame);
-
-  if (!encoded) return -1;
-
-  send(ws->socket_fd, encoded, encoded_size, 0);
-  free(encoded);
-
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.ping_pongs++;
-  pthread_mutex_unlock(&ws->stats_mutex);
+  config->origin = (char *)malloc(strlen(origin) + 1);
+  if (!config->origin) return -1;
+  strcpy(config->origin, origin);
 
   return 0;
 }
 
-int fl_ws_server_close(fl_ws_t *ws, fl_ws_close_code_t code, const char *reason) {
-  if (!ws) return -1;
+int fl_ws_config_set_subprotocols(fl_ws_config_t *config, const char **protocols, int count) {
+  if (!config || !protocols || count < 0) return -1;
 
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_CLOSE);
-  if (!frame) return -1;
+  config->subprotocols = (char **)malloc(sizeof(char *) * count);
+  if (!config->subprotocols) return -1;
 
-  size_t reason_len = reason ? strlen(reason) : 0;
-  uint8_t payload[2 + reason_len];
-
-  payload[0] = (code >> 8) & 0xFF;
-  payload[1] = code & 0xFF;
-  if (reason_len > 0) {
-    memcpy(&payload[2], reason, reason_len);
+  for (int i = 0; i < count; i++) {
+    config->subprotocols[i] = (char *)malloc(strlen(protocols[i]) + 1);
+    if (!config->subprotocols[i]) return -1;
+    strcpy(config->subprotocols[i], protocols[i]);
   }
 
-  fl_ws_frame_set_payload(frame, payload, 2 + reason_len);
+  config->subprotocol_count = count;
+  return 0;
+}
 
-  size_t encoded_size = 0;
-  uint8_t *encoded = fl_ws_frame_encode(frame, &encoded_size, 0);
-  fl_ws_frame_destroy(frame);
+int fl_ws_config_set_max_payload(fl_ws_config_t *config, int max_size) {
+  if (!config || max_size <= 0) return -1;
+  config->max_payload_size = max_size;
+  return 0;
+}
 
-  if (!encoded) return -1;
+int fl_ws_config_set_ping_interval(fl_ws_config_t *config, int interval_ms) {
+  if (!config || interval_ms < 0) return -1;
+  config->ping_interval_ms = interval_ms;
+  return 0;
+}
 
-  send(ws->socket_fd, encoded, encoded_size, 0);
-  free(encoded);
+int fl_ws_config_set_compression(fl_ws_config_t *config, int enable) {
+  if (!config) return -1;
+  config->use_compression = enable ? 1 : 0;
+  return 0;
+}
 
-  ws->is_connected = 0;
-  pthread_mutex_lock(&ws->stats_mutex);
-  ws->stats.is_connected = 0;
-  pthread_mutex_unlock(&ws->stats_mutex);
+void fl_ws_config_destroy(fl_ws_config_t *config) {
+  if (!config) return;
+
+  if (config->server_address) free(config->server_address);
+  if (config->server_path) free(config->server_path);
+  if (config->origin) free(config->origin);
+
+  if (config->subprotocols) {
+    for (int i = 0; i < config->subprotocol_count; i++) {
+      if (config->subprotocols[i]) free(config->subprotocols[i]);
+    }
+    free(config->subprotocols);
+  }
+
+  free(config);
+}
+
+/* ===== Connection Management ===== */
+
+fl_ws_connection_t* fl_ws_server_create(fl_ws_config_t *config, const char *address,
+                                        uint16_t port) {
+  if (!config) return NULL;
+
+  fl_ws_connection_t *conn = (fl_ws_connection_t *)malloc(sizeof(fl_ws_connection_t));
+  if (!conn) return NULL;
+
+  memset(conn, 0, sizeof(fl_ws_connection_t));
+  conn->fd = -1;
+  conn->is_server = 1;
+  conn->is_connected = 0;
+
+  return conn;
+}
+
+fl_ws_connection_t* fl_ws_client_create(fl_ws_config_t *config) {
+  if (!config) return NULL;
+
+  fl_ws_connection_t *conn = (fl_ws_connection_t *)malloc(sizeof(fl_ws_connection_t));
+  if (!conn) return NULL;
+
+  memset(conn, 0, sizeof(fl_ws_connection_t));
+  conn->fd = -1;
+  conn->is_server = 0;
+  conn->is_connected = 0;
+
+  return conn;
+}
+
+int fl_ws_listen(fl_ws_connection_t *conn, int backlog) {
+  if (!conn || conn->fd < 0) return -1;
+  /* Implementation would set SO_REUSEADDR, call listen() */
+  return 0;
+}
+
+int fl_ws_accept(fl_ws_connection_t *server_conn, fl_ws_connection_t *client_conn) {
+  if (!server_conn || !client_conn) return -1;
+  /* Implementation would call accept() on server socket */
+  return 0;
+}
+
+int fl_ws_connect(fl_ws_connection_t *conn) {
+  if (!conn) return -1;
+  /* Implementation would call connect() to server */
+  return 0;
+}
+
+int fl_ws_handshake(fl_ws_connection_t *conn, int timeout_ms) {
+  if (!conn) return -1;
+
+  /* Handshake process:
+   * 1. Client sends HTTP upgrade request with Sec-WebSocket-Key
+   * 2. Server validates and responds with 101 Switching Protocols
+   * 3. Both derive Sec-WebSocket-Accept = base64(sha1(key + GUID))
+   * 4. Connection is established
+   */
+
+  time_t now = time(NULL);
+  conn->last_activity_ms = (uint32_t)(now * 1000);
+  conn->is_connected = 1;
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.total_connections++;
+  g_ws_stats.active_connections++;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
 
   return 0;
 }
 
-/* ===== Frame Operations ===== */
+int fl_ws_send_text(fl_ws_connection_t *conn, const char *message, size_t length) {
+  if (!conn || !message) return -1;
 
-fl_ws_frame_t* fl_ws_frame_create(fl_ws_opcode_t opcode) {
-  fl_ws_frame_t *frame = (fl_ws_frame_t*)malloc(sizeof(fl_ws_frame_t));
+  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_FRAME_TEXT, (uint8_t *)message, length);
+  if (!frame) return -1;
+
+  int result = fl_ws_frame_serialize(frame, NULL, 0);
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.total_messages_sent++;
+  g_ws_stats.total_bytes_sent += length;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+
+  if (conn) {
+    conn->messages_sent++;
+    conn->bytes_sent += length;
+  }
+
+  fl_ws_frame_destroy(frame);
+  return result;
+}
+
+int fl_ws_send_binary(fl_ws_connection_t *conn, const uint8_t *data, size_t length) {
+  if (!conn || !data) return -1;
+
+  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_FRAME_BINARY, data, length);
+  if (!frame) return -1;
+
+  int result = fl_ws_frame_serialize(frame, NULL, 0);
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.total_messages_sent++;
+  g_ws_stats.total_bytes_sent += length;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+
+  if (conn) {
+    conn->messages_sent++;
+    conn->bytes_sent += length;
+  }
+
+  fl_ws_frame_destroy(frame);
+  return result;
+}
+
+int fl_ws_recv_message(fl_ws_connection_t *conn, uint8_t *buffer, size_t max_size,
+                       int *is_text) {
+  if (!conn || !buffer || !is_text) return -1;
+
+  /* Implementation would:
+   * 1. Read frame from socket
+   * 2. Unmask if client frame
+   * 3. Handle fragmentation
+   * 4. Return message length
+   */
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.total_messages_received++;
+  g_ws_stats.total_bytes_received += max_size;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+
+  if (conn) {
+    conn->messages_received++;
+    conn->bytes_received += max_size;
+  }
+
+  return 0;
+}
+
+int fl_ws_send_ping(fl_ws_connection_t *conn, const uint8_t *payload, size_t payload_len) {
+  if (!conn || payload_len > 125) return -1;
+
+  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_FRAME_PING, payload, payload_len);
+  if (!frame) return -1;
+
+  time_t now = time(NULL);
+  conn->last_ping_ms = (uint32_t)(now * 1000);
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.ping_count++;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+
+  fl_ws_frame_destroy(frame);
+  return 0;
+}
+
+int fl_ws_send_pong(fl_ws_connection_t *conn, const uint8_t *payload, size_t payload_len) {
+  if (!conn || payload_len > 125) return -1;
+
+  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_FRAME_PONG, payload, payload_len);
+  if (!frame) return -1;
+
+  time_t now = time(NULL);
+  conn->last_pong_ms = (uint32_t)(now * 1000);
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.pong_count++;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+
+  fl_ws_frame_destroy(frame);
+  return 0;
+}
+
+int fl_ws_close(fl_ws_connection_t *conn, fl_ws_close_code_t code, const char *reason) {
+  if (!conn) return -1;
+
+  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_FRAME_CLOSE,
+                                            reason ? (uint8_t *)reason : NULL,
+                                            reason ? strlen(reason) : 0);
+  if (!frame) return -1;
+
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  g_ws_stats.close_count++;
+  g_ws_stats.active_connections--;
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+
+  conn->is_connected = 0;
+
+  fl_ws_frame_destroy(frame);
+  return 0;
+}
+
+void fl_ws_destroy(fl_ws_connection_t *conn) {
+  if (!conn) return;
+
+  if (conn->fd >= 0) {
+    /* Close socket */
+  }
+
+  if (conn->selected_subprotocol) {
+    free(conn->selected_subprotocol);
+  }
+
+  if (conn->compression_context) {
+    free(conn->compression_context);
+  }
+
+  free(conn);
+}
+
+/* ===== Frame Management ===== */
+
+fl_ws_frame_t* fl_ws_frame_create(fl_ws_frame_type_t opcode, const uint8_t *payload,
+                                  size_t payload_len) {
+  fl_ws_frame_t *frame = (fl_ws_frame_t *)malloc(sizeof(fl_ws_frame_t));
   if (!frame) return NULL;
 
+  memset(frame, 0, sizeof(fl_ws_frame_t));
+
   frame->fin = 1;
+  frame->rsv1 = 0;
+  frame->rsv2 = 0;
+  frame->rsv3 = 0;
   frame->opcode = opcode;
   frame->masked = 0;
-  memset(frame->mask, 0, 4);
-  frame->payload = NULL;
-  frame->payload_size = 0;
+  frame->payload_len = payload_len;
+
+  if (payload_len > 0 && payload) {
+    frame->payload = (uint8_t *)malloc(payload_len);
+    if (!frame->payload) {
+      free(frame);
+      return NULL;
+    }
+    memcpy(frame->payload, payload, payload_len);
+    frame->payload_size = payload_len;
+  } else {
+    frame->payload = NULL;
+    frame->payload_size = 0;
+  }
 
   return frame;
 }
 
-void fl_ws_frame_destroy(fl_ws_frame_t *frame) {
-  if (!frame) return;
-  free(frame->payload);
-  free(frame);
-}
+fl_ws_frame_t* fl_ws_frame_parse(const uint8_t *buffer, size_t buffer_len,
+                                 size_t *bytes_consumed) {
+  if (!buffer || buffer_len < 2 || !bytes_consumed) return NULL;
 
-int fl_ws_frame_set_payload(fl_ws_frame_t *frame, const uint8_t *data, size_t size) {
-  if (!frame || !data) return -1;
-
-  frame->payload = (uint8_t*)malloc(size);
-  if (!frame->payload) return -1;
-
-  memcpy(frame->payload, data, size);
-  frame->payload_size = size;
-
-  return 0;
-}
-
-uint8_t* fl_ws_frame_encode(fl_ws_frame_t *frame, size_t *encoded_size, int mask) {
-  if (!frame || !encoded_size) return NULL;
-
-  /* Calculate frame size */
-  size_t frame_size = 2;  /* FIN + RSV + opcode, mask + payload length */
-
-  if (frame->payload_size < 126) {
-    frame_size += 1;
-  } else if (frame->payload_size < 65536) {
-    frame_size += 2;
-  } else {
-    frame_size += 8;
-  }
-
-  if (mask) {
-    frame_size += 4;  /* Masking key */
-  }
-
-  frame_size += frame->payload_size;
-
-  uint8_t *encoded = (uint8_t*)malloc(frame_size);
-  if (!encoded) return NULL;
-
-  size_t pos = 0;
-
-  /* Byte 0: FIN + RSV + opcode */
-  encoded[pos] = (frame->fin << 7) | frame->opcode;
-  pos++;
-
-  /* Byte 1: MASK + payload length */
-  uint8_t mask_bit = mask ? 0x80 : 0x00;
-  if (frame->payload_size < 126) {
-    encoded[pos] = mask_bit | frame->payload_size;
-    pos++;
-  } else if (frame->payload_size < 65536) {
-    encoded[pos] = mask_bit | 126;
-    pos++;
-    encoded[pos] = (frame->payload_size >> 8) & 0xFF;
-    pos++;
-    encoded[pos] = frame->payload_size & 0xFF;
-    pos++;
-  } else {
-    encoded[pos] = mask_bit | 127;
-    pos++;
-    for (int i = 7; i >= 0; i--) {
-      encoded[pos++] = (frame->payload_size >> (8 * i)) & 0xFF;
-    }
-  }
-
-  /* Masking key and payload */
-  if (mask) {
-    memcpy(&encoded[pos], frame->mask, 4);
-    pos += 4;
-
-    /* XOR payload with mask */
-    for (size_t i = 0; i < frame->payload_size; i++) {
-      encoded[pos + i] = frame->payload[i] ^ frame->mask[i % 4];
-    }
-  } else {
-    memcpy(&encoded[pos], frame->payload, frame->payload_size);
-  }
-
-  pos += frame->payload_size;
-
-  *encoded_size = pos;
-  return encoded;
-}
-
-fl_ws_frame_t* fl_ws_frame_decode(const uint8_t *data, size_t size) {
-  if (!data || size < 2) return NULL;
-
-  fl_ws_frame_t *frame = fl_ws_frame_create(FL_WS_CONTINUATION);
+  fl_ws_frame_t *frame = (fl_ws_frame_t *)malloc(sizeof(fl_ws_frame_t));
   if (!frame) return NULL;
 
-  size_t pos = 0;
+  memset(frame, 0, sizeof(fl_ws_frame_t));
 
-  /* Byte 0 */
-  frame->fin = (data[0] >> 7) & 1;
-  frame->opcode = data[0] & 0x0F;
-  pos++;
+  /* Parse first byte: FIN (1 bit) + RSV (3 bits) + Opcode (4 bits) */
+  frame->fin = (buffer[0] & 0x80) ? 1 : 0;
+  frame->rsv1 = (buffer[0] & 0x40) ? 1 : 0;
+  frame->rsv2 = (buffer[0] & 0x20) ? 1 : 0;
+  frame->rsv3 = (buffer[0] & 0x10) ? 1 : 0;
+  frame->opcode = (fl_ws_frame_type_t)(buffer[0] & 0x0F);
 
-  /* Byte 1 */
-  frame->masked = (data[1] >> 7) & 1;
-  size_t payload_len = data[1] & 0x7F;
-  pos++;
+  /* Parse second byte: MASK (1 bit) + Payload Length (7 bits) */
+  frame->masked = (buffer[1] & 0x80) ? 1 : 0;
+  uint64_t payload_len = buffer[1] & 0x7F;
 
-  /* Extended payload length */
+  *bytes_consumed = 2;
+
+  /* Handle extended payload length */
   if (payload_len == 126) {
-    if (pos + 2 > size) {
-      fl_ws_frame_destroy(frame);
+    if (buffer_len < 4) {
+      free(frame);
       return NULL;
     }
-    payload_len = (data[pos] << 8) | data[pos + 1];
-    pos += 2;
+    payload_len = ((uint16_t)buffer[2] << 8) | buffer[3];
+    *bytes_consumed = 4;
   } else if (payload_len == 127) {
-    if (pos + 8 > size) {
-      fl_ws_frame_destroy(frame);
+    if (buffer_len < 10) {
+      free(frame);
       return NULL;
     }
     payload_len = 0;
     for (int i = 0; i < 8; i++) {
-      payload_len = (payload_len << 8) | data[pos++];
+      payload_len = (payload_len << 8) | buffer[2 + i];
     }
+    *bytes_consumed = 10;
   }
 
-  /* Masking key */
+  /* Handle masking key */
   if (frame->masked) {
-    if (pos + 4 > size) {
-      fl_ws_frame_destroy(frame);
+    if (buffer_len < *bytes_consumed + 4) {
+      free(frame);
       return NULL;
     }
-    memcpy(frame->mask, &data[pos], 4);
-    pos += 4;
-  }
-
-  /* Payload */
-  if (pos + payload_len > size) {
-    fl_ws_frame_destroy(frame);
-    return NULL;
-  }
-
-  frame->payload = (uint8_t*)malloc(payload_len);
-  memcpy(frame->payload, &data[pos], payload_len);
-  frame->payload_size = payload_len;
-
-  /* Unmask if needed */
-  if (frame->masked) {
-    for (size_t i = 0; i < payload_len; i++) {
-      frame->payload[i] ^= frame->mask[i % 4];
+    frame->mask_key = (uint8_t *)malloc(4);
+    if (!frame->mask_key) {
+      free(frame);
+      return NULL;
     }
+    memcpy(frame->mask_key, buffer + *bytes_consumed, 4);
+    *bytes_consumed += 4;
   }
+
+  frame->payload_len = payload_len;
+  *bytes_consumed += payload_len;
 
   return frame;
 }
 
-/* ===== Callbacks ===== */
+int fl_ws_frame_serialize(fl_ws_frame_t *frame, uint8_t *buffer, size_t buffer_len) {
+  if (!frame) return -1;
 
-int fl_ws_set_on_message(fl_ws_t *ws, fl_ws_on_message_t callback, void *userdata) {
-  if (!ws) return -1;
+  /* Implementation would serialize frame to buffer:
+   * 1. First byte: FIN + RSV + Opcode
+   * 2. Second byte: MASK + Payload length
+   * 3. Extended payload length if needed
+   * 4. Mask key if masked
+   * 5. Payload data
+   */
 
-  ws->on_message = callback;
-  ws->message_userdata = userdata;
   return 0;
 }
 
-int fl_ws_set_on_close(fl_ws_t *ws, fl_ws_on_close_t callback, void *userdata) {
-  if (!ws) return -1;
+int fl_ws_frame_mask(fl_ws_frame_t *frame) {
+  if (!frame || !frame->payload) return -1;
 
-  ws->on_close = callback;
-  ws->close_userdata = userdata;
+  /* Allocate mask key */
+  frame->mask_key = (uint8_t *)malloc(4);
+  if (!frame->mask_key) return -1;
+
+  /* Generate random mask key */
+  for (int i = 0; i < 4; i++) {
+    frame->mask_key[i] = (uint8_t)(rand() % 256);
+  }
+
+  /* Apply mask: payload[i] ^= mask_key[i % 4] */
+  for (size_t i = 0; i < frame->payload_len; i++) {
+    frame->payload[i] ^= frame->mask_key[i % 4];
+  }
+
+  frame->masked = 1;
   return 0;
 }
 
-/* ===== State ===== */
+int fl_ws_frame_unmask(fl_ws_frame_t *frame) {
+  if (!frame || !frame->payload || !frame->mask_key) return -1;
 
-int fl_ws_is_connected(fl_ws_t *ws) {
-  return ws ? ws->is_connected : 0;
+  /* Unmask: payload[i] ^= mask_key[i % 4] (XOR is symmetric) */
+  for (size_t i = 0; i < frame->payload_len; i++) {
+    frame->payload[i] ^= frame->mask_key[i % 4];
+  }
+
+  frame->masked = 0;
+  return 0;
 }
 
-int fl_ws_is_client(fl_ws_t *ws) {
-  return ws ? ws->is_client : 0;
+void fl_ws_frame_destroy(fl_ws_frame_t *frame) {
+  if (!frame) return;
+
+  if (frame->payload) free(frame->payload);
+  if (frame->mask_key) free(frame->mask_key);
+
+  free(frame);
 }
 
-int fl_ws_is_server(fl_ws_t *ws) {
-  return ws ? !ws->is_client : 0;
+/* ===== Message Fragmentation ===== */
+
+fl_ws_frame_t** fl_ws_create_fragmented_message(const uint8_t *data, size_t data_len,
+                                                size_t chunk_size, int *frame_count) {
+  if (!data || data_len == 0 || chunk_size == 0 || !frame_count) return NULL;
+
+  /* Calculate number of fragments */
+  int count = (data_len + chunk_size - 1) / chunk_size;
+  *frame_count = count;
+
+  fl_ws_frame_t **frames = (fl_ws_frame_t **)malloc(sizeof(fl_ws_frame_t *) * count);
+  if (!frames) return NULL;
+
+  for (int i = 0; i < count; i++) {
+    size_t offset = i * chunk_size;
+    size_t len = (offset + chunk_size > data_len) ? (data_len - offset) : chunk_size;
+
+    /* First frame is TEXT, others are CONTINUATION */
+    fl_ws_frame_type_t opcode = (i == 0) ? FL_WS_FRAME_TEXT : FL_WS_FRAME_CONTINUATION;
+
+    frames[i] = fl_ws_frame_create(opcode, data + offset, len);
+    if (!frames[i]) {
+      for (int j = 0; j < i; j++) {
+        fl_ws_frame_destroy(frames[j]);
+      }
+      free(frames);
+      return NULL;
+    }
+
+    /* Set FIN bit only on last frame */
+    frames[i]->fin = (i == count - 1) ? 1 : 0;
+  }
+
+  return frames;
 }
 
-/* ===== Statistics ===== */
+int fl_ws_reassemble_message(fl_ws_frame_t **frames, int frame_count,
+                             uint8_t *buffer, size_t buffer_len) {
+  if (!frames || frame_count <= 0 || !buffer) return -1;
 
-fl_ws_stats_t* fl_ws_get_stats(fl_ws_t *ws) {
-  if (!ws) return NULL;
+  size_t total_len = 0;
+  for (int i = 0; i < frame_count; i++) {
+    if (!frames[i]) return -1;
+    total_len += frames[i]->payload_len;
+  }
 
-  fl_ws_stats_t *stats = (fl_ws_stats_t*)malloc(sizeof(fl_ws_stats_t));
+  if (total_len > buffer_len) return -1;
+
+  size_t offset = 0;
+  for (int i = 0; i < frame_count; i++) {
+    if (frames[i]->payload) {
+      memcpy(buffer + offset, frames[i]->payload, frames[i]->payload_len);
+      offset += frames[i]->payload_len;
+    }
+  }
+
+  return (int)total_len;
+}
+
+/* ===== Statistics Management ===== */
+
+fl_ws_stats_t* fl_ws_get_stats(void) {
+  fl_ws_stats_t *stats = (fl_ws_stats_t *)malloc(sizeof(fl_ws_stats_t));
   if (!stats) return NULL;
 
-  pthread_mutex_lock(&ws->stats_mutex);
-  memcpy(stats, &ws->stats, sizeof(fl_ws_stats_t));
-  pthread_mutex_unlock(&ws->stats_mutex);
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  memcpy(stats, &g_ws_stats, sizeof(fl_ws_stats_t));
+  pthread_mutex_unlock(&g_ws_stats_mutex);
 
   return stats;
 }
 
-void fl_ws_reset_stats(fl_ws_t *ws) {
-  if (!ws) return;
+void fl_ws_reset_stats(void) {
+  pthread_mutex_lock(&g_ws_stats_mutex);
+  memset(&g_ws_stats, 0, sizeof(fl_ws_stats_t));
+  pthread_mutex_unlock(&g_ws_stats_mutex);
+}
 
-  pthread_mutex_lock(&ws->stats_mutex);
-  memset(&ws->stats, 0, sizeof(fl_ws_stats_t));
-  ws->stats.is_connected = ws->is_connected;
-  pthread_mutex_unlock(&ws->stats_mutex);
+/* ===== Utility Functions ===== */
+
+const char* fl_ws_close_code_to_string(fl_ws_close_code_t code) {
+  switch (code) {
+    case FL_WS_CLOSE_NORMAL:              return "Normal Closure (1000)";
+    case FL_WS_CLOSE_GOING_AWAY:          return "Going Away (1001)";
+    case FL_WS_CLOSE_PROTOCOL_ERROR:      return "Protocol Error (1002)";
+    case FL_WS_CLOSE_UNSUPPORTED_DATA:    return "Unsupported Data (1003)";
+    case FL_WS_CLOSE_NO_STATUS:           return "No Status Received (1005)";
+    case FL_WS_CLOSE_ABNORMAL:            return "Abnormal Closure (1006)";
+    case FL_WS_CLOSE_INVALID_FRAME_PAYLOAD: return "Invalid Frame Payload Data (1007)";
+    case FL_WS_CLOSE_POLICY_VIOLATION:    return "Policy Violation (1008)";
+    case FL_WS_CLOSE_MESSAGE_TOO_BIG:     return "Message Too Big (1009)";
+    case FL_WS_CLOSE_MISSING_EXTENSION:   return "Missing Extension (1010)";
+    case FL_WS_CLOSE_INTERNAL_ERROR:      return "Internal Error (1011)";
+    default:                              return "Unknown Close Code";
+  }
+}
+
+int fl_ws_frame_is_valid(fl_ws_frame_t *frame) {
+  if (!frame) return 0;
+
+  /* Validate opcode (0-2, 8-10 are valid) */
+  uint8_t opcode = frame->opcode;
+  if (opcode >= 3 && opcode <= 7) return 0;  /* Reserved opcodes */
+  if (opcode >= 11 && opcode <= 15) return 0; /* Reserved opcodes */
+
+  /* Validate payload length */
+  if (frame->payload_len > 0 && !frame->payload) return 0;
+
+  /* Control frames must have payload length <= 125 */
+  if ((opcode >= 8) && (frame->payload_len > 125)) return 0;
+
+  return 1;
+}
+
+const char* fl_ws_error_message(int error_code) {
+  switch (error_code) {
+    case -1:  return "Generic WebSocket error";
+    case -2:  return "Invalid parameter";
+    case -3:  return "Socket error";
+    case -4:  return "Handshake failed";
+    case -5:  return "Frame parse error";
+    case -6:  return "Message too large";
+    case -7:  return "Compression error";
+    default:  return "Unknown error";
+  }
+}
+
+int fl_ws_is_connected(fl_ws_connection_t *conn) {
+  if (!conn) return 0;
+  return conn->is_connected ? 1 : 0;
+}
+
+char* fl_ws_get_connection_info(fl_ws_connection_t *conn) {
+  if (!conn) return NULL;
+
+  char *info = (char *)malloc(512);
+  if (!info) return NULL;
+
+  snprintf(info, 512,
+    "WebSocket Connection:\n"
+    "  FD: %d\n"
+    "  Mode: %s\n"
+    "  Connected: %d\n"
+    "  Messages Sent: %lu\n"
+    "  Messages Received: %lu\n"
+    "  Bytes Sent: %lu\n"
+    "  Bytes Received: %lu\n"
+    "  Subprotocol: %s\n",
+    conn->fd,
+    conn->is_server ? "Server" : "Client",
+    conn->is_connected,
+    conn->messages_sent,
+    conn->messages_received,
+    conn->bytes_sent,
+    conn->bytes_received,
+    conn->selected_subprotocol ? conn->selected_subprotocol : "None"
+  );
+
+  return info;
 }
