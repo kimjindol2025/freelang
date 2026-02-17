@@ -1,13 +1,25 @@
 // FreeLang v2 VM - Stack-based IR interpreter
 // Extended: Now supports strings for Project Ouroboros (Self-Hosting)
 // Phase 19: Now supports user-defined functions
+// Phase 21: Now supports type-safe execution with runtime validation
 
 import { Op, Inst, VMResult, VMError } from './types';
 import { Iterator, IteratorEngine } from './engine/iterator';
 import { FunctionRegistry, LocalScope } from './parser/function-registry';
+import { FunctionTypeChecker } from './analyzer/type-checker';
+import { TypeParser } from './cli/type-parser';
 
 const MAX_CYCLES = 100_000;
 const MAX_STACK  = 10_000;
+
+export interface TypeWarning {
+  functionName: string;
+  message: string;
+  timestamp: Date;
+  paramName?: string;
+  expectedType?: string;
+  receivedType?: string;
+}
 
 export class VM {
   private stack: (number | Iterator | string)[] = [];
@@ -19,9 +31,77 @@ export class VM {
   private nextCallbackId = 0;
   private functionRegistry?: FunctionRegistry;  // Phase 19: user-defined functions
   private currentScope?: LocalScope;  // Phase 19: variable scoping
+  private typeChecker = new FunctionTypeChecker();  // Phase 21: type-safe execution
+  private typeWarnings: TypeWarning[] = [];  // Phase 21: track type warnings
 
   constructor(functionRegistry?: FunctionRegistry) {
     this.functionRegistry = functionRegistry;
+  }
+
+  /**
+   * Phase 21: Infer type of a value
+   */
+  private inferType(value: any): string {
+    return TypeParser.inferType(value);
+  }
+
+  /**
+   * Phase 21: Infer types of stack top N values
+   */
+  private inferStackTypes(count: number): string[] {
+    const types: string[] = [];
+    const startIdx = Math.max(0, this.stack.length - count);
+    for (let i = startIdx; i < this.stack.length; i++) {
+      types.push(this.inferType(this.stack[i]));
+    }
+    return types;
+  }
+
+  /**
+   * Phase 21: Check type compatibility and generate warnings
+   */
+  private checkTypeCompatibility(funcName: string, argTypes: string[], expectedParams: Record<string, string>, paramNames: string[]): boolean {
+    const result = this.typeChecker.checkFunctionCall(
+      funcName,
+      argTypes,
+      expectedParams,
+      paramNames
+    );
+
+    if (!result.compatible) {
+      this.typeWarnings.push({
+        functionName: funcName,
+        message: result.message,
+        timestamp: new Date(),
+        paramName: result.details?.paramName,
+        expectedType: result.details?.expected,
+        receivedType: result.details?.received
+      });
+      console.warn(`Type warning in '${funcName}': ${result.message}`);
+    }
+
+    return result.compatible;
+  }
+
+  /**
+   * Phase 21: Get type warnings
+   */
+  getTypeWarnings(): TypeWarning[] {
+    return [...this.typeWarnings];
+  }
+
+  /**
+   * Phase 21: Clear type warnings
+   */
+  clearTypeWarnings(): void {
+    this.typeWarnings = [];
+  }
+
+  /**
+   * Phase 21: Get warning count
+   */
+  getWarningCount(): number {
+    return this.typeWarnings.length;
   }
 
   run(program: Inst[]): VMResult {
@@ -281,6 +361,7 @@ export class VM {
 
       case Op.CALL: {
         // Phase 19: Support both user-defined functions and legacy sub-programs
+        // Phase 21: Add type checking and validation
         const funcName = inst.arg as string;
 
         // Try user-defined function first
@@ -293,6 +374,15 @@ export class VM {
           for (let i = 0; i < fn.params.length; i++) {
             if (this.stack.length === 0) throw new Error('stack_underflow');
             args.unshift(this.stack.pop());
+          }
+
+          // Phase 21: Type checking if function has type annotations
+          if (this.functionRegistry.hasTypes(funcName)) {
+            const types = this.functionRegistry.getTypes(funcName);
+            const argTypes = args.map(arg => this.inferType(arg));
+
+            // Check type compatibility (warnings, not errors)
+            this.checkTypeCompatibility(funcName, argTypes, types!.params, fn.params);
           }
 
           // Create function scope with parameters
