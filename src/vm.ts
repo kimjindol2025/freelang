@@ -3,6 +3,8 @@
 
 import { Op, Inst, VMResult, VMError } from './types';
 import { Iterator, IteratorEngine } from './engine/iterator';
+import { FunctionRegistry, LocalScope } from './parser/function-registry';
+import { IRGenerator } from './codegen/ir-generator';
 
 const MAX_CYCLES = 100_000;
 const MAX_STACK  = 10_000;
@@ -15,6 +17,18 @@ export class VM {
   private callStack: number[] = [];  // for CALL/RET
   private callbackRegistry: Map<number, Inst[]> = new Map();  // callback_id -> bytecode
   private nextCallbackId = 0;
+  private functionRegistry?: FunctionRegistry;  // For user-defined functions
+  private currentScope?: LocalScope;  // Current local scope
+  private generator?: IRGenerator;  // For generating IR from function bodies
+
+  /**
+   * Create VM with optional FunctionRegistry for user-defined functions
+   */
+  constructor(functionRegistry?: FunctionRegistry) {
+    this.functionRegistry = functionRegistry;
+    this.generator = new IRGenerator();
+    this.currentScope = new LocalScope();  // Global scope
+  }
 
   run(program: Inst[]): VMResult {
     this.stack = [];
@@ -22,6 +36,7 @@ export class VM {
     this.pc = 0;
     this.cycles = 0;
     this.callStack = [];
+    this.currentScope = new LocalScope();  // Reset to global scope
     const t0 = performance.now();
 
     try {
@@ -272,10 +287,67 @@ export class VM {
       }
 
       case Op.CALL: {
-        if (!inst.sub) throw new Error('call_no_sub');
-        const subResult = this.runSub(inst.sub);
-        if (!subResult.ok) throw new Error('call_failed:' + subResult.error?.detail);
-        this.pc++;
+        const funcName = inst.arg as string;
+
+        // Check for user-defined function in registry
+        if (this.functionRegistry && this.functionRegistry.exists(funcName)) {
+          const funcDef = this.functionRegistry.lookup(funcName);
+          if (!funcDef) throw new Error('func_not_found:' + funcName);
+
+          // Track the function call
+          this.functionRegistry.trackCall(funcName);
+
+          // Pop arguments from stack
+          const args: unknown[] = [];
+          for (let i = 0; i < funcDef.params.length; i++) {
+            if (this.stack.length === 0) throw new Error('not_enough_args:' + funcName);
+            args.unshift(this.stack.pop()); // unshift to reverse order
+          }
+
+          // Create function scope with parameters
+          const paramMap = new Map<string, unknown>();
+          for (let i = 0; i < funcDef.params.length; i++) {
+            paramMap.set(funcDef.params[i], args[i]);
+          }
+          const funcScope = this.currentScope!.createChild(paramMap);
+
+          // Save current scope and stack
+          const savedScope = this.currentScope;
+          const savedStack = this.stack;
+          const savedVars = this.vars;
+
+          // Switch to function scope
+          this.currentScope = funcScope;
+          this.vars = new Map(funcScope.getLocal() as any);
+          this.stack = [];
+
+          // Generate IR from function body and execute
+          if (this.generator) {
+            const funcIR = this.generator.generateIR(funcDef.body);
+            const funcResult = this.runProgram(funcIR);
+
+            // Get return value from function execution
+            const returnValue = this.stack.length > 0 ? this.stack[this.stack.length - 1] : 0;
+
+            // Restore scope and stack
+            this.currentScope = savedScope;
+            this.vars = savedVars;
+            this.stack = savedStack;
+
+            // Push return value to caller's stack
+            this.guardStack();
+            this.stack.push(returnValue);
+          }
+
+          this.pc++;
+        } else if (inst.sub) {
+          // Fallback: use existing sub-program approach
+          const subResult = this.runSub(inst.sub);
+          if (!subResult.ok) throw new Error('call_failed:' + subResult.error?.detail);
+          this.pc++;
+        } else {
+          throw new Error('call_no_func:' + funcName);
+        }
         break;
       }
 
@@ -492,6 +564,30 @@ export class VM {
         break;
       }
       this.exec(inst, subProgram);
+    }
+    this.pc = savedPc;
+    return { ok: true, value: undefined, cycles: this.cycles, ms: 0 };
+  }
+
+  /**
+   * Run a program and return success status
+   * Used for function body execution
+   */
+  private runProgram(program: Inst[]): VMResult {
+    const savedPc = this.pc;
+    this.pc = 0;
+    while (this.pc < program.length) {
+      if (this.cycles++ > MAX_CYCLES) {
+        const result = this.fail(Op.HALT, 1, 'cycle_limit');
+        this.pc = savedPc;
+        return result;
+      }
+      const inst = program[this.pc];
+      if (inst.op === Op.RET || inst.op === Op.HALT) {
+        this.pc = savedPc;
+        break;
+      }
+      this.exec(inst, program);
     }
     this.pc = savedPc;
     return { ok: true, value: undefined, cycles: this.cycles, ms: 0 };

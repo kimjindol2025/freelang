@@ -226,6 +226,27 @@ export class IRGenerator {
         out.push({ op: Op.POP });
         break;
 
+      // ── Return Statement ─────────────────────────────────────
+      case 'ReturnStatement':
+        // Generate IR for the return value expression
+        if (node.value) {
+          this.traverse(node.value, out);
+        } else {
+          // Return undefined/0 if no value
+          out.push({ op: Op.PUSH, arg: 0 });
+        }
+        // Push RET opcode to exit function
+        out.push({ op: Op.RET });
+        break;
+
+      // ── Function Definition ──────────────────────────────────
+      case 'FunctionDefinition':
+        // Don't generate IR for function definition directly
+        // The function will be registered in the registry and executed via CALL
+        // This just marks that we've seen a function definition
+        // Actual execution happens when the function is called
+        break;
+
       // ── Default (unknown node type) ─────────────────────────
       default:
         throw new Error(`Unknown AST node type: ${node.type}`);
