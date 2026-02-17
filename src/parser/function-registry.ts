@@ -4,7 +4,7 @@
  */
 
 export interface FunctionDefinition {
-  type: 'FunctionDefinition';
+  type: string;  // 'FunctionDefinition' or any type string for flexibility
   name: string;
   params: string[];
   body: any;  // ASTNode
