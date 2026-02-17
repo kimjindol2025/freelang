@@ -118,13 +118,26 @@ export class IRGenerator {
       case 'IfStatement':
         this.traverse(node.condition, out);
         const ifJmpIdx = out.length;
-        out.push({ op: Op.JMP_NOT, arg: 0 }); // placeholder
+        out.push({ op: Op.JMP_NOT, arg: 0 }); // placeholder for false jump
 
+        // Execute consequent (true branch)
         this.traverse(node.consequent, out);
-        out[ifJmpIdx].arg = out.length; // patch jump target
 
+        // If we have an else block, we need to jump over it after the consequent
+        let elseJmpIdx = -1;
+        if (node.alternate) {
+          elseJmpIdx = out.length;
+          out.push({ op: Op.JMP, arg: 0 }); // placeholder for end jump
+        }
+
+        // Patch the JMP_NOT to point to here (else block or end)
+        out[ifJmpIdx].arg = out.length;
+
+        // Execute alternate (else branch) if present
         if (node.alternate) {
           this.traverse(node.alternate, out);
+          // Patch the final JMP to point to here (after else)
+          out[elseJmpIdx].arg = out.length;
         }
         break;
 
