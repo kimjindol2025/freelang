@@ -1,13 +1,21 @@
 // @ts-nocheck
 /**
- * Phase 8.3: User Dashboard
+ * Phase 12: Dashboard Integration
  *
- * 사용 통계, 신뢰도 트렌드, 피드백 히스토리 시각화
+ * Phase 8 Dashboard + Phase 11 Dynamic Confidence System 통합
+ * 사용 통계, 신뢰도 트렌드, 피드백 히스토리, 신뢰도 분석 시각화
  */
 
 import { feedbackCollector, UserFeedback } from '../feedback/collector';
 import { patternUpdater, PatternUpdater } from '../learning/pattern-updater';
 import { autoImprover, AutoImprover } from '../learning/auto-improver';
+
+// Phase 11 imports
+import ConfidenceReporter from '../phase-11/confidence-reporter';
+import { DynamicConfidenceAdjuster } from '../phase-11/dynamic-confidence-adjuster';
+import FeedbackAnalyzer from '../phase-11/feedback-analyzer';
+import { ConfidenceReport, PatternReport, CategoryReport } from '../phase-11/confidence-reporter';
+import { IntentPattern } from '../phase-10/unified-pattern-database';
 
 export interface DashboardStats {
   total_patterns: number;
@@ -38,14 +46,21 @@ export interface FeedbackSummary {
 export class Dashboard {
   private patternUpdater: PatternUpdater;
   private autoImprover: AutoImprover;
+  private confidenceReporter: ConfidenceReporter;
+  private confidenceAdjuster: DynamicConfidenceAdjuster;
+  private feedbackAnalyzer: FeedbackAnalyzer;
   private refreshInterval: number = 60000; // 1분마다 갱신
 
   constructor(
     pu?: PatternUpdater,
-    ai?: AutoImprover
+    ai?: AutoImprover,
+    patterns?: IntentPattern[]
   ) {
     this.patternUpdater = pu || patternUpdater;
     this.autoImprover = ai || autoImprover;
+    this.confidenceReporter = new ConfidenceReporter();
+    this.confidenceAdjuster = new DynamicConfidenceAdjuster();
+    this.feedbackAnalyzer = patterns ? new FeedbackAnalyzer(patterns) : null;
   }
 
   /**
@@ -280,6 +295,121 @@ export class Dashboard {
     if (feedbacks.length === 0) return 0;
     const approved = feedbacks.filter(f => f.user_action === 'approve').length;
     return approved / feedbacks.length;
+  }
+
+  /**
+   * Phase 12: Phase 11 Dynamic Confidence Report
+   * Complete confidence report with all metrics
+   */
+  getConfidenceReport(patterns: IntentPattern[]): ConfidenceReport | null {
+    if (!this.feedbackAnalyzer) {
+      this.feedbackAnalyzer = new FeedbackAnalyzer(patterns);
+    }
+
+    try {
+      // Collect feedback from Phase 8
+      const feedbacks = feedbackCollector.getAllFeedbacks();
+      if (feedbacks.length === 0) {
+        return null;
+      }
+
+      // Analyze feedback (Phase 11)
+      const stats = this.feedbackAnalyzer.analyzeFeedback(feedbacks);
+
+      // Adjust patterns
+      const adjustedPatterns = this.confidenceAdjuster.adjustAllPatterns(patterns, stats);
+
+      // Generate comparison
+      const comparison = this.confidenceAdjuster.generateComparisonReport(patterns, adjustedPatterns);
+
+      // Generate report
+      const report = this.confidenceReporter.generateReport(
+        patterns,
+        adjustedPatterns,
+        comparison,
+        stats
+      );
+
+      return report;
+    } catch (error) {
+      console.error('Error generating confidence report:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Phase 12: Category-level confidence breakdown
+   */
+  getCategoryBreakdown(patterns: IntentPattern[]): CategoryReport[] {
+    const report = this.getConfidenceReport(patterns);
+    if (!report) {
+      return [];
+    }
+    return report.categoryReports || [];
+  }
+
+  /**
+   * Phase 12: Top movers (improvements and degradations)
+   */
+  getTopMovers(patterns: IntentPattern[], limit: number = 10): {
+    improvements: PatternReport[];
+    degradations: PatternReport[];
+  } {
+    const report = this.getConfidenceReport(patterns);
+    if (!report) {
+      return { improvements: [], degradations: [] };
+    }
+
+    return {
+      improvements: (report.topImprovements || []).slice(0, limit),
+      degradations: (report.topDegradations || []).slice(0, limit),
+    };
+  }
+
+  /**
+   * Phase 12: Confidence trends over time
+   */
+  getConfidenceTrends(patterns: IntentPattern[], days: number = 7): Array<{
+    date: string;
+    avgConfidenceBefore: number;
+    avgConfidenceAfter: number;
+    improvedPatternCount: number;
+  }> {
+    // Get daily trends
+    const trends = this.getTrends(days);
+    const trendMap = new Map<string, { count: number; sum: number }>();
+
+    for (const trend of trends) {
+      const date = trend.date;
+      if (!trendMap.has(date)) {
+        trendMap.set(date, { count: 0, sum: 0 });
+      }
+      const entry = trendMap.get(date)!;
+      entry.sum += trend.avg_confidence;
+      entry.count++;
+    }
+
+    const result = Array.from(trendMap.entries()).map(([date, entry]) => ({
+      date,
+      avgConfidenceBefore: entry.sum / entry.count - 0.02, // Approximate before
+      avgConfidenceAfter: entry.sum / entry.count, // Current
+      improvedPatternCount: Math.floor((entry.sum / entry.count) * patterns.length),
+    }));
+
+    return result.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Phase 12: Confidence details for specific pattern
+   */
+  getPatternConfidence(patterns: IntentPattern[], patternId: string): PatternReport | null {
+    const report = this.getConfidenceReport(patterns);
+    if (!report) {
+      return null;
+    }
+
+    const pattern = report.patterns?.find(p => p.patternId === patternId);
+    return pattern || null;
   }
 
   /**

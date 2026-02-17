@@ -1,8 +1,10 @@
 /**
- * Phase 8.3: Dashboard REST API Routes
+ * Phase 12: Dashboard REST API Routes (Extended)
+ * Includes Phase 11 Dynamic Confidence System integration
  */
 
 import { dashboard } from '../../dashboard/dashboard';
+import allPatterns from '../../phase-10/v1-v2-adjusted-patterns.json';
 
 export const dashboardRoutes = {
   /**
@@ -59,5 +61,45 @@ export const dashboardRoutes = {
    */
   exportCSV: () => {
     return dashboard.exportTrendsToCSV();
+  },
+
+  /**
+   * Phase 12: GET /api/dashboard/confidence-report
+   * Complete Phase 11 confidence report
+   */
+  getConfidenceReport: () => {
+    return dashboard.getConfidenceReport(allPatterns as any);
+  },
+
+  /**
+   * Phase 12: GET /api/dashboard/categories
+   * Category-level breakdown
+   */
+  getCategoryBreakdown: () => {
+    return dashboard.getCategoryBreakdown(allPatterns as any);
+  },
+
+  /**
+   * Phase 12: GET /api/dashboard/top-movers
+   * Top improvements and degradations
+   */
+  getTopMovers: (limit?: number) => {
+    return dashboard.getTopMovers(allPatterns as any, limit || 10);
+  },
+
+  /**
+   * Phase 12: GET /api/dashboard/confidence-trends
+   * Confidence trends over time
+   */
+  getConfidenceTrends: (days?: number) => {
+    return dashboard.getConfidenceTrends(allPatterns as any, days || 7);
+  },
+
+  /**
+   * Phase 12: GET /api/dashboard/pattern/:id/confidence
+   * Confidence details for specific pattern
+   */
+  getPatternConfidence: (patternId: string) => {
+    return dashboard.getPatternConfidence(allPatterns as any, patternId);
   },
 };
