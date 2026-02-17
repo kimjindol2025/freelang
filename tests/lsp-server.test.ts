@@ -20,17 +20,21 @@ interface MockTextDocument {
   uri: string;
   languageId: string;
   version: number;
+  lineCount: number;
   getText(range?: any): string;
   offsetAt(position: any): number;
+  positionAt(offset: number): any;
 }
 
 describe('LSP Server Features', () => {
   // Mock TextDocument Factory
   function createDocument(content: string, uri = 'file:///test.fl'): MockTextDocument {
+    const lines = content.split('\n');
     return {
       uri,
       languageId: 'freelang',
       version: 1,
+      lineCount: lines.length,
       getText(range?: any): string {
         if (!range) return content;
         const lines = content.split('\n');
@@ -47,6 +51,17 @@ describe('LSP Server Features', () => {
         }
         offset += position.character;
         return offset;
+      },
+      positionAt(offset: number): any {
+        const lines = content.split('\n');
+        let currentOffset = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (currentOffset + lines[i].length >= offset) {
+            return { line: i, character: offset - currentOffset };
+          }
+          currentOffset += lines[i].length + 1; // +1 for newline
+        }
+        return { line: lines.length - 1, character: lines[lines.length - 1].length };
       }
     };
   }

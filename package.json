@@ -11,7 +11,9 @@
     "lint": "eslint src --ext .ts",
     "start": "node dist/cli/index.js",
     "dev": "ts-node src/cli/index.ts",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "lsp": "node dist/lsp/language-server.js",
+    "lsp:dev": "ts-node src/lsp/language-server.ts"
   },
   "keywords": [
     "ai",
@@ -30,7 +32,7 @@
     "chalk": "^4.1.2",
     "express": "^5.2.1",
     "vscode-languageserver": "^8.1.0",
-    "vscode-languageserver-textdocument": "^1.3.0"
+    "vscode-languageserver-textdocument": "^1.0.12"
   },
   "devDependencies": {
     "@types/jest": "^29.5.8",

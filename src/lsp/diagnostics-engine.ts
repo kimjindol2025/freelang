@@ -12,16 +12,13 @@
 
 import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { AIFirstTypeInferenceEngine } from '../analyzer/ai-first-type-inference-engine';
 
 /**
  * 진단 엔진
  */
 export class DiagnosticsEngine {
-  private typeInference: AIFirstTypeInferenceEngine;
-
   constructor() {
-    this.typeInference = new AIFirstTypeInferenceEngine();
+    // Diagnostics engine initialization
   }
 
   /**

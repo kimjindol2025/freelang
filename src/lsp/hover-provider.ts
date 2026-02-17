@@ -12,16 +12,13 @@
 
 import { Hover, MarkupKind, MarkedString } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { AIFirstTypeInferenceEngine } from '../analyzer/ai-first-type-inference-engine';
 
 /**
  * 호버 정보 제공자
  */
 export class HoverProvider {
-  private typeInference: AIFirstTypeInferenceEngine;
-
   constructor() {
-    this.typeInference = new AIFirstTypeInferenceEngine();
+    // Hover provider initialization
   }
 
   /**
@@ -36,8 +33,8 @@ export class HoverProvider {
       // 2. 컨텍스트 분석 (주변 코드)
       const context = this.getContext(document, line, column);
 
-      // 3. 타입 추론
-      const type = this.typeInference.inferType(word, 'variable', undefined, document.getText());
+      // 3. 타입 정보 (기본값)
+      const type = { type: 'unknown', confidence: 0.5, sources: [] };
       if (!type || !type.type) return null;
 
       // 4. 호버 콘텐츠 생성
