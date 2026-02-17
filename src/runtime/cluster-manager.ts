@@ -109,7 +109,7 @@ export class ClusterManager extends EventEmitter {
    * Worker: HTTP/2 요청 처리
    */
   async start(port: number = 8443): Promise<void> {
-    if (cluster.isMaster) {
+    if (cluster.isPrimary) {
       await this.startMaster(port);
     } else {
       await this.startWorker(port);
@@ -139,10 +139,10 @@ export class ClusterManager extends EventEmitter {
     // Worker 프로세스 생성
     console.log(`\n📦 Creating Worker Processes...`);
     for (let i = 0; i < this.numWorkers; i++) {
-      const worker = cluster.fork({
+      const worker = cluster.fork?.({
         WORKER_ID: String(i),
         PORT: String(port + i) // 각 worker마다 다른 포트 사용
-      });
+      }) as any;
 
       console.log(`  ✅ Worker ${i} created (PID: ${worker.process.pid})`);
 

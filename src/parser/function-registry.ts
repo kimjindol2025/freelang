@@ -9,6 +9,12 @@ export interface FunctionDefinition {
   params: string[];
   body: any; // AST node (Expression or Statement)
   returnType?: string; // Optional return type annotation
+  paramTypes?: Record<string, string>; // Optional parameter type annotations
+}
+
+export interface FunctionTypes {
+  params: Record<string, string>;  // param name -> type
+  returnType?: string;             // return type (optional)
 }
 
 export interface FunctionStats {
@@ -20,10 +26,12 @@ export interface FunctionStats {
 /**
  * FunctionRegistry: Simple Map-based function definition storage
  * O(1) lookup, no global state needed
+ * Supports optional type information for each function
  */
 export class FunctionRegistry {
   private functions: Map<string, FunctionDefinition> = new Map();
   private callCounts: Map<string, number> = new Map();
+  private types: Map<string, FunctionTypes> = new Map();
 
   /**
    * Register a function definition
