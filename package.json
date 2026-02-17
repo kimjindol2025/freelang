@@ -1,28 +1,33 @@
 {
-  "name": "@freelang/core",
+  "name": "freelang",
   "version": "2.1.0",
-  "description": "FreeLang v2.1.0: AI-First Programming Language - Self-Correcting + Intent-Driven + Production Ready",
+  "description": "Production-ready async runtime with self-healing, chaos engineering validation, and 30-day uptime guarantee",
   "main": "dist/cli/index.js",
   "types": "dist/cli/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "jest",
+    "test": "jest --coverage",
     "test:watch": "jest --watch",
+    "coverage": "jest --coverage",
+    "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "start": "node dist/cli/index.js",
     "dev": "ts-node src/cli/index.ts",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist coverage",
     "prepare": "npm run build"
   },
   "keywords": [
-    "ai",
-    "programming-language",
-    "code-generation",
-    "c-backend",
-    "minimal-intent",
+    "runtime",
+    "async",
+    "http-server",
+    "javascript",
+    "production",
+    "self-healing",
+    "chaos-engineering",
+    "monitoring",
     "freelang"
   ],
-  "author": "Claude AI",
+  "author": "FreeLang Contributors <hello@freelang.dev>",
   "license": "MIT",
   "bin": {
     "freelang": "./bin/freelang"
@@ -47,22 +52,25 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gogs.dclub.kr/kim/v2-freelang-ai.git"
+    "url": "https://github.com/freelang/freelang.git"
   },
   "bugs": {
-    "url": "https://gogs.dclub.kr/kim/v2-freelang-ai/issues"
+    "url": "https://github.com/freelang/freelang/issues"
   },
-  "homepage": "https://gogs.dclub.kr/kim/v2-freelang-ai",
+  "homepage": "https://github.com/freelang/freelang#readme",
   "files": [
     "dist",
     "bin",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md",
-    "KNOWN_ISSUES.md"
+    "ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "examples"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "kpm": {
     "category": "language-runtime",

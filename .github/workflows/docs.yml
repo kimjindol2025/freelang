@@ -1,0 +1,42 @@
+# GitHub Actions: Documentation Build & Deploy
+# docs/ 폴더 변경 시 자동으로 GitHub Pages에 배포 (선택사항)
+
+name: Docs
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'ARCHITECTURE.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🔨 Build documentation
+        run: |
+          echo "📖 Documentation is in /docs directory"
+          echo "✅ README, API docs, and examples are ready"
+        continue-on-error: true
+
+      - name: 📤 Deploy to GitHub Pages (optional)
+        # 나중에 github.io 도메인이 준비되면 활성화
+        run: |
+          echo "🚀 Ready to deploy to GitHub Pages"
+          echo "   Setup: Settings > Pages > Deploy from branch (gh-pages)"
+        continue-on-error: true

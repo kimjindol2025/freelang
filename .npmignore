@@ -1,13 +1,21 @@
-tests/
-*.test.ts
+# Source code
 src/
-docs/
-examples/
-.git*
+tests/
+
+# Configuration
 .github/
-jest.config.js
+.eslintrc.json
 tsconfig.json
+jest.config.js
+PHASE_23_PLAN.md
+
+# Development
+.vscode/
+.idea/
 *.md
 !README.md
 !LICENSE
-!CHANGELOG.md
+
+# Build artifacts
+.cache/
+coverage/

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Q&A Discussion
+    url: https://github.com/freelang/freelang/discussions/categories/q-a
+    about: 질문이 있으신가요? Discussion을 사용해주세요
+  - name: 🔐 Security Issue
+    url: mailto:security@freelang.dev
+    about: 보안 취약점은 이메일로 신고해주세요
