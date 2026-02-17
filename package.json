@@ -1,7 +1,7 @@
 {
   "name": "@freelang/runtime",
-  "version": "2.1.0",
-  "description": "Production-ready async runtime with self-healing and chaos engineering validation",
+  "version": "2.2.0",
+  "description": "Production-ready async runtime with advanced type system and self-healing capabilities",
   "main": "dist/cli/index.js",
   "types": "dist/cli/index.d.ts",
   "scripts": {
