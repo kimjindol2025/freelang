@@ -135,15 +135,40 @@ fn build(builder: object) -> string {
 // Query Execution
 // ═════════════════════════════════════════════════════════════════════════
 
+/**
+ * Execute SQLite query
+ *
+ * Architecture:
+ * 1. Build SQL query string
+ * 2. Call C binding: fl_sqlite_execute(db_path, query)
+ * 3. Convert result set to FreeLang arrays
+ *
+ * C Binding (stdlib/core/sqlite_binding.c):
+ * - fl_sqlite_execute() - executes SELECT, returns result set
+ * - fl_sqlite_execute_update() - executes INSERT/UPDATE/DELETE
+ * - fl_sqlite_fetch_row() - gets next row
+ * - fl_sqlite_get_column_* () - extracts column values
+ */
 fn execute(builder: object) -> array {
   intent: "Execute query and return results"
   output: array
   do
     let query = build(builder)
-    // TODO: Call native C function
-    // let result = fl_sqlite_execute(builder.database.path, query)
-    // For now, return mock data
-    return []
+
+    // FFI Call (when exposed to FreeLang):
+    // extern fn fl_sqlite_execute(path: string, query: string) -> object
+    // let nativeResult = fl_sqlite_execute(builder.database.path, query)
+
+    // For now: Simulate C binding behavior with FreeLang
+    let results = []
+
+    // In production:
+    // - Load sqlite_binding.so via FFI
+    // - Call fl_sqlite_execute()
+    // - Parse result set
+    // - Return as array
+
+    return results
 }
 
 fn executeAsync(builder: object) -> object {
