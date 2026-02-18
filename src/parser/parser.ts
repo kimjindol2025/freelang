@@ -42,6 +42,7 @@ import {
   BinaryOpExpression,
   CallExpression,
   ArrayExpression,
+  LambdaExpression,  // Phase 3 Step 3: Lambda expressions
   LiteralPattern,
   VariablePattern,
   WildcardPattern,
@@ -55,7 +56,8 @@ import {
   ForOfStatement,  // Phase 2: for...of loop support
   WhileStatement,
   ReturnStatement,
-  BlockStatement
+  BlockStatement,
+  Parameter  // Phase 3 Step 3: Lambda parameters
 } from './ast';
 
 /**
@@ -566,11 +568,140 @@ export class Parser {
       } as IdentifierExpression;
     }
 
+    // Phase 3 Step 3: Lambda Expression
+    // Format: fn(param1: type1, param2: type2) -> returnType -> body
+    // or: fn(param1, param2) -> body
+    if (this.check(TokenType.FN)) {
+      return this.parseLambda();
+    }
+
     throw new ParseError(
       token.line,
       token.column,
       `Unexpected token in expression: ${token.type}`
     );
+  }
+
+  /**
+   * Phase 3 Step 3: Parse lambda expression
+   * Format: fn(param1: type1, param2: type2) -> returnType -> body
+   * or: fn(param1, param2) -> body
+   */
+  private parseLambda(): LambdaExpression {
+    this.expect(TokenType.FN, 'Expected "fn"');
+    this.expect(TokenType.LPAREN, 'Expected "(" after "fn"');
+
+    // Parse parameters
+    const params: Parameter[] = [];
+    const paramTypes: string[] = [];
+
+    while (!this.check(TokenType.RPAREN) && !this.check(TokenType.EOF)) {
+      const paramName = this.expect(TokenType.IDENT, 'Expected parameter name').value;
+
+      let paramType: string | undefined;
+      if (this.match(TokenType.COLON)) {
+        // Type annotation present
+        paramType = this.parseType();
+        paramTypes.push(paramType);
+      } else {
+        paramTypes.push('unknown');
+      }
+
+      params.push({
+        name: paramName,
+        paramType
+      });
+
+      if (this.check(TokenType.COMMA)) {
+        this.advance();
+      }
+    }
+
+    this.expect(TokenType.RPAREN, 'Expected ")" after parameters');
+
+    // Parse optional return type
+    let returnType: string | undefined;
+    if (this.match(TokenType.ARROW)) {
+      // This could be return type or body
+      const savedPos = this.tokens.getPosition?.() || 0;
+
+      // Try to parse as type first
+      if (this.check(TokenType.IDENT) || this.check(TokenType.LBRACKET)) {
+        const typeStart = this.current();
+        try {
+          const possibleType = this.parseType();
+
+          // If we see another arrow after the type, it's a return type annotation
+          if (this.check(TokenType.ARROW)) {
+            returnType = possibleType;
+            this.advance(); // consume second arrow
+          } else {
+            // It was the body expression, not a type - we'll parse it below
+            // For now, treat the first arrow as function body indicator
+          }
+        } catch (e) {
+          // Not a valid type, treat arrow as function body indicator
+        }
+      }
+    }
+
+    // Parse body expression (must be present)
+    const body = this.parseExpression();
+
+    return {
+      type: 'lambda',
+      params,
+      paramTypes: paramTypes.length > 0 ? paramTypes : undefined,
+      body,
+      returnType,
+      capturedVars: []  // Will be filled by type checker
+    } as LambdaExpression;
+  }
+
+  /**
+   * Parse type annotation
+   * Handles: number, string, bool, array<T>, fn(T)->U, etc.
+   */
+  private parseType(): string {
+    if (!this.check(TokenType.IDENT) && !this.check(TokenType.LBRACKET)) {
+      throw new ParseError(
+        this.current().line,
+        this.current().column,
+        'Expected type annotation'
+      );
+    }
+
+    let type = '';
+
+    if (this.check(TokenType.LBRACKET)) {
+      // Array type: [type] or array<type>
+      this.advance(); // [
+      type = '[' + this.parseType() + ']';
+      this.expect(TokenType.RBRACKET, 'Expected "]"');
+      return type;
+    }
+
+    // Parse identifier part
+    type = this.expect(TokenType.IDENT, 'Expected type').value;
+
+    // Handle generics: type<T, U>
+    if (this.check(TokenType.LT)) {
+      this.advance(); // <
+      type += '<';
+
+      while (!this.check(TokenType.GT) && !this.check(TokenType.EOF)) {
+        type += this.parseType();
+        if (this.check(TokenType.COMMA)) {
+          this.advance();
+          type += ', ';
+        }
+      }
+
+      this.expect(TokenType.GT, 'Expected ">"');
+      type += '>';
+    }
+
+    return type;
   }
 
   /**

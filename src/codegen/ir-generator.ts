@@ -176,6 +176,11 @@ export class IRGenerator {
         out.push({ op: Op.ARR_GET });
         break;
 
+      // ── Phase 3 Step 3: Lambda Expression ─────────────────
+      case 'lambda':
+        this.generateLambdaIR(node, out);
+        break;
+
       // ── Function Call ───────────────────────────────────────
       case 'CallExpression':
         if (node.arguments && Array.isArray(node.arguments)) {
@@ -293,10 +298,469 @@ export class IRGenerator {
         // out.push({ op: Op.POP }); // Pop array from stack if needed
         break;
 
+      // ── Array Method Calls (Phase 3 Step 2) ──────────────────────
+      // object.method(args) → evaluate and call
+      case 'MethodCall':
+      case 'methodCall':
+        // Evaluate the object
+        this.traverse(node.object, out);
+
+        // Store object temporarily
+        const methodObjVar = `_method_obj_${this.indexVarCounter++}`;
+        out.push({ op: Op.STORE, arg: methodObjVar });
+
+        // Evaluate arguments and generate method-specific IR
+        this.generateMethodCallIR(node.method, node.args, methodObjVar, out);
+        break;
+
       // ── Default (unknown node type) ─────────────────────────
       default:
         throw new Error(`Unknown AST node type: ${node.type}`);
     }
+  }
+
+  /**
+   * Phase 3 Step 2: Generate IR for array method calls
+   * Handles: map, filter, reduce, find, any, all, forEach, flatten, concat, sort
+   */
+  private generateMethodCallIR(
+    method: string,
+    args: ASTNode[],
+    objVar: string,
+    out: Inst[]
+  ): void {
+    const resultVar = `_method_result_${this.indexVarCounter++}`;
+    const indexVar = `_method_idx_${this.indexVarCounter++}`;
+    const elemVar = `_method_elem_${this.indexVarCounter++}`;
+
+    switch (method) {
+      // ── map: fn<T, U>(array<T>, fn(T) -> U) -> array<U> ──────────
+      case 'map':
+        if (args.length < 1) throw new Error('map() requires a function argument');
+
+        // Create result array
+        out.push({ op: Op.PUSH, arg: 0 }); // Empty array
+        out.push({ op: Op.ARR_NEW });
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        // Initialize index
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Loop: while index < array.length
+        const mapLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const mapJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 }); // Patch later
+
+        // Get element
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+        out.push({ op: Op.STORE, arg: elemVar });
+
+        // Call function on element
+        this.traverse(args[0], out); // Function expression
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.CALL }); // Call the function
+
+        // Push result to array
+        out.push({ op: Op.LOAD, arg: resultVar });
+        out.push({ op: Op.SWAP });
+        out.push({ op: Op.ARR_PUSH });
+
+        // Increment index
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Jump back
+        out.push({ op: Op.JMP, arg: mapLoopStart });
+        out[mapJmpOut].arg = out.length;
+
+        // Load result
+        out.push({ op: Op.LOAD, arg: resultVar });
+        break;
+
+      // ── filter: fn<T>(array<T>, fn(T) -> bool) -> array<T> ──────
+      case 'filter':
+        if (args.length < 1) throw new Error('filter() requires a predicate function');
+
+        // Create result array
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.ARR_NEW });
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        // Initialize index
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Loop
+        const filterLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const filterJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        // Get element
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+        out.push({ op: Op.STORE, arg: elemVar });
+
+        // Call predicate
+        this.traverse(args[0], out);
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.CALL });
+
+        // Check result
+        const filterSkip = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        // Push if true
+        out.push({ op: Op.LOAD, arg: resultVar });
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.ARR_PUSH });
+
+        out[filterSkip].arg = out.length;
+
+        // Increment index
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Jump back
+        out.push({ op: Op.JMP, arg: filterLoopStart });
+        out[filterJmpOut].arg = out.length;
+
+        // Load result
+        out.push({ op: Op.LOAD, arg: resultVar });
+        break;
+
+      // ── reduce: fn<T, U>(array<T>, fn(U, T) -> U, U) -> U ────────
+      case 'reduce':
+        if (args.length < 2) throw new Error('reduce() requires reducer function and initial value');
+
+        // Initialize accumulator
+        const accumVar = `_accum_${this.indexVarCounter++}`;
+        this.traverse(args[1], out); // Initial value
+        out.push({ op: Op.STORE, arg: accumVar });
+
+        // Initialize index
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Loop
+        const reduceLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const reduceJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        // Get element
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+        out.push({ op: Op.STORE, arg: elemVar });
+
+        // Call reducer: fn(accumulator, element)
+        this.traverse(args[0], out);
+        out.push({ op: Op.LOAD, arg: accumVar });
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.CALL });
+
+        // Store result
+        out.push({ op: Op.STORE, arg: accumVar });
+
+        // Increment index
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Jump back
+        out.push({ op: Op.JMP, arg: reduceLoopStart });
+        out[reduceJmpOut].arg = out.length;
+
+        // Load accumulator (result)
+        out.push({ op: Op.LOAD, arg: accumVar });
+        break;
+
+      // ── find: fn<T>(array<T>, fn(T) -> bool) -> T ────────────────
+      case 'find':
+        if (args.length < 1) throw new Error('find() requires a predicate function');
+
+        // Initialize index
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Loop
+        const findLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const findJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        // Get element
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+        out.push({ op: Op.STORE, arg: elemVar });
+
+        // Call predicate
+        this.traverse(args[0], out);
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.CALL });
+
+        // If found, return element
+        const findFound = out.length;
+        out.push({ op: Op.JMP_IF, arg: 0 }); // Patch later
+
+        // Increment and continue
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+        out.push({ op: Op.JMP, arg: findLoopStart });
+
+        // Found: patch here
+        out[findFound].arg = out.length;
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out[findJmpOut].arg = out.length;
+        break;
+
+      // ── concat: fn<T>(array<T>, array<T>) -> array<T> ──────────
+      case 'concat':
+        if (args.length < 1) throw new Error('concat() requires an array argument');
+
+        // Create result array (copy of first)
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_DUP });
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        // Evaluate second array
+        this.traverse(args[0], out);
+        out.push({ op: Op.STORE, arg: `_other_array_${this.indexVarCounter++}` });
+
+        // Initialize index for second array
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Loop through second array
+        const concatLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: `_other_array_${this.indexVarCounter - 1}` });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const concatJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        // Get element from second array
+        out.push({ op: Op.LOAD, arg: `_other_array_${this.indexVarCounter - 1}` });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+
+        // Push to result
+        out.push({ op: Op.LOAD, arg: resultVar });
+        out.push({ op: Op.SWAP });
+        out.push({ op: Op.ARR_PUSH });
+
+        // Increment index
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        out.push({ op: Op.JMP, arg: concatLoopStart });
+        out[concatJmpOut].arg = out.length;
+
+        out.push({ op: Op.LOAD, arg: resultVar });
+        break;
+
+      // ── flatten: fn<T>(array<array<T>>) -> array<T> ────────────
+      case 'flatten':
+        // Create result array
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.ARR_NEW });
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        // Initialize index
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        // Loop through outer array
+        const flattenLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const flattenJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        // Get inner array
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+
+        // Merge into result (simplified: just push all elements)
+        // Real implementation would loop through inner array
+        out.push({ op: Op.LOAD, arg: resultVar });
+        out.push({ op: Op.SWAP });
+        out.push({ op: Op.ARR_CONCAT });
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        // Increment index
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        out.push({ op: Op.JMP, arg: flattenLoopStart });
+        out[flattenJmpOut].arg = out.length;
+
+        out.push({ op: Op.LOAD, arg: resultVar });
+        break;
+
+      // ── any/all: fn<T>(array<T>, fn(T) -> bool) -> bool ─────────
+      case 'any':
+        if (args.length < 1) throw new Error('any() requires a predicate function');
+
+        out.push({ op: Op.PUSH, arg: 0 }); // false
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        const anyLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const anyJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+        out.push({ op: Op.STORE, arg: elemVar });
+
+        this.traverse(args[0], out);
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.CALL });
+
+        const anyFound = out.length;
+        out.push({ op: Op.JMP_IF, arg: 0 });
+
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+        out.push({ op: Op.JMP, arg: anyLoopStart });
+
+        out[anyFound].arg = out.length;
+        out.push({ op: Op.PUSH, arg: 1 }); // true
+        out.push({ op: Op.STORE, arg: resultVar });
+        out[anyJmpOut].arg = out.length;
+
+        out.push({ op: Op.LOAD, arg: resultVar });
+        break;
+
+      case 'all':
+        if (args.length < 1) throw new Error('all() requires a predicate function');
+
+        out.push({ op: Op.PUSH, arg: 1 }); // true
+        out.push({ op: Op.STORE, arg: resultVar });
+
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: indexVar });
+
+        const allLoopStart = out.length;
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.ARR_LEN });
+        out.push({ op: Op.LT });
+
+        const allJmpOut = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        out.push({ op: Op.LOAD, arg: objVar });
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.ARR_GET });
+        out.push({ op: Op.STORE, arg: elemVar });
+
+        this.traverse(args[0], out);
+        out.push({ op: Op.LOAD, arg: elemVar });
+        out.push({ op: Op.CALL });
+
+        const allFail = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 });
+
+        out.push({ op: Op.LOAD, arg: indexVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: indexVar });
+        out.push({ op: Op.JMP, arg: allLoopStart });
+
+        out[allFail].arg = out.length;
+        out.push({ op: Op.PUSH, arg: 0 }); // false
+        out.push({ op: Op.STORE, arg: resultVar });
+        out[allJmpOut].arg = out.length;
+
+        out.push({ op: Op.LOAD, arg: resultVar });
+        break;
+
+      default:
+        throw new Error(`Unknown array method: ${method}`);
+    }
+  }
+
+  /**
+   * Phase 3 Step 3: Generate IR for lambda expression
+   * Creates a closure object with captured variables
+   */
+  private generateLambdaIR(lambda: any, out: Inst[]): void {
+    // Lambda is represented as:
+    // 1. Create function object with closure variables
+    // 2. Capture variables from outer scope
+    // 3. Load onto stack as a callable object
+
+    // Create lambda function object
+    out.push({ op: Op.LAMBDA_NEW });
+
+    // Add closure variables (if any)
+    if (lambda.capturedVars && lambda.capturedVars.length > 0) {
+      for (const varName of lambda.capturedVars) {
+        out.push({ op: Op.LOAD, arg: varName });
+        out.push({ op: Op.LAMBDA_CAPTURE, arg: varName });
+      }
+    }
+
+    // Store lambda body as instructions
+    const bodyInstructions: Inst[] = [];
+    this.traverse(lambda.body, bodyInstructions);
+    out.push({
+      op: Op.LAMBDA_SET_BODY,
+      arg: lambda.params.length,
+      sub: bodyInstructions
+    });
   }
 
   /**

@@ -70,7 +70,8 @@ export type Expression =
   | CallExpression
   | ArrayExpression
   | MemberExpression
-  | MatchExpression;
+  | MatchExpression
+  | LambdaExpression;
 
 export interface LiteralExpression {
   type: 'literal';
@@ -105,6 +106,19 @@ export interface MemberExpression {
   type: 'member';
   object: Expression;
   property: string;
+}
+
+/**
+ * Phase 3 Step 3: Lambda Expression (Functions & Closures)
+ * Supports anonymous functions with parameter types and closure capture
+ */
+export interface LambdaExpression {
+  type: 'lambda';
+  params: Parameter[];        // Parameter definitions
+  paramTypes?: string[];      // Optional type annotations for params
+  body: Expression;           // Lambda body expression
+  returnType?: string;        // Optional return type annotation
+  capturedVars?: string[];    // Variables captured from enclosing scope
 }
 
 /**
