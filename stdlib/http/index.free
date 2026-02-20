@@ -24,10 +24,20 @@
 // Internal binding: FreeLang FFI layer
 // These are declared but actual bindings happen in runtime/ffi.c
 
+// Server bindings
 extern fn http_server_listen(port: int, handler: fn) -> ptr
 extern fn http_server_start(server: ptr) -> void
 extern fn http_server_stop(server: ptr) -> void
 extern fn http_server_port(server: ptr) -> int
+
+// Client bindings
+extern fn http_client_get(url: str) -> ptr
+extern fn http_client_post(url: str, body: str) -> ptr
+extern fn http_client_put(url: str, body: str) -> ptr
+extern fn http_client_delete(url: str) -> ptr
+extern fn http_response_status(res_ptr: ptr) -> int
+extern fn http_response_body(res_ptr: ptr) -> str
+extern fn http_response_free_export(res_ptr: ptr) -> void
 
 /* ===== HTTP Server Classes ===== */
 
@@ -189,46 +199,94 @@ export const http = {
   // ===== Client: GET =====
 
   get: async (url, options) => {
-    // Implementation: Stub for now
-    // TODO: Implement using curl/libcurl or native sockets
-    // For now, returns mock response
+    // FFI: Call native HTTP client
+    let res_ptr = $ffi.http_client_get(url)
 
-    let body = "{}"
-    let response = new HttpClientResponse(200, body, {
+    if !res_ptr
+      throw new Error("HTTP GET failed: " + url)
+
+    let status = $ffi.http_response_status(res_ptr)
+    let body = $ffi.http_response_body(res_ptr)
+
+    // Create response object
+    let response = new HttpClientResponse(status, body, {
       "Content-Type": "application/json"
     })
+
+    // Free C memory
+    $ffi.http_response_free_export(res_ptr)
+
     return response
   },
 
   // ===== Client: POST =====
 
   post: async (url, body, options) => {
-    // Implementation: Stub for now
-    // TODO: Implement using curl/libcurl or native sockets
+    // Handle body: if object, stringify; if string, use as-is
+    let body_str = body
+    if typeof body == "object"
+      body_str = JSON.stringify(body)
 
-    let response = new HttpClientResponse(201, "{}", {
+    // FFI: Call native HTTP client
+    let res_ptr = $ffi.http_client_post(url, body_str)
+
+    if !res_ptr
+      throw new Error("HTTP POST failed: " + url)
+
+    let status = $ffi.http_response_status(res_ptr)
+    let response_body = $ffi.http_response_body(res_ptr)
+
+    let response = new HttpClientResponse(status, response_body, {
       "Content-Type": "application/json"
     })
+
+    $ffi.http_response_free_export(res_ptr)
+
     return response
   },
 
   // ===== Client: PUT =====
 
   put: async (url, body, options) => {
-    // Implementation: Stub for now
+    // Handle body: if object, stringify; if string, use as-is
+    let body_str = body
+    if typeof body == "object"
+      body_str = JSON.stringify(body)
 
-    let response = new HttpClientResponse(200, "{}", {
+    // FFI: Call native HTTP client
+    let res_ptr = $ffi.http_client_put(url, body_str)
+
+    if !res_ptr
+      throw new Error("HTTP PUT failed: " + url)
+
+    let status = $ffi.http_response_status(res_ptr)
+    let response_body = $ffi.http_response_body(res_ptr)
+
+    let response = new HttpClientResponse(status, response_body, {
       "Content-Type": "application/json"
     })
+
+    $ffi.http_response_free_export(res_ptr)
+
     return response
   },
 
   // ===== Client: DELETE =====
 
   delete: async (url, options) => {
-    // Implementation: Stub for now
+    // FFI: Call native HTTP client
+    let res_ptr = $ffi.http_client_delete(url)
 
-    let response = new HttpClientResponse(204, "", {})
+    if !res_ptr
+      throw new Error("HTTP DELETE failed: " + url)
+
+    let status = $ffi.http_response_status(res_ptr)
+    let body = $ffi.http_response_body(res_ptr)
+
+    let response = new HttpClientResponse(status, body, {})
+
+    $ffi.http_response_free_export(res_ptr)
+
     return response
   },
 
