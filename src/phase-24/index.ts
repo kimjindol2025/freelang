@@ -1,133 +1,88 @@
 /**
- * Phase 24: Advanced Platform Features
+ * Phase 24: IDE Integration Complete - Main Index
  *
- * Exports all advanced feature components
+ * 3가지 핵심 모듈:
+ * 1. Debugger Provider - DAP (Debug Adapter Protocol)
+ * 2. Profiler UI - Performance visualization
+ * 3. VS Code Extension - Complete IDE integration
  */
 
-// ===== Phase 24.1: Performance Optimization & Profiling =====
-export {
-  CPUProfiler,
-  FunctionTimer,
-  type SamplingMode,
-  type TimeUnit,
-  type StackFrame,
-  type CallStack,
-  type FunctionProfile,
-  type FlameGraphNode,
-} from './profiling/cpu-profiler';
+export * from './lsp/debugger-provider';
+export * from './profiler-ui/profiler-ui';
+export * from './vscode-extension';
 
-export {
-  MemoryProfiler,
-  type MemoryAllocation,
-  type HeapSnapshot,
-  type GCStatistics,
-  type LeakCandidate,
-} from './profiling/memory-profiler';
+import { DebuggerProvider } from './lsp/debugger-provider';
+import { ProfilerUI } from './profiler-ui/profiler-ui';
+import { VSCodeExtension } from './vscode-extension';
 
-export {
-  BenchmarkRunner,
-  type BenchmarkConfig,
-  type BenchmarkResult,
-  type BenchmarkComparison,
-} from './profiling/benchmark-runner';
+/**
+ * IDE Integration 시스템 초기화
+ */
+export class IDEIntegration {
+  debugger: DebuggerProvider;
+  profilerUI: ProfilerUI;
+  extension: VSCodeExtension;
 
-export {
-  OptimizationRecommender,
-  type RecommendationType,
-  type SeverityLevel,
-  type Recommendation,
-  type PerformanceIssue,
-} from './profiling/optimization-recommender';
+  constructor() {
+    this.debugger = new DebuggerProvider();
+    this.profilerUI = new ProfilerUI();
+    this.extension = new VSCodeExtension({
+      version: '1.0.0',
+      debugMode: false,
+      profilerEnabled: true
+    });
 
-export {
-  PerformanceMonitor,
-  type MetricSnapshot,
-  type MetricAlert,
-  type PerformanceThresholds,
-} from './profiling/performance-monitor';
+    this.setupIntegration();
+  }
 
-// ===== Phase 24.2: Security & Cryptography =====
-export {
-  CryptoEngine,
-  SymmetricEncryption,
-  AsymmetricEncryption,
-  HashEngine,
-  type EncryptionAlgorithm,
-  type HashAlgorithm,
-  type KeyFormat,
-  type EncryptionResult,
-  type DecryptionResult,
-  type KeyPair,
-  type HashResult,
-} from './security/crypto-engine';
+  /**
+   * IDE 통합 설정
+   */
+  private setupIntegration(): void {
+    // Debugger와 Profiler 연동
+    this.debugger.on('stopped', () => {
+      // 중단시 Profiler UI 업데이트
+      this.profilerUI.show();
+    });
 
-export {
-  DigitalSignature,
-  type SignatureResult,
-  type VerificationResult,
-} from './security/digital-signature';
+    // Extension과 Debugger 연동
+    this.extension.on('command-registered', (cmd) => {
+      if (cmd.id === 'freelang.debug') {
+        this.debugger.initialize();
+      }
+    });
+  }
 
-export {
-  CertificateManager,
-  type Certificate,
-  type CertificateInfo,
-} from './security/certificate-manager';
+  /**
+   * IDE 활성화
+   */
+  activate(): void {
+    this.extension.activate();
+    console.log('IDE Integration activated');
+  }
 
-export {
-  SecureChannel,
-  type TLSVersion,
-  type CipherSuite,
-  type TLSConfig,
-  type SecureMessage,
-} from './security/secure-channel';
+  /**
+   * IDE 비활성화
+   */
+  deactivate(): void {
+    this.extension.deactivate();
+    this.debugger.terminate();
+    this.profilerUI.hide();
+    console.log('IDE Integration deactivated');
+  }
 
-export {
-  KeyDerivation,
-  type DerivedKey,
-  type PasswordHash,
-} from './security/key-derivation';
+  /**
+   * 전체 상태 리포트
+   */
+  getStatus() {
+    return {
+      extension: this.extension.getState(),
+      debugger: this.debugger.getState(),
+      profilerUI: this.profilerUI.getState()
+    };
+  }
+}
 
-// ===== Phase 24.3: Event-Driven Architecture =====
-export {
-  EventBus,
-  type Event,
-  type Subscription,
-} from './events/event-bus';
+export const ideIntegration = new IDEIntegration();
 
-export {
-  EventStore,
-  type DomainEvent,
-  type AggregateState,
-} from './events/event-sourcing';
-
-export {
-  MessageQueue,
-  type Message,
-} from './events/message-queue';
-
-export {
-  EventStream,
-  type StreamEvent,
-} from './events/event-stream';
-
-// ===== Phase 24.4: Advanced Type System =====
-export {
-  GenericConstraints,
-  type Constraint,
-  type TypeParameter,
-  type GenericType,
-} from './types/generic-constraints';
-
-export {
-  ReflectionAPI,
-  type TypeInfo,
-  type PropertyInfo,
-  type MethodInfo,
-  type ParameterInfo,
-} from './types/reflection-api';
-
-export {
-  MacroSystem,
-  type Macro,
-  type MacroContext,
-} from './types/macro-system';
+export default ideIntegration;
