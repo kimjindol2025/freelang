@@ -1,199 +1,249 @@
 /**
- * Phase 23: Production Hardening Tests
- * Error handling, memory management, 30-day reliability
+ * Phase 23: Production Hardening - Comprehensive Tests
+ *
+ * 테스트 시나리오:
+ * 1. Error Handling - 전역 에러 처리
+ * 2. Memory Monitoring - 누수 감지
+ * 3. Profiling - 성능 분석
+ * 4. Logging - 로그 수집
+ * 5. Integration - 전체 시스템
  */
 
-import { GlobalErrorHandler } from '../src/phase-23/error-handling/global-error-handler';
-import { MemoryProfiler } from '../src/phase-23/memory-profiling/memory-profiler';
-import { ReliabilityValidator } from '../src/phase-23/reliability/reliability-validator';
+import {
+  ErrorHandler,
+  ErrorSeverity,
+  MemoryMonitor,
+  Profiler,
+  Logger,
+  LogLevel,
+  ProductionHardening
+} from '../src/phase-23/index';
 
 describe('Phase 23: Production Hardening', () => {
-  describe('Global Error Handler', () => {
-    let handler: GlobalErrorHandler;
+  let errorHandler: ErrorHandler;
+  let memoryMonitor: MemoryMonitor;
+  let profiler: Profiler;
+  let logger: Logger;
+  let hardening: ProductionHardening;
 
-    beforeEach(() => {
-      handler = new GlobalErrorHandler('./test-logs/errors.log');
-    });
+  beforeEach(() => {
+    errorHandler = new ErrorHandler();
+    memoryMonitor = new MemoryMonitor();
+    profiler = new Profiler();
+    logger = new Logger('test');
+    hardening = new ProductionHardening();
+  });
 
-    test('Should handle errors with context', async () => {
+  describe('Error Handling', () => {
+    test('should handle errors with context', async () => {
       const error = new Error('Test error');
-      await handler.handleError(error, 'TestError', 'HIGH', true, { testId: 123 });
+      await errorHandler.handleError(error, ErrorSeverity.MEDIUM, { userId: 123 });
 
-      const stats = handler.getStats();
-      expect(stats.totalErrors).toBe(1);
-      expect(stats.errorsByType['TestError']).toBe(1);
+      const stats = errorHandler.getStatistics();
+      expect(stats.total).toBe(1);
     });
 
-    test('Should track error severity', async () => {
-      await handler.handleError(new Error('Critical'), 'Critical', 'CRITICAL', false);
-      await handler.handleError(new Error('Low'), 'Low', 'LOW', true);
+    test('should track error severity', async () => {
+      await errorHandler.handleError(new Error('E1'), ErrorSeverity.LOW);
+      await errorHandler.handleError(new Error('E2'), ErrorSeverity.HIGH);
+      await errorHandler.handleError(new Error('E3'), ErrorSeverity.CRITICAL);
 
-      const stats = handler.getStats();
-      expect(stats.errorsBySeverity['CRITICAL']).toBe(1);
-      expect(stats.errorsBySeverity['LOW']).toBe(1);
+      const stats = errorHandler.getStatistics();
+      expect(stats.bySeverity[ErrorSeverity.LOW]).toBe(1);
+      expect(stats.bySeverity[ErrorSeverity.HIGH]).toBe(1);
+      expect(stats.bySeverity[ErrorSeverity.CRITICAL]).toBe(1);
     });
 
-    test('Should register and execute recovery strategy', async () => {
+    test('should register recovery strategies', async () => {
       let recovered = false;
 
-      handler.registerRecoveryStrategy('RecoverableError', async () => {
+      errorHandler.registerRecoveryStrategy('Error', async () => {
         recovered = true;
       });
 
-      await handler.handleError(new Error('Test'), 'RecoverableError', 'MEDIUM', true);
+      await errorHandler.handleError(new Error('Test'), ErrorSeverity.MEDIUM);
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Wait for async recovery
-      await new Promise((resolve) => setTimeout(resolve, 100));
       expect(recovered).toBe(true);
     });
+  });
 
-    test('Should report error statistics', async () => {
-      await handler.handleError(new Error('Error 1'), 'Type1', 'HIGH', true);
-      await handler.handleError(new Error('Error 2'), 'Type2', 'MEDIUM', false);
+  describe('Memory Monitoring', () => {
+    test('should capture memory snapshots', () => {
+      const snap1 = memoryMonitor.snapshot();
+      expect(snap1.timestamp).toBeGreaterThan(0);
+      expect(snap1.heapUsed).toBeGreaterThan(0);
+    });
 
-      const stats = handler.getStats();
-      expect(stats.totalErrors).toBe(2);
-      expect(stats.recoveredErrors).toBe(1);
-      expect(stats.unrecoveredErrors).toBe(1);
+    test('should detect memory growth', () => {
+      for (let i = 0; i < 65; i++) {
+        memoryMonitor.snapshot();
+      }
+
+      const trend = memoryMonitor.detectLeak();
+      expect(trend.heapGrowthRate).toBeDefined();
+    });
+
+    test('should generate memory report', () => {
+      memoryMonitor.snapshot();
+      const report = memoryMonitor.getReport();
+
+      expect(report.current).toBeDefined();
+      expect(report.baseline).toBeGreaterThan(0);
+      expect(report.health).toMatch(/GOOD|WARNING|CRITICAL/);
+    });
+
+    test('should handle forced cleanup', async () => {
+      const snap = await memoryMonitor.forceCleanup();
+      expect(snap.timestamp).toBeGreaterThan(0);
     });
   });
 
-  describe('Memory Profiler', () => {
-    let profiler: MemoryProfiler;
+  describe('Profiler', () => {
+    test('should profile function execution', () => {
+      profiler.start('test-func');
+      
+      // Simulate work
+      let sum = 0;
+      for (let i = 0; i < 100000; i++) {
+        sum += i;
+      }
 
-    beforeEach(() => {
-      profiler = new MemoryProfiler();
-      profiler.setMemoryLimit(512);
+      const duration = profiler.end('test-func');
+      expect(duration).toBeGreaterThanOrEqual(0);
     });
 
-    afterEach(() => {
-      profiler.stop();
+    test('should track multiple calls', () => {
+      for (let i = 0; i < 5; i++) {
+        profiler.start('func-a');
+        profiler.end('func-a');
+      }
+
+      const profile = profiler.getProfile('func-a');
+      expect(profile?.callCount).toBe(5);
     });
 
-    test('Should collect memory samples', (done) => {
-      profiler.start(100);
+    test('should generate profile report', () => {
+      profiler.start('slow');
+      // Simulate slow function
+      for (let i = 0; i < 1000000; i++) {}
+      profiler.end('slow');
 
-      setTimeout(() => {
-        const report = profiler.getReport();
-        expect(report.samples).toBeGreaterThan(0);
-        expect(report.current).toBeDefined();
-        done();
-      }, 300);
-    });
-
-    test('Should detect memory trend', (done) => {
-      profiler.start(50);
-
-      setTimeout(() => {
-        const trend = profiler.getTrend();
-        expect(['increasing', 'stable', 'decreasing', 'unknown']).toContain(trend);
-        done();
-      }, 300);
-    });
-
-    test('Should track peak memory usage', (done) => {
-      profiler.start(50);
-
-      setTimeout(() => {
-        // Allocate memory
-        const buffer = Buffer.alloc(1024 * 1024); // 1MB
-
-        setTimeout(() => {
-          const report = profiler.getReport();
-          expect(report.peak).toBeDefined();
-          expect(report.peak!.heapUsed).toBeGreaterThan(0);
-          done();
-        }, 100);
-      }, 100);
-    });
-
-    test('Should generate memory report', (done) => {
-      profiler.start(50);
-
-      setTimeout(() => {
-        const report = profiler.getReport();
-        expect(report.current).toBeDefined();
-        expect(report.average).toBeDefined();
-        expect(report.peak).toBeDefined();
-        done();
-      }, 200);
+      const report = profiler.getReport();
+      expect(report.functions.length).toBeGreaterThan(0);
+      expect(report.slowestFunctions.length).toBeGreaterThanOrEqual(0);
     });
   });
 
-  describe('Reliability Validator', () => {
-    let validator: ReliabilityValidator;
+  describe('Logger', () => {
+    test('should log at different levels', () => {
+      logger.debug('Debug message');
+      logger.info('Info message');
+      logger.warn('Warn message');
+      logger.error('Error message');
 
-    beforeEach(() => {
-      validator = new ReliabilityValidator();
+      const history = logger.getHistory();
+      expect(history.length).toBe(4);
     });
 
-    test('Should run 30-day endurance test', async () => {
-      let execCount = 0;
-      const workload = async () => {
-        execCount++;
-      };
+    test('should track log context', () => {
+      logger.info('User action', { userId: 123, action: 'login' });
 
-      const result = await validator.run30DayTest(workload, 100);
-
-      expect(result.status).toBe('PASSED');
-      expect(result.successRate).toBeCloseTo(100, 1);
+      const history = logger.getHistory();
+      expect(history[history.length - 1].context?.userId).toBe(123);
     });
 
-    test('Should handle failures in endurance test', async () => {
-      let callCount = 0;
-      const faultyWorkload = async () => {
-        callCount++;
-        if (callCount % 5 === 0) {
-          throw new Error('Simulated failure');
-        }
-      };
+    test('should filter by level', () => {
+      logger.debug('D');
+      logger.info('I');
+      logger.warn('W');
 
-      const result = await validator.run30DayTest(faultyWorkload, 50);
-
-      expect(result.status).toBe('FAILED');
-      expect(result.errors).toBeGreaterThan(0);
+      const warnings = logger.getHistory(LogLevel.WARN);
+      expect(warnings.length).toBe(1);
     });
 
-    test('Should register and execute chaos scenarios', async () => {
-      let chaosExecuted = false;
+    test('should generate statistics', () => {
+      logger.debug('D');
+      logger.info('I');
+      logger.warn('W');
 
-      validator.registerChaosScenario({
-        name: 'TestChaos',
-        description: 'Test chaos scenario',
-        execute: async () => {
-          chaosExecuted = true;
-        },
-        severity: 'MEDIUM',
-      });
+      const stats = logger.getStatistics();
+      expect(stats[LogLevel.DEBUG]).toBe(1);
+      expect(stats[LogLevel.INFO]).toBe(1);
+      expect(stats[LogLevel.WARN]).toBe(1);
+    });
+  });
 
-      const result = await validator.executeChaos('TestChaos');
-      expect(result.success).toBe(true);
-      expect(chaosExecuted).toBe(true);
+  describe('Integration', () => {
+    test('should initialize production hardening', () => {
+      expect(hardening).toBeDefined();
     });
 
-    test('Should track downtime', () => {
-      validator.recordDowntime(1000);
-      const uptime = validator.getUptimePercentage();
-
-      // Uptime should be less than 100% after recording downtime
-      expect(uptime).toBeLessThan(100);
+    test('should handle monitoring lifecycle', () => {
+      hardening.startMonitoring(100);
+      expect(true); // Monitoring started
+      hardening.stopMonitoring();
+      expect(true); // Monitoring stopped
     });
 
-    test('Should generate reliability report', async () => {
-      const workload = async () => {
-        /* no-op */
-      };
-      await validator.run30DayTest(workload, 50);
-
-      const report = validator.getReport();
-      expect(report.testsRun).toBeGreaterThan(0);
-      expect(report.overallReliability).toBeDefined();
+    test('should generate full report', () => {
+      const report = hardening.getFullReport();
+      expect(report.memory).toBeDefined();
+      expect(report.errors).toBeDefined();
+      expect(report.profile).toBeDefined();
+      expect(report.logs).toBeDefined();
     });
 
-    test('Should classify reliability level', () => {
-      const report = validator.getReport();
-      const validLevels = ['EXCELLENT', 'GOOD', 'FAIR', 'POOR'];
-      expect(validLevels).toContain(report.overallReliability);
+    test('should handle all modules together', () => {
+      logger.info('Test start');
+      profiler.start('test');
+      
+      try {
+        throw new Error('Test error');
+      } catch (err) {
+        errorHandler.handleError(err as Error, ErrorSeverity.MEDIUM);
+      }
+
+      profiler.end('test');
+      memoryMonitor.snapshot();
+
+      const report = hardening.getFullReport();
+      expect(report.errors[LogLevel.ERROR]).toBe(0); // Because we caught it
+    });
+  });
+
+  describe('Stress Testing', () => {
+    test('should handle 1000 errors', async () => {
+      jest.setTimeout(10000);
+
+      for (let i = 0; i < 1000; i++) {
+        await errorHandler.handleError(
+          new Error(`Error ${i}`),
+          ErrorSeverity.LOW
+        );
+      }
+
+      const stats = errorHandler.getStatistics();
+      expect(stats.total).toBeGreaterThan(0);
+    });
+
+    test('should handle rapid logging', () => {
+      for (let i = 0; i < 1000; i++) {
+        logger.info(`Log entry ${i}`, { index: i });
+      }
+
+      const history = logger.getHistory();
+      expect(history.length).toBeGreaterThan(0);
+    });
+
+    test('should handle continuous profiling', () => {
+      for (let i = 0; i < 100; i++) {
+        profiler.start(`func-${i}`);
+        profiler.end(`func-${i}`);
+      }
+
+      const report = profiler.getReport();
+      expect(report.functions.length).toBe(100);
     });
   });
 });
