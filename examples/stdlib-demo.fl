@@ -1,0 +1,60 @@
+// ================================================================
+// FreeLang v1 MVP with v4 Stdlib Integration Demo
+// ================================================================
+// This program demonstrates calling v4 stdlib functions from v1 code
+//
+// Available categories:
+// - String functions (str_*)
+// - Array functions (array_*)
+// - Math functions (math_*)
+// - Object functions (obj_*)
+// - JSON functions (json_*)
+// - Type checking (is_*)
+// - Functional programming (compose, pipe, curry, etc)
+// ================================================================
+
+// Demo 1: String Functions
+print("=== String Functions ===");
+let greeting = "hello world";
+let upper = str_upper(greeting);
+let lower = str_lower(upper);
+let len = str_len(greeting);
+print("Original: " + greeting);
+print("Upper: " + upper);
+print("Lower: " + lower);
+print("Length: " + len);
+
+// Demo 2: Math Functions
+print("=== Math Functions ===");
+let num = 16;
+let sqrt = math_sqrt(num);
+let abs_val = math_abs(-42);
+let max_val = math_max(1, 5, 3, 9, 2);
+print("sqrt(16) = " + sqrt);
+print("abs(-42) = " + abs_val);
+print("max(1,5,3,9,2) = " + max_val);
+
+// Demo 3: Type Checking
+print("=== Type Checking ===");
+let is_str = is_string("test");
+let is_num = is_number(42);
+let is_bool = is_boolean(true);
+print("is_string(test): " + is_str);
+print("is_number(42): " + is_num);
+print("is_boolean(true): " + is_bool);
+
+// Demo 4: Loop with array operations
+print("=== Array Operations ===");
+let x = 0;
+while (x < 5) {
+  x = x + 1;
+  print("Iteration: " + x);
+}
+
+// Demo 5: JSON
+print("=== JSON Operations ===");
+let data = 42;
+let json_str = json_stringify(data);
+print("JSON: " + json_str);
+
+print("=== Demo Complete ===");

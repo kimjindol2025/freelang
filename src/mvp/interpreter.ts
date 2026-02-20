@@ -20,6 +20,7 @@ import {
   CallExpr,
   AssignmentExpr
 } from './parser';
+import { loadV4StdlibFunctions } from './stdlib-loader';
 
 class ReturnValue extends Error {
   constructor(public value: any) {
@@ -33,7 +34,7 @@ export class Interpreter {
   private scopes: Map<string, any>[] = [this.globalScope];
 
   constructor() {
-    // 기본 내장 함수
+    // 기본 내장 함수 (원본)
     this.globalScope.set('print', (...args: any[]) => {
       console.log(...args);
       return undefined;
@@ -63,6 +64,12 @@ export class Interpreter {
     this.globalScope.set('toString', (val: any) => {
       return String(val);
     });
+
+    // v4 stdlib 함수 로드 (100+ 함수)
+    const stdlib = loadV4StdlibFunctions();
+    for (const [name, fn] of Object.entries(stdlib)) {
+      this.globalScope.set(name, fn);
+    }
   }
 
   /**

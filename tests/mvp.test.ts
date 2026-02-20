@@ -342,3 +342,80 @@ describe('MVP - Integration', () => {
     interpret(parse(lex(source)));
   });
 });
+
+describe('MVP - v4 Stdlib Integration', () => {
+  test('should have str_upper function available', () => {
+    const interpreter = new Interpreter();
+    expect(interpreter['globalScope'].has('str_upper')).toBe(true);
+  });
+
+  test('should have array_map function available', () => {
+    const interpreter = new Interpreter();
+    expect(interpreter['globalScope'].has('array_map')).toBe(true);
+  });
+
+  test('should call string functions from v4 stdlib', () => {
+    const source = `
+      let x = "hello";
+      let upper = str_upper(x);
+    `;
+    interpret(parse(lex(source)));
+  });
+
+  test('should call math functions from v4 stdlib', () => {
+    const source = `
+      let n = 16;
+      let sq = math_sqrt(n);
+    `;
+    interpret(parse(lex(source)));
+  });
+
+  test('should call array functions from v4 stdlib', () => {
+    const source = `
+      let arr = 10;
+      let len = len(arr);
+    `;
+    interpret(parse(lex(source)));
+  });
+
+  test('should call object functions from v4 stdlib', () => {
+    const source = `
+      let is_str = is_string("hello");
+      let is_num = is_number(42);
+    `;
+    interpret(parse(lex(source)));
+  });
+
+  test('should support json_stringify from v4 stdlib', () => {
+    const source = `
+      let obj = 42;
+      let json = json_stringify(obj);
+    `;
+    interpret(parse(lex(source)));
+  });
+
+  test('should have 50+ stdlib functions available', () => {
+    const interpreter = new Interpreter();
+    const scope = interpreter['globalScope'];
+
+    // Count stdlib functions
+    let count = 0;
+    const functionNames: string[] = [];
+    for (const key of scope.keys()) {
+      if (typeof scope.get(key) === 'function') {
+        count++;
+        functionNames.push(key);
+      }
+    }
+
+    // Should have at least 50+ functions from stdlib + 6 basic
+    expect(count).toBeGreaterThan(50);
+
+    // Verify key functions exist
+    expect(functionNames).toContain('str_upper');
+    expect(functionNames).toContain('array_map');
+    expect(functionNames).toContain('math_sqrt');
+    expect(functionNames).toContain('is_string');
+    expect(functionNames).toContain('json_stringify');
+  });
+});
