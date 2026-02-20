@@ -14,6 +14,6 @@
     "noImplicitAny": false,
     "downlevelIteration": true
   },
-  "include": ["src"],
+  "include": ["src/mvp"],
   "exclude": ["node_modules", "dist", "tests"]
 }
