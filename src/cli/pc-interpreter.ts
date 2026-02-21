@@ -7,6 +7,10 @@
  * - Loop Tail: 닫는 괄호 탐색 및 워프
  */
 
+// v3.7: Safety Guard 상수
+const MAX_SAFE_ITERATION = 1_000_000; // 최대 안전 반복 횟수
+const ITERATION_WARNING_THRESHOLD = 500_000; // 경고 임계값
+
 export interface ASTNode {
   type: string;
   [key: string]: any;
@@ -19,12 +23,14 @@ export class PCInterpreter {
   private loopStack: number[] = []; // WHILE 시작 위치 스택 (v3.3)
   private loopDepthStack: number[] = []; // 루프 깊이 스택 (v3.3 Nested Loop)
   private loopBodyExecutionCount: number[] = []; // v3.4: 루프 바디 실행 횟수 (조건 FALSE 제외)
+  private loopIterationCounter: number[] = []; // v3.7: 각 루프의 총 반복 횟수 (nested support)
   private breakFlag: boolean = false; // v3.6: break 플래그
   private continueFlag: boolean = false; // v3.6: continue 플래그
   private debugLog: string[] = [];
   private sourceAST: ASTNode | null = null; // 전체 AST 저장 (v3.2 Exit Boundary용)
   private indentLevel: number = 0; // v3.3: 들여쓰기 레벨
   private trackedVariables: Set<string> = new Set(); // v3.4: 추적할 변수 목록
+  private globalIterationCount: number = 0; // v3.7: 전체 프로그램 반복 횟수
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
@@ -93,12 +99,14 @@ export class PCInterpreter {
           this.loopStack.push(this.pc);
           this.loopDepthStack.push(this.indentLevel);
           this.loopBodyExecutionCount.push(0); // v3.4: 바디 실행 횟수 (0부터 시작)
+          this.loopIterationCounter.push(0); // v3.7: 각 루프의 iteration 카운터 초기화
           this.indentLevel++;
 
           // v3.4: 조건에서 추적할 변수 추출
           const conditionVars = this.extractVariablesFromCondition(stmt.condition);
           this.log(`[WHILE] PC=${this.pc} (Loop Head, Depth=${this.loopDepthStack.length - 1})`);
           this.log(`[TRACKED] 조건 변수: ${conditionVars.join(', ')}`);
+          this.log(`[SAFETY GUARD] v3.7 활성화 (MAX_SAFE: ${MAX_SAFE_ITERATION.toLocaleString()}, WARN: ${ITERATION_WARNING_THRESHOLD.toLocaleString()})`);
         } else {
           // 루프 재진입 (점프 백)
           const currentDepth = this.loopDepthStack.length - 1;
@@ -125,7 +133,35 @@ export class PCInterpreter {
           const executionNum = this.loopBodyExecutionCount[currentDepth];
           const conditionVars = this.extractVariablesFromCondition(stmt.condition);
 
-          this.log(`[BRANCH] TRUE → 루프 바디 실행`);
+          // v3.7: Safety Guard - 반복 횟수 증가 및 체크
+          this.loopIterationCounter[currentDepth] = (this.loopIterationCounter[currentDepth] || 0) + 1;
+          this.globalIterationCount++;
+
+          const currentLoopIterations = this.loopIterationCounter[currentDepth];
+
+          // 경고 임계값 체크
+          if (currentLoopIterations === ITERATION_WARNING_THRESHOLD) {
+            this.log(`[WARN] Safety Guard: Loop ${this.pc} reached warning threshold (${ITERATION_WARNING_THRESHOLD.toLocaleString()} iterations)`);
+          }
+
+          // 최대 반복 횟수 체크
+          if (currentLoopIterations > MAX_SAFE_ITERATION) {
+            this.log(`[PANIC] Safety Guard: MAXIMUM ITERATION EXCEEDED!`);
+            this.log(`[PANIC] Loop PC=${this.pc}, Depth=${currentDepth}, Iterations=${currentLoopIterations.toLocaleString()}`);
+            this.log(`[PANIC] Global iteration count: ${this.globalIterationCount.toLocaleString()}`);
+            this.log(`[PANIC] Forced execution halt to prevent infinite loop`);
+
+            // 안전 종료: 스택 정리
+            this.indentLevel--;
+            this.loopDepthStack.pop();
+            this.loopBodyExecutionCount.pop();
+            this.loopIterationCounter.pop();
+            this.loopStack.pop();
+
+            throw new Error(`[PANIC] Infinite loop detected! Max iterations (${MAX_SAFE_ITERATION.toLocaleString()}) exceeded at loop PC=${this.pc}`);
+          }
+
+          this.log(`[BRANCH] TRUE → 루프 바디 실행 [Iteration: ${currentLoopIterations.toLocaleString()}/${MAX_SAFE_ITERATION.toLocaleString()}]`);
 
           // v3.4: 루프 시작 전 메모리 스냅샷
           if (conditionVars.length > 0) {
@@ -151,12 +187,15 @@ export class PCInterpreter {
             this.log(`[BREAK DETECTED] 루프 즉시 탈출`);
             const currentDepth = this.loopDepthStack.length - 1;
             const totalBodyExecutions = this.loopBodyExecutionCount[currentDepth] || 0;
+            const totalIterations = this.loopIterationCounter[currentDepth] || 0; // v3.7
             this.log(`[LOOP STATS] 루프 바디 실행: ${totalBodyExecutions}회`);
+            this.log(`[SAFETY GUARD] Break exit - Total iterations: ${totalIterations.toLocaleString()}/${MAX_SAFE_ITERATION.toLocaleString()}`); // v3.7
 
             // 루프 탈출: 스택에서 제거
             this.indentLevel--;
             this.loopDepthStack.pop();
             this.loopBodyExecutionCount.pop();
+            this.loopIterationCounter.pop(); // v3.7: 반복 횟수 카운터 제거
             this.loopStack.pop();
 
             // breakFlag 초기화
@@ -183,9 +222,11 @@ export class PCInterpreter {
           // FALSE: 루프 탈출
           const currentDepth = this.loopDepthStack.length - 1;
           const totalBodyExecutions = this.loopBodyExecutionCount[currentDepth] || 0;
+          const totalIterations = this.loopIterationCounter[currentDepth] || 0; // v3.7: 안전 종료
 
           this.log(`[BRANCH] FALSE → EXIT STRATEGY 시작 (Depth=${currentDepth})`);
           this.log(`[LOOP STATS] 루프 바디 실행: ${totalBodyExecutions}회`);
+          this.log(`[SAFETY GUARD] Safe exit - Total iterations: ${totalIterations.toLocaleString()}/${MAX_SAFE_ITERATION.toLocaleString()}`); // v3.7
           this.log(`[SKIPPING] 루프 바디 전체 건너뜀 (Block: ${JSON.stringify(stmt.body.type)})`);
 
           if (stmt.body.type === 'BlockStatement') {
@@ -200,6 +241,7 @@ export class PCInterpreter {
           this.indentLevel--;
           this.loopDepthStack.pop();
           this.loopBodyExecutionCount.pop(); // v3.4: 바디 실행 횟수 카운터 제거
+          this.loopIterationCounter.pop(); // v3.7: 반복 횟수 카운터 제거
           this.loopStack.pop();
 
           return undefined; // 다음 문으로
@@ -323,11 +365,34 @@ export class PCInterpreter {
       case 'WhileStatement': {
         // v3.3: 중첩 루프 처리 (eval 기반)
         this.indentLevel++;
-        this.log(`[WHILE] Nested Loop (Depth=${this.indentLevel - 1})`);
+        const nestedLoopDepth = this.indentLevel - 1;
+        this.log(`[WHILE] Nested Loop (Depth=${nestedLoopDepth})`);
+        this.log(`[SAFETY GUARD] v3.7 활성화 (MAX_SAFE: ${MAX_SAFE_ITERATION.toLocaleString()}, WARN: ${ITERATION_WARNING_THRESHOLD.toLocaleString()})`);
 
         let result = null;
+        let nestedIterationCount = 0; // v3.7: 중첩 루프 반복 횟수
+
         while (this.eval(node.condition) && !this.breakFlag) {
-          this.log(`    [CONDITION] = true`);
+          // v3.7: Safety Guard - nested 루프 반복 횟수 증가 및 체크
+          nestedIterationCount++;
+          this.globalIterationCount++;
+
+          // 경고 임계값 체크
+          if (nestedIterationCount === ITERATION_WARNING_THRESHOLD) {
+            this.log(`[WARN] Safety Guard: Nested loop (depth=${nestedLoopDepth}) reached warning threshold (${ITERATION_WARNING_THRESHOLD.toLocaleString()} iterations)`);
+          }
+
+          // 최대 반복 횟수 체크
+          if (nestedIterationCount > MAX_SAFE_ITERATION) {
+            this.log(`[PANIC] Safety Guard: MAXIMUM ITERATION EXCEEDED (nested)!`);
+            this.log(`[PANIC] Nested Loop Depth=${nestedLoopDepth}, Iterations=${nestedIterationCount.toLocaleString()}`);
+            this.log(`[PANIC] Global iteration count: ${this.globalIterationCount.toLocaleString()}`);
+            this.log(`[PANIC] Forced execution halt to prevent infinite loop`);
+            this.indentLevel--;
+            throw new Error(`[PANIC] Infinite nested loop detected! Max iterations (${MAX_SAFE_ITERATION.toLocaleString()}) exceeded at depth=${nestedLoopDepth}`);
+          }
+
+          this.log(`    [CONDITION] = true [Iteration: ${nestedIterationCount.toLocaleString()}/${MAX_SAFE_ITERATION.toLocaleString()}]`);
           this.continueFlag = false; // v3.6: continue 플래그 초기화
           result = this.eval(node.body);
           // v3.6: break는 루프 탈출, continue는 다음 회차로
@@ -343,7 +408,7 @@ export class PCInterpreter {
           }
         }
 
-        this.log(`[WHILE END] (Depth=${this.indentLevel - 1})`);
+        this.log(`[WHILE END] (Depth=${nestedLoopDepth}) - Safe exit: ${nestedIterationCount.toLocaleString()} iterations`);
         this.indentLevel--;
         return result;
       }
