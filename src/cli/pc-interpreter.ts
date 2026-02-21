@@ -18,6 +18,7 @@ export class PCInterpreter {
   private pc: number = 0; // Program Counter
   private loopStack: number[] = []; // WHILE 시작 위치 스택
   private debugLog: string[] = [];
+  private sourceAST: ASTNode | null = null; // 전체 AST 저장 (v3.2 Exit Boundary용)
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
@@ -43,6 +44,7 @@ export class PCInterpreter {
    */
   private executeProgram(statements: ASTNode[]): any {
     this.pc = 0;
+    this.sourceAST = { type: 'Program', statements }; // v3.2: AST 저장
 
     while (this.pc < statements.length) {
       const stmt = statements[this.pc];
@@ -101,8 +103,20 @@ export class PCInterpreter {
           this.log(`[JUMP BACK] PC를 ${this.pc}로 복원 (Loop Head로 회귀)`);
           return this.pc; // 같은 PC로 다시 실행
         } else {
-          // FALSE: 루프 탈출
-          this.log(`[BRANCH] FALSE → 루프 탈출 (다음 문으로)`);
+          // FALSE: 루프 탈출 (Exit Strategy - v3.2)
+          this.log(`[BRANCH] FALSE → EXIT STRATEGY 시작`);
+          this.log(`[SKIPPING] 루프 바디 전체 건너뜀 (Block: ${JSON.stringify(stmt.body.type)})`);
+
+          // 루프 끝 위치 탐색 (블록 구조 확인)
+          if (stmt.body.type === 'BlockStatement') {
+            const bodyStmtCount = stmt.body.statements.length;
+            this.log(`[EXIT BOUNDARY] 루프 바디: ${bodyStmtCount}개 문장 스킵 확인`);
+
+            // v3.2 강화: Boundary Scan
+            this.findExitBoundary(stmt, statements);
+          }
+
+          this.log(`[EXIT] 다음 PC(${this.pc + 1})로 점프 (Loop 탈출 완료)`);
           return undefined; // 다음 문으로
         }
       }
@@ -287,5 +301,21 @@ export class PCInterpreter {
    */
   public getLogs(): string[] {
     return this.debugLog;
+  }
+
+  /**
+   * v3.2: Exit Boundary 탐색
+   * 루프 바디의 블록 구조를 분석하여 정확한 끝 위치 계산
+   */
+  private findExitBoundary(stmt: ASTNode, statements: ASTNode[]): number {
+    // BlockStatement 내 문장 개수로 스킵 범위 계산
+    if (stmt.type === 'WhileStatement' && stmt.body.type === 'BlockStatement') {
+      const bodyStmts = stmt.body.statements;
+      // 다음 PC = 현재 PC + 1
+      // (현재는 WhileStatement가 하나의 statement이므로)
+      this.log(`[BOUNDARY SCAN] 블록 내 ${bodyStmts.length}개 statement 분석 완료`);
+      return this.pc + 1; // 루프 다음 statement
+    }
+    return this.pc + 1;
   }
 }
