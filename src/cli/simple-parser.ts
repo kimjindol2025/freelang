@@ -71,6 +71,16 @@ export class SimpleLangParser {
       return this.parseVariableDeclaration();
     }
 
+    // v4.0: fn 함수 정의
+    if (this.matchType(TokenType.FN)) {
+      return this.parseFunctionDeclaration();
+    }
+
+    // v4.0: return 문
+    if (this.matchType(TokenType.RETURN)) {
+      return this.parseReturnStatement();
+    }
+
     // if 조건문
     if (this.matchType(TokenType.IF)) {
       return this.parseIfStatement();
@@ -99,6 +109,74 @@ export class SimpleLangParser {
 
     // 표현식 문장 (println, 함수 호출 등)
     return this.parseExpressionStatement();
+  }
+
+  /**
+   * v4.0: 함수 정의 파싱
+   * fn add(a, b) { ... }
+   */
+  private parseFunctionDeclaration(): ASTNode {
+    // 함수 이름
+    const nameToken = this.current();
+    if (!nameToken || nameToken.type !== TokenType.IDENT) {
+      throw new Error('함수 이름 필요');
+    }
+    const name = nameToken.value;
+    this.advance();
+
+    // 매개변수 목록: (a, b, ...)
+    if (!this.matchType(TokenType.LPAREN)) {
+      throw new Error('( 필요');
+    }
+
+    const params: string[] = [];
+    if (!this.checkType(TokenType.RPAREN)) {
+      const firstParam = this.current();
+      if (firstParam && firstParam.type === TokenType.IDENT) {
+        params.push(firstParam.value);
+        this.advance();
+      }
+      while (this.matchType(TokenType.COMMA)) {
+        const param = this.current();
+        if (param && param.type === TokenType.IDENT) {
+          params.push(param.value);
+          this.advance();
+        }
+      }
+    }
+
+    if (!this.matchType(TokenType.RPAREN)) {
+      throw new Error(') 필요');
+    }
+
+    // 함수 바디
+    const body = this.parseBlock();
+
+    return {
+      type: 'FunctionDeclaration',
+      name,
+      params,
+      body
+    };
+  }
+
+  /**
+   * v4.0: return 문 파싱
+   * return expr;
+   */
+  private parseReturnStatement(): ASTNode {
+    // return; (값 없이) or return expr;
+    if (this.checkType(TokenType.RBRACE) || this.isAtEnd()) {
+      return { type: 'ReturnStatement', value: null };
+    }
+
+    const value = this.parseExpression();
+    this.matchType(TokenType.SEMICOLON);
+
+    return {
+      type: 'ReturnStatement',
+      value
+    };
   }
 
   /**

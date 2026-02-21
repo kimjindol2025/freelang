@@ -35,6 +35,20 @@ export class PCInterpreter {
   private globalIterationCount: number = 0; // v3.7: 전체 프로그램 반복 횟수
   private jumpOffsetCache: Map<number, number> = new Map(); // v3.9: Jump Table - 루프 점프 목적지 캐시
 
+  // ── v4.0: 함수 시스템 ─────────────────────────────────────────────────────
+  private functionTable: Map<string, { params: string[]; body: ASTNode }> = new Map();
+  //   함수 이름 → { 매개변수 목록, 바디 블록 }
+
+  private callStack: Array<{
+    savedScope: Map<string, any>; // 호출 전 변수 환경 전체
+    functionName: string;         // 어느 함수 안에 있는지 (디버그용)
+    callDepth: number;            // 호출 깊이 (v4.1 중첩 추적)
+  }> = [];
+
+  private returnValue: any = undefined; // 함수가 돌려주는 값
+  private returnFlag: boolean = false;  // RETURN 신호
+  // ──────────────────────────────────────────────────────────────────────────
+
   constructor() {
     this.variables.set('println', this.println.bind(this));
   }
@@ -118,6 +132,13 @@ export class PCInterpreter {
       case 'Assignment': {
         const val = this.eval(stmt.value);
         this.variables.set(stmt.name, val);
+        return undefined;
+      }
+
+      // v4.0: 함수 정의 — 실행 없이 Function Table에 등록만
+      case 'FunctionDeclaration': {
+        this.functionTable.set(stmt.name, { params: stmt.params, body: stmt.body });
+        this.log(`[FUNC DEF] '${stmt.name}' 등록 (params: [${stmt.params.join(', ')}])`);
         return undefined;
       }
 
@@ -397,16 +418,33 @@ export class PCInterpreter {
         }
         throw new Error(`Cannot index non-array value`);
 
-      case 'BlockStatement':
+      case 'FunctionDeclaration': {
+        // v4.0: eval() 내에서 함수 정의 만나면 등록만 (실행 안 함)
+        this.functionTable.set(node.name, { params: node.params, body: node.body });
+        this.log(`[FUNC DEF] '${node.name}' 등록 (params: [${node.params.join(', ')}])`);
+        return null;
+      }
+
+      case 'ReturnStatement': {
+        // v4.0: RETURN — 값을 회수하고 returnFlag를 올림
+        const retVal = node.value ? this.eval(node.value) : null;
+        this.returnValue = retVal;
+        this.returnFlag = true;
+        this.log(`[RETURN] 반환값: ${retVal}`);
+        return retVal;
+      }
+
+      case 'BlockStatement': {
         let blockResult = null;
         for (const stmt of node.statements) {
           blockResult = this.eval(stmt);
-          // v3.6: break/continue 플래그 확인
-          if (this.breakFlag || this.continueFlag) {
+          // v3.6: break/continue / v4.0: return 플래그 확인
+          if (this.breakFlag || this.continueFlag || this.returnFlag) {
             break; // BlockStatement 평가 중단
           }
         }
         return blockResult;
+      }
 
       case 'IfStatement': {
         // v3.6: eval() 기반 IfStatement 처리 (nested 루프 내부용)
@@ -552,7 +590,7 @@ export class PCInterpreter {
   }
 
   /**
-   * 함수 호출
+   * 함수 호출 (v4.0: 사용자 정의 함수 우선 검색)
    */
   private evalCall(node: ASTNode): any {
     let calleeName: string;
@@ -563,14 +601,69 @@ export class PCInterpreter {
       throw new Error('Only identifier function calls supported');
     }
 
+    // 인자 평가 (호출 전 — 현재 스코프에서)
     const args = node.arguments.map((a: ASTNode) => this.eval(a));
-    const func = this.variables.get(calleeName);
 
+    // v4.0: Function Table 우선 탐색 (사용자 정의 함수)
+    if (this.functionTable.has(calleeName)) {
+      return this.callUserFunction(calleeName, args);
+    }
+
+    // 내장 함수 (println 등)
+    const func = this.variables.get(calleeName);
     if (typeof func === 'function') {
       return func(...args);
     }
 
-    throw new Error(`${calleeName} is not a function`);
+    throw new Error(`'${calleeName}' 는 함수가 아니거나 정의되지 않았습니다`);
+  }
+
+  /**
+   * v4.0: 사용자 정의 함수 실행 (Call Stack + Scope 격리)
+   * v4.1: 중첩 호출 지원 (재귀적으로 안전)
+   */
+  private callUserFunction(name: string, args: any[]): any {
+    const fn = this.functionTable.get(name)!;
+    const callDepth = this.callStack.length;
+
+    this.log(`[CALL] '${name}(${args.join(', ')})' → Depth=${callDepth + 1}`);
+
+    // ── 1. Return Address: 현재 스코프 전체를 Call Stack에 저장 ──────────
+    const savedScope = new Map(this.variables);
+    this.callStack.push({ savedScope, functionName: name, callDepth });
+
+    // ── 2. 로컬 스코프 생성: 매개변수 바인딩 + 내장 함수 ───────────────────
+    const localScope = new Map<string, any>();
+    localScope.set('println', this.println.bind(this));
+    // 함수 테이블의 다른 함수들도 호출 가능해야 하므로, evalCall이 functionTable을 먼저 보는 구조로 충분
+
+    for (let i = 0; i < fn.params.length; i++) {
+      localScope.set(fn.params[i], args[i] ?? null);
+      this.log(`[PARAM] ${fn.params[i]} = ${args[i]}`);
+    }
+
+    this.variables = localScope;
+    this.indentLevel++;
+
+    // ── 3. 함수 바디 실행 ────────────────────────────────────────────────
+    for (const stmt of fn.body.statements) {
+      this.eval(stmt);
+      if (this.returnFlag) break; // RETURN 신호 감지 즉시 탈출
+    }
+
+    // ── 4. 반환값 회수 ────────────────────────────────────────────────────
+    const retVal = this.returnValue ?? null;
+    this.returnValue = undefined;
+    this.returnFlag = false;
+    this.log(`[RETURN COMPLETE] '${name}' → ${retVal}`);
+
+    // ── 5. Call Stack Pop: 이전 스코프 복구 (Memory Cleanup) ─────────────
+    this.indentLevel--;
+    const frame = this.callStack.pop()!;
+    this.variables = frame.savedScope;
+    this.log(`[SCOPE RESTORED] depth=${callDepth}, vars=${this.variables.size}개`);
+
+    return retVal;
   }
 
   /**
