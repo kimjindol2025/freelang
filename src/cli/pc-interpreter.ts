@@ -47,6 +47,15 @@ export class PCInterpreter {
 
   private returnValue: any = undefined; // 함수가 돌려주는 값
   private returnFlag: boolean = false;  // RETURN 신호
+
+  // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
+  // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
+  private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
+  // Inline Hint Cache: 함수명 → 인라인 가능 여부 (1회 분석 후 재사용)
+  private inlineCache: Map<string, boolean> = new Map();
+  // 함수별 호출 횟수 (Pipeline 모니터링)
+  private callCountMap: Map<string, number> = new Map();
+  private static readonly HOT_THRESHOLD = 100;
   // ──────────────────────────────────────────────────────────────────────────
 
   constructor() {
@@ -102,6 +111,9 @@ export class PCInterpreter {
     this.pc = 0;
     this.sourceAST = { type: 'Program', statements }; // v3.2: AST 저장
     this.clearJumpOffsetCache(); // v3.9: Jump Table 초기화
+    // v4.6: 최적화 캐시 초기화 (재실행 시 오래된 캐시 방지)
+    this.inlineCache.clear();
+    this.callCountMap.clear();
 
     while (this.pc < statements.length) {
       const stmt = statements[this.pc];
@@ -505,7 +517,7 @@ export class PCInterpreter {
         let result = null;
         let nestedIterationCount = 0; // v3.7: 중첩 루프 반복 횟수
 
-        while (this.eval(node.condition) && !this.breakFlag) {
+        while (this.eval(node.condition) && !this.breakFlag && !this.returnFlag) {
           // v3.7: Safety Guard - nested 루프 반복 횟수 증가 및 체크
           nestedIterationCount++;
           this.globalIterationCount++;
@@ -610,7 +622,7 @@ export class PCInterpreter {
   }
 
   /**
-   * 함수 호출 (v4.0: 사용자 정의 함수 우선 검색)
+   * 함수 호출 (v4.0 기반 / v4.6: Call Site Cache + Pipeline 최적화)
    */
   private evalCall(node: ASTNode): any {
     let calleeName: string;
@@ -624,8 +636,31 @@ export class PCInterpreter {
     // 인자 평가 (호출 전 — 현재 스코프에서)
     const args = node.arguments.map((a: ASTNode) => this.eval(a));
 
-    // v4.0: Function Table 우선 탐색 (사용자 정의 함수)
-    if (this.functionTable.has(calleeName)) {
+    // v4.6: Call Site Cache — AST 노드 동일성 기반 직접 참조
+    let cachedFn = this.callSiteCache.get(node);
+    if (!cachedFn && this.functionTable.has(calleeName)) {
+      cachedFn = this.functionTable.get(calleeName)!;
+      this.callSiteCache.set(node, cachedFn);
+      this.log(`[CALL SITE CACHE] '${calleeName}' 등록 — 이후 Map.get 생략`);
+    }
+
+    if (cachedFn) {
+      // v4.6: 호출 횟수 추적 (Pipeline Metrics)
+      const count = (this.callCountMap.get(calleeName) ?? 0) + 1;
+      this.callCountMap.set(calleeName, count);
+      if (count === PCInterpreter.HOT_THRESHOLD) {
+        this.log(`[PIPELINE] '${calleeName}' HOT 함수 진입 (${count}회) — 최적화 경로 활성화`);
+      }
+
+      // v4.6: Inline Hinting — 단순 함수 Fast Path (스코프 생성 생략)
+      if (this.isInlinable(calleeName)) {
+        // 첫 2회 + 1000회마다 로그 (10,000 호출 시 스팸 방지)
+        if (count <= 2 || count % 1000 === 0) {
+          this.log(`[PIPELINE] INLINE #${count}: '${calleeName}(${args.join(', ')})' → 직접 실행`);
+        }
+        return this.callInline(calleeName, args, cachedFn);
+      }
+
       return this.callUserFunction(calleeName, args);
     }
 
@@ -636,6 +671,65 @@ export class PCInterpreter {
     }
 
     throw new Error(`'${calleeName}' 는 함수가 아니거나 정의되지 않았습니다`);
+  }
+
+  /**
+   * v4.6: Inline Hint Detection — 단순 순수 함수 인라인 가능 여부 판단
+   * 조건: 바디가 단일 ReturnStatement이며 중첩 호출이 없음
+   */
+  private isInlinable(name: string): boolean {
+    if (this.inlineCache.has(name)) return this.inlineCache.get(name)!;
+    const fn = this.functionTable.get(name)!;
+    const stmts = fn.body.statements;
+    let result: boolean;
+    if (stmts.length !== 1 || stmts[0].type !== 'ReturnStatement') {
+      result = false; // 다중 문장 or 비-return → 인라인 불가
+    } else {
+      result = !this.astContainsCall(stmts[0].value); // 중첩 호출 없어야 가능
+    }
+    this.inlineCache.set(name, result);
+    this.log(`[INLINE HINT] '${name}' 분석 → ${result ? '✅ 인라인 가능 (단일 return, 중첩 호출 없음)' : '❌ 풀 호출 필요'}`);
+    return result;
+  }
+
+  /**
+   * v4.6: AST 서브트리에 CallExpression 포함 여부 재귀 검사
+   */
+  private astContainsCall(node: ASTNode | null): boolean {
+    if (!node || typeof node !== 'object') return false;
+    if (node.type === 'CallExpression') return true;
+    for (const key of Object.keys(node)) {
+      if (key === 'type') continue;
+      const val = node[key];
+      if (Array.isArray(val)) {
+        if (val.some((v: any) => this.astContainsCall(v))) return true;
+      } else if (val && typeof val === 'object' && val.type) {
+        if (this.astContainsCall(val)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * v4.6: Fast Inline Call — 스코프 전환 없이 현재 스코프에서 직접 실행
+   * 매개변수를 임시로 주입 후 return 표현식만 평가 (new Map() 생성 없음)
+   */
+  private callInline(name: string, args: any[], fn: { params: string[]; body: ASTNode }): any {
+    // 현재 스코프에서 param 이름 충돌 방지: 기존 값 보존 후 교체
+    const saved = new Map<string, any>();
+    for (let i = 0; i < fn.params.length; i++) {
+      const k = fn.params[i];
+      saved.set(k, this.variables.get(k)); // undefined 포함 저장
+      this.variables.set(k, args[i] ?? null);
+    }
+    // Return 표현식만 직접 평가 (스택 프레임 없음)
+    const retVal = this.eval(fn.body.statements[0].value);
+    // 기존 값 복구
+    for (const [k, v] of saved) {
+      if (v === undefined) this.variables.delete(k);
+      else this.variables.set(k, v);
+    }
+    return retVal;
   }
 
   /**
