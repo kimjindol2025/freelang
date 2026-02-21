@@ -65,6 +65,8 @@ export class PCInterpreter {
     this.variables.set('arr_new', (size: number) => {
       const arr = new Array(Math.max(0, size)).fill(0);
       this.log(`[ARRAY ALLOC] arr_new(${size}) → ${size}개 슬롯 확보 (Base+0 ~ Base+${size - 1}), 모두 0 초기화`);
+      // v5.3: Metadata Header — 배열 크기를 헤더 영역에 기록 (경계 보호의 기준)
+      this.log(`[HEADER WRITE] Base-1: size=${size} 기록 완료 (Metadata Header 영역)`);
       return arr;
     });
 
@@ -112,6 +114,8 @@ export class PCInterpreter {
 
       this.log(`[BLOCK INTEGRITY] 이관 완료: ${migrateLen}/${oldLen} 원소 보존 ✅`);
       this.log(`[GC RELEASE] 구형 배열 (크기 ${oldLen}) 참조 해제 — Garbage Collected`);
+      // v5.3: 신규 배열 Metadata Header 갱신
+      this.log(`[HEADER WRITE] Base-1: size=${newSize} 갱신 완료 (Resize 후 새 Metadata Header)`);
 
       return newArr;
     });
@@ -497,8 +501,13 @@ export class PCInterpreter {
         if (node.index.type === 'Identifier') {
           this.log(`[DYNAMIC INDEX] '${node.index.name}' = ${idx} → 런타임 주소 계산`);
         }
+        // v5.3: Header-based Access Validation — 헤더 조회 후 유효 범위 확인
+        this.log(`[HEADER READ] Base-1: size=${arr.length} 조회 → 유효 범위 [0, ${arr.length - 1}]`);
         this.log(`[BOUNDS CHECK] 인덱스 ${idx} vs 배열 크기 ${arr.length}`);
         if (idx < 0 || idx >= arr.length) {
+          // v5.3: Violation Handling — 정밀 침범 기록
+          this.log(`[BOUNDARY VIOLATION] 인덱스 ${idx} ≥ size ${arr.length} — 허가된 영역 침범 감지!`);
+          this.log(`[VIOLATION LOG] 위반 위치: [${idx}], 허용 범위: [0, ${arr.length - 1}], 위반 시도: ${val} 쓰기`);
           throw new Error(`[INDEX OUT OF BOUNDS] 인덱스 ${idx} 가 범위 [0, ${arr.length - 1}] 를 벗어남`);
         }
         const prev = arr[idx];
@@ -511,6 +520,8 @@ export class PCInterpreter {
         // v5.0: 리터럴 배열 생성 — 연속 메모리 할당 로그
         const elems = node.elements.map((e: ASTNode) => this.eval(e));
         this.log(`[ARRAY ALLOC] 리터럴 크기 ${elems.length} → [${elems.join(', ')}]`);
+        // v5.3: Metadata Header
+        this.log(`[HEADER WRITE] Base-1: size=${elems.length} 기록 완료 (Metadata Header 영역)`);
         return elems;
       }
 
@@ -534,8 +545,13 @@ export class PCInterpreter {
         if (node.index.type === 'Identifier') {
           this.log(`[DYNAMIC INDEX] '${node.index.name}' = ${idx} → 런타임 주소 계산`);
         }
+        // v5.3: Header-based Access Validation
+        this.log(`[HEADER READ] Base-1: size=${obj.length} 조회 → 유효 범위 [0, ${obj.length - 1}]`);
         this.log(`[BOUNDS CHECK] 인덱스 ${idx} vs 배열 크기 ${obj.length}`);
         if (idx < 0 || idx >= obj.length) {
+          // v5.3: Violation Handling
+          this.log(`[BOUNDARY VIOLATION] 인덱스 ${idx} ≥ size ${obj.length} — 허가된 영역 침범 감지!`);
+          this.log(`[VIOLATION LOG] 위반 위치: [${idx}], 허용 범위: [0, ${obj.length - 1}], 위반 시도: 읽기`);
           throw new Error(`[INDEX OUT OF BOUNDS] 인덱스 ${idx} 가 범위 [0, ${obj.length - 1}] 를 벗어남`);
         }
         const val = obj[idx];
