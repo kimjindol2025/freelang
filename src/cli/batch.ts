@@ -8,7 +8,7 @@
 import { interactiveMode } from './interactive';
 import { dashboard } from '../dashboard/dashboard';
 import { SimpleLangParser } from './simple-parser';
-import { SimpleInterpreter } from './interpreter';
+import { PCInterpreter } from './pc-interpreter';
 
 export interface BatchResult {
   input: string;
@@ -51,7 +51,7 @@ export class BatchMode {
    */
   async processBatch(inputs: string[]): Promise<BatchResult[]> {
     this.results = [];
-    this.interpreter = new SimpleInterpreter(); // 모든 입력에 대해 공유
+    this.interpreter = new PCInterpreter(); // PC 기반 인터프리터 (v3.1)
 
     for (const input of inputs) {
       if (!input.trim()) continue;
