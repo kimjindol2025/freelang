@@ -33,9 +33,37 @@ export class PCInterpreter {
   private indentLevel: number = 0; // v3.3: 들여쓰기 레벨
   private trackedVariables: Set<string> = new Set(); // v3.4: 추적할 변수 목록
   private globalIterationCount: number = 0; // v3.7: 전체 프로그램 반복 횟수
+  private jumpOffsetCache: Map<number, number> = new Map(); // v3.9: Jump Table - 루프 점프 목적지 캐시
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
+  }
+
+  /**
+   * v3.9: Jump Table Optimization - 루프 점프 오프셋 캐시
+   */
+  private cacheJumpOffset(loopPC: number, destinationPC: number): void {
+    this.jumpOffsetCache.set(loopPC, destinationPC);
+    this.log(`[JUMP TABLE] Cached jump: PC=${loopPC} → PC=${destinationPC}`);
+  }
+
+  /**
+   * v3.9: Jump Table Optimization - 캐시된 점프 목적지 조회
+   */
+  private getJumpDestination(loopPC: number): number | undefined {
+    const cached = this.jumpOffsetCache.get(loopPC);
+    if (cached !== undefined) {
+      this.log(`[JUMP TABLE] Cache hit: PC=${loopPC} → PC=${cached}`);
+    }
+    return cached;
+  }
+
+  /**
+   * v3.9: Jump Table Optimization - 캐시 초기화 (프로그램 재실행 시)
+   */
+  private clearJumpOffsetCache(): void {
+    this.jumpOffsetCache.clear();
+    this.log(`[JUMP TABLE] Cache cleared`);
   }
 
   /**
@@ -59,6 +87,7 @@ export class PCInterpreter {
   private executeProgram(statements: ASTNode[]): any {
     this.pc = 0;
     this.sourceAST = { type: 'Program', statements }; // v3.2: AST 저장
+    this.clearJumpOffsetCache(); // v3.9: Jump Table 초기화
 
     while (this.pc < statements.length) {
       const stmt = statements[this.pc];
@@ -122,17 +151,23 @@ export class PCInterpreter {
           const currentDepth = this.loopDepthStack.length - 1;
           const executionCount = this.loopBodyExecutionCount[currentDepth] || 0;
 
+          // v3.9: Jump Table Optimization - 캐시된 점프 확인
+          const cachedDestination = this.getJumpDestination(this.pc);
+
           this.log(`[WHILE] PC=${this.pc} (Loop Reenter, Depth=${currentDepth}, Execution #${executionCount + 1})`);
         }
 
-        // 조건 평가 (v3.5: 복합 조건식 단계별 로깅)
+        // v3.9: Instruction Tuning - 중복 평가 제거
         const currentExecutionNum = this.loopBodyExecutionCount[this.loopDepthStack.length - 1] || 0;
-        let condition = this.eval(stmt.condition);
 
-        // v3.5: 복합 조건식인 경우 단계별 평가 로깅
+        // 조건 평가 (한 번만!)
+        let condition: any;
         if (stmt.condition.type === 'BinaryOp') {
+          // v3.5: 복합 조건식은 상세 로깅과 함께 평가
           condition = this.evaluateConditionWithDetails(stmt.condition, currentExecutionNum + 1);
         } else {
+          // 단순 조건식은 빠른 평가
+          condition = this.eval(stmt.condition);
           this.log(`[CONDITION] (${JSON.stringify(stmt.condition)}) = ${condition}`);
         }
 
@@ -238,6 +273,8 @@ export class PCInterpreter {
 
           // 루프 바디 끝: PC를 WHILE 위치로 복원
           this.log(`[JUMP BACK] PC=${this.pc}로 복원 (Loop Head로 회귀)`);
+          // v3.9: Jump Table Optimization - 루프 점프 캐시
+          this.cacheJumpOffset(this.pc, this.pc);
           return this.pc; // 같은 PC로 다시 실행
         } else {
           // FALSE: 루프 탈출
