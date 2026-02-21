@@ -756,8 +756,37 @@ export class PCInterpreter {
     const right = this.eval(node.right);
     const op = node.operator;
 
-    if (op === '+') return left + right;
-    if (op === '-') return left - right;
+    // v5.6: 포인터 산술 (Pointer Arithmetic)
+    if (op === '+') {
+      if (left && typeof left === 'object' && left.__type === 'address') {
+        // 포인터 + 정수: offset 증가, 새 주소 계산
+        const newOffset = left.offset + right;
+        const newAddr = this.getSymbolAddress(left.varName, newOffset);
+        this.log(`[PTR ARITH] ${left.address} + ${right} → offset=${newOffset} → ${newAddr}`);
+        this.log(`[SCALING] ${right} × 4 bytes = +${right * 4} bytes (Type-Aware)`);
+        return { __type: 'address', varName: left.varName, address: newAddr, offset: newOffset };
+      }
+      return left + right;
+    }
+
+    if (op === '-') {
+      if (left && typeof left === 'object' && left.__type === 'address') {
+        if (right && typeof right === 'object' && right.__type === 'address') {
+          // 포인터 - 포인터: 원소 간 거리 계산
+          const distance = left.offset - right.offset;
+          this.log(`[PTR DIST] ${left.address} - ${right.address} = ${distance} elements`);
+          return distance;
+        }
+        // 포인터 - 정수: offset 감소
+        const newOffset = left.offset - right;
+        const newAddr = this.getSymbolAddress(left.varName, newOffset);
+        this.log(`[PTR ARITH] ${left.address} - ${right} → offset=${newOffset} → ${newAddr}`);
+        this.log(`[SCALING] ${right} × 4 bytes = -${right * 4} bytes (Type-Aware)`);
+        return { __type: 'address', varName: left.varName, address: newAddr, offset: newOffset };
+      }
+      return left - right;
+    }
+
     if (op === '*') return left * right;
     if (op === '/') return Math.floor(left / right);
     if (op === '%') return left % right;
@@ -781,38 +810,64 @@ export class PCInterpreter {
   /**
    * v5.5: 심볼 테이블에서 변수의 메모리 주소 계산
    */
-  private getSymbolAddress(varName: string): string {
+  private getSymbolAddress(varName: string, elemOffset: number = 0): string {
     const varNames = [...this.variables.keys()];
     const index = varNames.indexOf(varName);
     if (index === -1) {
       throw new Error(`[SYMBOL ERROR] 변수 '${varName}'를 찾을 수 없음`);
     }
-    const offset = index * 4; // 각 변수는 4바이트 (32-bit)
-    return `0x${(0x1000 + offset).toString(16).padStart(4, '0')}`;
+    const baseOffset = index * 4; // 각 변수는 4바이트 (32-bit)
+    // v5.6: 배열 원소 주소 = 기본 주소 + elemOffset * 4
+    const totalOffset = baseOffset + elemOffset * 4;
+    return `0x${(0x1000 + totalOffset).toString(16).padStart(4, '0')}`;
   }
 
   private evalUnaryOp(node: ASTNode): any {
     const op = node.operator;
 
-    // v5.5: Address-of (&) — 변수의 메모리 주소 반환
+    // v5.5/v5.6: Address-of (&) — 변수 또는 배열 원소의 메모리 주소 반환
     if (op === '&') {
-      if (node.operand.type !== 'Identifier') {
+      if (node.operand.type === 'Identifier') {
+        // v5.5: 단순 변수 주소
+        const varName = node.operand.name;
+        const addr = this.getSymbolAddress(varName, 0);
+        this.log(`[ADDRESS-OF] &${varName} → ${addr}`);
+        return { __type: 'address', varName, address: addr, offset: 0 };
+      } else if (node.operand.type === 'IndexExpression') {
+        // v5.6: 배열 원소 주소 — offset 포함
+        const arrName = node.operand.object.name;
+        const idx = this.eval(node.operand.index);
+        const addr = this.getSymbolAddress(arrName, idx);
+        this.log(`[ADDRESS-OF] &${arrName}[${idx}] → ${addr} (Base + ${idx}*4)`);
+        return { __type: 'address', varName: arrName, address: addr, offset: idx };
+      } else {
         throw new Error('[REF ERROR] & 연산자는 변수에만 사용 가능');
       }
-      const varName = node.operand.name;
-      const addr = this.getSymbolAddress(varName);
-      this.log(`[ADDRESS-OF] &${varName} → ${addr}`);
-      return { __type: 'address', varName, address: addr };
     }
 
-    // v5.5: Dereference (*) — 주소가 가리키는 값 반환
+    // v5.5/v5.6: Dereference (*) — 주소가 가리키는 값 반환
     if (op === '*') {
       const ref = this.eval(node.operand);
       if (!ref || typeof ref !== 'object' || ref.__type !== 'address') {
         throw new Error('[DEREF ERROR] * 연산자는 주소에만 사용 가능');
       }
-      const value = this.variables.get(ref.varName);
-      this.log(`[DEREFERENCE] *${ref.address} → ${ref.varName} = ${value}`);
+      const target = this.variables.get(ref.varName);
+      let value: any;
+
+      if (Array.isArray(target)) {
+        // v5.6: 배열 원소 접근 (offset 사용)
+        const elemIdx = ref.offset ?? 0;
+        if (elemIdx < 0 || elemIdx >= target.length) {
+          this.log(`[BOUNDARY VIOLATION] 포인터 offset=${elemIdx} ≥ size ${target.length}`);
+          throw new Error(`[INDEX OUT OF BOUNDS] 포인터 인덱스 ${elemIdx} 가 범위를 벗어남`);
+        }
+        value = target[elemIdx];
+        this.log(`[DEREFERENCE] *${ref.address} → ${ref.varName}[${elemIdx}] = ${value}`);
+      } else {
+        // v5.5: 변수 값 반환
+        value = target;
+        this.log(`[DEREFERENCE] *${ref.address} → ${ref.varName} = ${value}`);
+      }
       return value;
     }
 
