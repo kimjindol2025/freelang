@@ -14,6 +14,6 @@
     "noImplicitAny": false,
     "downlevelIteration": true
   },
-  "include": ["src/mvp"],
+  "include": ["src/mvp", "src/cli", "src/lexer", "src/parser", "src/codegen", "src/vm.ts"],
   "exclude": ["node_modules", "dist", "tests"]
 }

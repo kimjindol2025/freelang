@@ -1,0 +1,522 @@
+/**
+ * SimpleLangParser - 기본 프로그래밍 언어 파서
+ *
+ * 지원 기능:
+ * - println(expr) - 출력
+ * - let x = expr; - 변수 선언
+ * - 산술연산: +, -, *, /, %
+ * - 비교연산: ==, !=, <, >, <=, >=
+ */
+
+import { Lexer } from '../lexer/lexer';
+import { Token, TokenType } from '../lexer/token';
+
+export interface ASTNode {
+  type: string;
+  [key: string]: any;
+}
+
+export class SimpleLangParser {
+  private tokens: Token[] = [];
+  private pos: number = 0;
+
+  constructor(code: string) {
+    const lexer = new Lexer(code);
+    const allTokens = lexer.tokenize();
+    // EOF, NEWLINE, COMMENT 제외
+    this.tokens = allTokens.filter(t => t.type !== TokenType.EOF && t.type !== TokenType.NEWLINE && t.type !== TokenType.COMMENT);
+  }
+
+  /**
+   * 메인 파싱 함수
+   */
+  parse(): ASTNode | null {
+    return this.parseProgram();
+  }
+
+  /**
+   * 프로그램 파싱 (첫 번째 문장만 반환)
+   */
+  private parseProgram(): ASTNode | null {
+    if (this.isAtEnd()) {
+      return null;
+    }
+
+    const stmt = this.parseStatement();
+
+    // 추가 문장들은 무시 (다중 문장 지원은 나중에)
+    return stmt;
+  }
+
+  /**
+   * 문장 파싱
+   */
+  private parseStatement(): ASTNode | null {
+    // let 변수 선언
+    if (this.matchType(TokenType.LET)) {
+      return this.parseVariableDeclaration();
+    }
+
+    // if 조건문
+    if (this.matchType(TokenType.IF)) {
+      return this.parseIfStatement();
+    }
+
+    // while 루프
+    if (this.matchType(TokenType.WHILE)) {
+      return this.parseWhileStatement();
+    }
+
+    // 표현식 문장 (println, 함수 호출 등)
+    return this.parseExpressionStatement();
+  }
+
+  /**
+   * 변수 선언: let x = expr;
+   */
+  private parseVariableDeclaration(): ASTNode {
+    const nameToken = this.current();
+    if (!nameToken || nameToken.type !== TokenType.IDENT) {
+      throw new Error('변수 이름 필요');
+    }
+    const name = nameToken.value;
+    this.advance();
+
+    if (!this.matchType(TokenType.ASSIGN)) {
+      throw new Error('= 필요');
+    }
+
+    const value = this.parseExpression();
+    this.matchType(TokenType.SEMICOLON); // ; 선택사항
+
+    return {
+      type: 'VariableDeclaration',
+      name,
+      value
+    };
+  }
+
+  /**
+   * if 조건문: if (cond) { ... } else { ... }
+   */
+  private parseIfStatement(): ASTNode {
+    if (!this.matchType(TokenType.LPAREN)) {
+      throw new Error('( 필요');
+    }
+    const condition = this.parseExpression();
+    if (!this.matchType(TokenType.RPAREN)) {
+      throw new Error(') 필요');
+    }
+
+    const thenBranch = this.parseBlock();
+    let elseBranch = null;
+
+    if (this.matchType(TokenType.ELSE)) {
+      if (this.current()?.type === TokenType.IF) {
+        elseBranch = this.parseIfStatement();
+      } else {
+        elseBranch = this.parseBlock();
+      }
+    }
+
+    return {
+      type: 'IfStatement',
+      condition,
+      thenBranch,
+      elseBranch
+    };
+  }
+
+  /**
+   * while 루프: while (cond) { ... }
+   */
+  private parseWhileStatement(): ASTNode {
+    if (!this.matchType(TokenType.LPAREN)) {
+      throw new Error('( 필요');
+    }
+    const condition = this.parseExpression();
+    if (!this.matchType(TokenType.RPAREN)) {
+      throw new Error(') 필요');
+    }
+    const body = this.parseBlock();
+
+    return {
+      type: 'WhileStatement',
+      condition,
+      body
+    };
+  }
+
+  /**
+   * 블록: { ... }
+   */
+  private parseBlock(): ASTNode {
+    if (!this.matchType(TokenType.LBRACE)) {
+      throw new Error('{ 필요');
+    }
+    const statements: ASTNode[] = [];
+
+    while (!this.checkType(TokenType.RBRACE) && !this.isAtEnd()) {
+      const stmt = this.parseStatement();
+      if (stmt) {
+        statements.push(stmt);
+      }
+    }
+
+    if (!this.matchType(TokenType.RBRACE)) {
+      throw new Error('} 필요');
+    }
+
+    return {
+      type: 'BlockStatement',
+      statements
+    };
+  }
+
+  /**
+   * 표현식 문장 (expression만 반환)
+   */
+  private parseExpressionStatement(): ASTNode {
+    const expr = this.parseExpression();
+    this.matchType(TokenType.SEMICOLON); // ; 선택사항
+    return expr;
+  }
+
+  /**
+   * 표현식 파싱 (우선순위 고려)
+   */
+  private parseExpression(): ASTNode {
+    return this.parseLogicalOr();
+  }
+
+  /**
+   * || 연산
+   */
+  private parseLogicalOr(): ASTNode {
+    let expr = this.parseLogicalAnd();
+
+    while (this.matchType(TokenType.OR)) {
+      const right = this.parseLogicalAnd();
+      expr = {
+        type: 'BinaryOp',
+        operator: '||',
+        left: expr,
+        right
+      };
+    }
+
+    return expr;
+  }
+
+  /**
+   * && 연산
+   */
+  private parseLogicalAnd(): ASTNode {
+    let expr = this.parseEquality();
+
+    while (this.matchType(TokenType.AND)) {
+      const right = this.parseEquality();
+      expr = {
+        type: 'BinaryOp',
+        operator: '&&',
+        left: expr,
+        right
+      };
+    }
+
+    return expr;
+  }
+
+  /**
+   * 비교 연산: ==, !=
+   */
+  private parseEquality(): ASTNode {
+    let expr = this.parseComparison();
+
+    while (this.matchAnyType([TokenType.EQ, TokenType.NE])) {
+      const op = this.previous().value;
+      const right = this.parseComparison();
+      expr = {
+        type: 'BinaryOp',
+        operator: op,
+        left: expr,
+        right
+      };
+    }
+
+    return expr;
+  }
+
+  /**
+   * 대소 비교: <, >, <=, >=
+   */
+  private parseComparison(): ASTNode {
+    let expr = this.parseAdditive();
+
+    while (this.matchAnyType([TokenType.LT, TokenType.GT, TokenType.LE, TokenType.GE])) {
+      const op = this.previous().value;
+      const right = this.parseAdditive();
+      expr = {
+        type: 'BinaryOp',
+        operator: op,
+        left: expr,
+        right
+      };
+    }
+
+    return expr;
+  }
+
+  /**
+   * 덧셈/뺄셈
+   */
+  private parseAdditive(): ASTNode {
+    let expr = this.parseMultiplicative();
+
+    while (this.matchAnyType([TokenType.PLUS, TokenType.MINUS])) {
+      const op = this.previous().value;
+      const right = this.parseMultiplicative();
+      expr = {
+        type: 'BinaryOp',
+        operator: op,
+        left: expr,
+        right
+      };
+    }
+
+    return expr;
+  }
+
+  /**
+   * 곱셈/나눗셈/나머지
+   */
+  private parseMultiplicative(): ASTNode {
+    let expr = this.parseUnary();
+
+    while (this.matchAnyType([TokenType.STAR, TokenType.SLASH, TokenType.PERCENT])) {
+      const op = this.previous().value;
+      const right = this.parseUnary();
+      expr = {
+        type: 'BinaryOp',
+        operator: op,
+        left: expr,
+        right
+      };
+    }
+
+    return expr;
+  }
+
+  /**
+   * 단항 연산: -, !
+   */
+  private parseUnary(): ASTNode {
+    if (this.matchAnyType([TokenType.MINUS, TokenType.NOT])) {
+      const op = this.previous().value;
+      const expr = this.parseUnary();
+      return {
+        type: 'UnaryOp',
+        operator: op,
+        operand: expr
+      };
+    }
+
+    return this.parsePostfix();
+  }
+
+  /**
+   * 후위 연산: 함수 호출, 배열 인덱싱
+   */
+  private parsePostfix(): ASTNode {
+    let expr = this.parsePrimary();
+
+    while (true) {
+      if (this.matchType(TokenType.LPAREN)) {
+        // 함수 호출
+        const args = this.parseArguments();
+        if (!this.matchType(TokenType.RPAREN)) {
+          throw new Error(') 필요');
+        }
+        expr = {
+          type: 'CallExpression',
+          callee: expr,
+          arguments: args
+        };
+      } else if (this.matchType(TokenType.LBRACKET)) {
+        // 배열 인덱싱
+        const index = this.parseExpression();
+        if (!this.matchType(TokenType.RBRACKET)) {
+          throw new Error('] 필요');
+        }
+        expr = {
+          type: 'IndexExpression',
+          object: expr,
+          index
+        };
+      } else {
+        break;
+      }
+    }
+
+    return expr;
+  }
+
+  /**
+   * 기본 식
+   */
+  private parsePrimary(): ASTNode {
+    const token = this.current();
+
+    if (!token) {
+      throw new Error('예상치 못한 종료');
+    }
+
+    // 숫자
+    if (this.matchType(TokenType.NUMBER)) {
+      return {
+        type: 'NumberLiteral',
+        value: parseFloat(this.previous().value)
+      };
+    }
+
+    // 문자열
+    if (this.matchType(TokenType.STRING)) {
+      const text = this.previous().value;
+      return {
+        type: 'StringLiteral',
+        value: text
+      };
+    }
+
+    // true/false
+    if (this.matchType(TokenType.TRUE)) {
+      return {
+        type: 'BooleanLiteral',
+        value: true
+      };
+    }
+
+    if (this.matchType(TokenType.FALSE)) {
+      return {
+        type: 'BooleanLiteral',
+        value: false
+      };
+    }
+
+    // 식별자 또는 함수 호출
+    if (this.matchType(TokenType.IDENT)) {
+      const name = this.previous().value;
+
+      // 함수 호출 (println, etc)
+      if (this.checkType(TokenType.LPAREN)) {
+        this.advance();
+        const args = this.parseArguments();
+        if (!this.matchType(TokenType.RPAREN)) {
+          throw new Error(') 필요');
+        }
+        return {
+          type: 'CallExpression',
+          callee: {
+            type: 'Identifier',
+            name
+          },
+          arguments: args
+        };
+      }
+
+      return {
+        type: 'Identifier',
+        name
+      };
+    }
+
+    // 배열
+    if (this.matchType(TokenType.LBRACKET)) {
+      const elements: ASTNode[] = [];
+
+      if (!this.checkType(TokenType.RBRACKET)) {
+        do {
+          elements.push(this.parseExpression());
+        } while (this.matchType(TokenType.COMMA));
+      }
+
+      if (!this.matchType(TokenType.RBRACKET)) {
+        throw new Error('] 필요');
+      }
+
+      return {
+        type: 'ArrayLiteral',
+        elements
+      };
+    }
+
+    // 괄호
+    if (this.matchType(TokenType.LPAREN)) {
+      const expr = this.parseExpression();
+      if (!this.matchType(TokenType.RPAREN)) {
+        throw new Error(') 필요');
+      }
+      return expr;
+    }
+
+    throw new Error(`예상치 못한 토큰: ${token.value}`);
+  }
+
+  /**
+   * 함수 인자 파싱
+   */
+  private parseArguments(): ASTNode[] {
+    const args: ASTNode[] = [];
+
+    if (!this.checkType(TokenType.RPAREN)) {
+      do {
+        args.push(this.parseExpression());
+      } while (this.matchType(TokenType.COMMA));
+    }
+
+    return args;
+  }
+
+  // ========== 유틸리티 메서드 ==========
+
+  private current(): Token | null {
+    return this.pos < this.tokens.length ? this.tokens[this.pos] : null;
+  }
+
+  private previous(): Token {
+    return this.tokens[this.pos - 1];
+  }
+
+  private isAtEnd(): boolean {
+    return this.current() === null;
+  }
+
+  private checkType(type: TokenType): boolean {
+    const token = this.current();
+    return token ? token.type === type : false;
+  }
+
+  private matchType(type: TokenType): boolean {
+    if (this.checkType(type)) {
+      this.advance();
+      return true;
+    }
+    return false;
+  }
+
+  private matchAnyType(types: TokenType[]): boolean {
+    for (const type of types) {
+      if (this.checkType(type)) {
+        this.advance();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private advance(): void {
+    if (!this.isAtEnd()) {
+      this.pos++;
+    }
+  }
+}
