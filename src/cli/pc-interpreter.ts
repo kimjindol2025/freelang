@@ -16,9 +16,11 @@ export class PCInterpreter {
   private variables: Map<string, any> = new Map();
   private output: string[] = [];
   private pc: number = 0; // Program Counter
-  private loopStack: number[] = []; // WHILE 시작 위치 스택
+  private loopStack: number[] = []; // WHILE 시작 위치 스택 (v3.3)
+  private loopDepthStack: number[] = []; // 루프 깊이 스택 (v3.3 Nested Loop)
   private debugLog: string[] = [];
   private sourceAST: ASTNode | null = null; // 전체 AST 저장 (v3.2 Exit Boundary용)
+  private indentLevel: number = 0; // v3.3: 들여쓰기 레벨
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
@@ -79,8 +81,19 @@ export class PCInterpreter {
       }
 
       case 'WhileStatement': {
-        // [LOG] WHILE 발견
-        this.log(`[WHILE] PC=${this.pc} (Loop Head)`);
+        // v3.3: 루프 시작/재진입 시 처리
+        const isFirstEntry = !this.loopStack.includes(this.pc);
+
+        if (isFirstEntry) {
+          // 루프 첫 진입: 스택에 저장
+          this.loopStack.push(this.pc);
+          this.loopDepthStack.push(this.indentLevel);
+          this.indentLevel++;
+          this.log(`[WHILE] PC=${this.pc} (Loop Head, Depth=${this.loopDepthStack.length - 1})`);
+        } else {
+          // 루프 재진입 (점프 백)
+          this.log(`[WHILE] PC=${this.pc} (Loop Reenter, Depth=${this.loopDepthStack.length - 1})`);
+        }
 
         // 조건 평가
         const condition = this.eval(stmt.condition);
@@ -90,33 +103,38 @@ export class PCInterpreter {
           // TRUE: 루프 바디 실행
           this.log(`[BRANCH] TRUE → 루프 바디 실행`);
 
-          // 루프 바디 실행
+          // 루프 바디 실행 (모든 문장을 eval()로 처리 - 중첩 루프 포함)
           if (stmt.body.type === 'BlockStatement') {
             for (const bodyStmt of stmt.body.statements) {
+              // v3.3: 중첩 루프도 eval()로 재귀 처리
+              // (중첩 루프는 다른 statement 배열에 있으므로)
               this.eval(bodyStmt);
             }
           } else {
             this.eval(stmt.body);
           }
 
-          // 루프 바디 끝: PC를 WHILE 위치로 복원
-          this.log(`[JUMP BACK] PC를 ${this.pc}로 복원 (Loop Head로 회귀)`);
+          // 루프 바디 끝: PC를 WHILE 위치로 복원 (최상위 루프만)
+          this.log(`[JUMP BACK] PC=${this.pc}로 복원 (Loop Head로 회귀)`);
           return this.pc; // 같은 PC로 다시 실행
         } else {
-          // FALSE: 루프 탈출 (Exit Strategy - v3.2)
-          this.log(`[BRANCH] FALSE → EXIT STRATEGY 시작`);
+          // FALSE: 루프 탈출
+          this.log(`[BRANCH] FALSE → EXIT STRATEGY 시작 (Depth=${this.loopDepthStack.length - 1})`);
           this.log(`[SKIPPING] 루프 바디 전체 건너뜀 (Block: ${JSON.stringify(stmt.body.type)})`);
 
-          // 루프 끝 위치 탐색 (블록 구조 확인)
           if (stmt.body.type === 'BlockStatement') {
             const bodyStmtCount = stmt.body.statements.length;
             this.log(`[EXIT BOUNDARY] 루프 바디: ${bodyStmtCount}개 문장 스킵 확인`);
-
-            // v3.2 강화: Boundary Scan
             this.findExitBoundary(stmt, statements);
           }
 
           this.log(`[EXIT] 다음 PC(${this.pc + 1})로 점프 (Loop 탈출 완료)`);
+
+          // 루프 탈출: 스택에서 제거
+          this.indentLevel--;
+          this.loopDepthStack.pop();
+          this.loopStack.pop();
+
           return undefined; // 다음 문으로
         }
       }
@@ -195,6 +213,22 @@ export class PCInterpreter {
           blockResult = this.eval(stmt);
         }
         return blockResult;
+
+      case 'WhileStatement': {
+        // v3.3: 중첩 루프 처리 (eval 기반)
+        this.indentLevel++;
+        this.log(`[WHILE] Nested Loop (Depth=${this.indentLevel - 1})`);
+
+        let result = null;
+        while (this.eval(node.condition)) {
+          this.log(`    [CONDITION] = true`);
+          result = this.eval(node.body);
+        }
+
+        this.log(`[WHILE END] (Depth=${this.indentLevel - 1})`);
+        this.indentLevel--;
+        return result;
+      }
 
       default:
         return null;
@@ -289,11 +323,13 @@ export class PCInterpreter {
   }
 
   /**
-   * 디버그 로그
+   * 디버그 로그 (v3.3: 들여쓰기 지원)
    */
   private log(msg: string): void {
-    this.debugLog.push(msg);
-    console.error(msg); // stderr로 출력 (결과와 분리)
+    const indent = '    '.repeat(this.indentLevel);
+    const formattedMsg = indent + msg;
+    this.debugLog.push(formattedMsg);
+    console.error(formattedMsg); // stderr로 출력 (결과와 분리)
   }
 
   /**
