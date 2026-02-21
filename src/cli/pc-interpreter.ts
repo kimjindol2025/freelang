@@ -39,6 +39,12 @@ export class PCInterpreter {
   private functionTable: Map<string, { params: string[]; body: ASTNode }> = new Map();
   //   함수 이름 → { 매개변수 목록, 바디 블록 }
 
+  // ── v5.7: 구조체 시스템 ─────────────────────────────────────────────────────
+  private structTable: Map<string, {
+    fields: { name: string; typeName: string; size: number; offset: number; padding: number }[];
+    totalSize: number;
+  }> = new Map();
+
   private callStack: Array<{
     savedScope: Map<string, any>; // 호출 전 변수 환경 전체
     functionName: string;         // 어느 함수 안에 있는지 (디버그용)
@@ -207,6 +213,16 @@ export class PCInterpreter {
   }
 
   /**
+   * v5.7: 타입 크기 계산
+   */
+  private getTypeSize(typeName: string): number {
+    const sizes: Record<string, number> = {
+      'Integer': 4, 'Float': 4, 'Long': 8, 'Short': 2, 'Byte': 1,
+    };
+    return sizes[typeName] ?? 4;
+  }
+
+  /**
    * 프로그램 실행 (PC 기반)
    */
   public execute(ast: ASTNode): any {
@@ -278,6 +294,25 @@ export class PCInterpreter {
       case 'FunctionDeclaration': {
         this.functionTable.set(stmt.name, { params: stmt.params, body: stmt.body });
         this.log(`[FUNC DEF] '${stmt.name}' 등록 (params: [${stmt.params.join(', ')}])`);
+        return undefined;
+      }
+
+      // v5.7: 구조체 정의
+      case 'StructDeclaration': {
+        const fieldsWithLayout: any[] = [];
+        let currentOffset = 0;
+        for (const f of stmt.fields) {
+          const size = this.getTypeSize(f.typeName);
+          const alignment = size;
+          const padding = (alignment - currentOffset % alignment) % alignment;
+          const offset = currentOffset + padding;
+          fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
+          this.log(`[FIELD LAYOUT] ${f.name}(${f.typeName}, ${size} bytes): offset=${offset}, padding=${padding}`);
+          currentOffset = offset + size;
+        }
+        const totalSize = currentOffset;
+        this.structTable.set(stmt.name, { fields: fieldsWithLayout, totalSize });
+        this.log(`[STRUCT DEF] ${stmt.name}: ${fieldsWithLayout.length}개 필드, ${totalSize} bytes total`);
         return undefined;
       }
 
@@ -617,6 +652,33 @@ export class PCInterpreter {
         return val;
       }
 
+      // v5.7: 구조체 멤버 읽기
+      case 'MemberExpression': {
+        const obj = this.eval(node.object);
+        if (!obj || obj.__type !== 'struct') throw new Error(`[MEMBER ERROR] 구조체가 아님`);
+        const structDef = this.structTable.get(obj.__typeName);
+        const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
+        if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
+        const value = obj[node.field];
+        this.log(`[MEMBER ACCESS] ${node.object.name}.${node.field} → offset=${fieldDef.offset} → ${value}`);
+        return value;
+      }
+
+      // v5.7: 구조체 멤버 쓰기
+      case 'MemberAssignment': {
+        const objName = node.object.name ?? node.object.object?.name;
+        const obj = this.variables.get(objName);
+        if (!obj || obj.__type !== 'struct') throw new Error(`[MEMBER ERROR] ${objName}은 구조체가 아님`);
+        const structDef = this.structTable.get(obj.__typeName);
+        const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
+        if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
+        const value = this.eval(node.value);
+        obj[node.field] = value;
+        const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
+        this.log(`[MEMBER WRITE] ${objName}.${node.field} = ${value} → offset=${fieldDef.offset} → ${fieldAddr}`);
+        return value;
+      }
+
       case 'FunctionDeclaration': {
         // v4.0: eval() 내에서 함수 정의 만나면 등록만 (실행 안 함)
         this.functionTable.set(node.name, { params: node.params, body: node.body });
@@ -825,7 +887,7 @@ export class PCInterpreter {
   private evalUnaryOp(node: ASTNode): any {
     const op = node.operator;
 
-    // v5.5/v5.6: Address-of (&) — 변수 또는 배열 원소의 메모리 주소 반환
+    // v5.5/v5.6/v5.7: Address-of (&) — 변수, 배열 원소, 구조체 멤버의 메모리 주소 반환
     if (op === '&') {
       if (node.operand.type === 'Identifier') {
         // v5.5: 단순 변수 주소
@@ -840,12 +902,25 @@ export class PCInterpreter {
         const addr = this.getSymbolAddress(arrName, idx);
         this.log(`[ADDRESS-OF] &${arrName}[${idx}] → ${addr} (Base + ${idx}*4)`);
         return { __type: 'address', varName: arrName, address: addr, offset: idx };
+      } else if (node.operand.type === 'MemberExpression') {
+        // v5.7: 구조체 멤버 주소
+        const objName = node.operand.object.name;
+        const field = node.operand.field;
+        const obj = this.variables.get(objName);
+        if (!obj || obj.__type !== 'struct') throw new Error(`[REF ERROR] ${objName}은 구조체가 아님`);
+        const structDef = this.structTable.get(obj.__typeName);
+        const fieldDef = structDef?.fields.find((f: any) => f.name === field);
+        if (!fieldDef) throw new Error(`[REF ERROR] 필드 '${field}' 없음`);
+        const fieldIdx = structDef!.fields.indexOf(fieldDef);
+        const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
+        this.log(`[ADDRESS-OF] &${objName}.${field} → ${fieldAddr} (Base ${obj.__baseAddr} + ${fieldDef.offset} bytes, field=${field}, index=${fieldIdx})`);
+        return { __type: 'address', varName: objName, field, address: fieldAddr, offset: fieldIdx };
       } else {
         throw new Error('[REF ERROR] & 연산자는 변수에만 사용 가능');
       }
     }
 
-    // v5.5/v5.6: Dereference (*) — 주소가 가리키는 값 반환
+    // v5.5/v5.6/v5.7: Dereference (*) — 주소가 가리키는 값 반환
     if (op === '*') {
       const ref = this.eval(node.operand);
       if (!ref || typeof ref !== 'object' || ref.__type !== 'address') {
@@ -853,6 +928,15 @@ export class PCInterpreter {
       }
       const target = this.variables.get(ref.varName);
       let value: any;
+
+      // v5.7: 구조체 멤버 역참조
+      if (ref.field != null) {
+        const structInst = this.variables.get(ref.varName);
+        if (!structInst || structInst.__type !== 'struct') throw new Error(`[DEREF ERROR] 구조체가 아님`);
+        const value2 = structInst[ref.field];
+        this.log(`[DEREFERENCE] *${ref.address} → ${ref.varName}.${ref.field} = ${value2}`);
+        return value2;
+      }
 
       if (Array.isArray(target)) {
         // v5.6: 배열 원소 접근 (offset 사용)
@@ -893,6 +977,21 @@ export class PCInterpreter {
 
     // 인자 평가 (호출 전 — 현재 스코프에서)
     const args = node.arguments.map((a: ASTNode) => this.eval(a));
+
+    // v5.7: 구조체 인스턴스 생성
+    if (this.structTable.has(calleeName)) {
+      const structDef = this.structTable.get(calleeName)!;
+      const instance: any = { __type: 'struct', __typeName: calleeName };
+      for (const field of structDef.fields) {
+        instance[field.name] = 0;
+      }
+      // 가상 기본 주소: 0x2000 영역 (배열 0x1xxx와 구분)
+      const allocIdx = this.variables.size;
+      const baseAddr = `0x${(0x2000 + allocIdx * 0x10).toString(16).padStart(4, '0')}`;
+      instance.__baseAddr = baseAddr;
+      this.log(`[STRUCT ALLOC] ${calleeName}() @ ${baseAddr} (${structDef.totalSize} bytes)`);
+      return instance;
+    }
 
     // v4.6: Call Site Cache — AST 노드 동일성 기반 직접 참조
     let cachedFn = this.callSiteCache.get(node);

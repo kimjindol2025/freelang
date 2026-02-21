@@ -91,6 +91,11 @@ export class SimpleLangParser {
       return this.parseWhileStatement();
     }
 
+    // v5.7: struct 구조체 정의
+    if (this.matchType(TokenType.STRUCT)) {
+      return this.parseStructDeclaration();
+    }
+
     // v3.6: break 문
     if (this.matchType(TokenType.BREAK)) {
       this.matchType(TokenType.SEMICOLON); // ; 선택사항
@@ -282,12 +287,57 @@ export class SimpleLangParser {
   }
 
   /**
+   * v5.7: 구조체 선언
+   * struct Player { ID (Integer), Level (Integer), HP (Float) }
+   */
+  private parseStructDeclaration(): ASTNode {
+    const nameToken = this.current();
+    if (!nameToken || nameToken.type !== TokenType.IDENT) {
+      throw new Error('구조체 이름 필요');
+    }
+    const name = nameToken.value;
+    this.advance();
+
+    if (!this.matchType(TokenType.LBRACE)) {
+      throw new Error('{ 필요');
+    }
+
+    const fields: { name: string; typeName: string }[] = [];
+    while (!this.checkType(TokenType.RBRACE) && !this.isAtEnd()) {
+      const fieldNameToken = this.current();
+      if (!fieldNameToken || fieldNameToken.type !== TokenType.IDENT) {
+        break;
+      }
+      const fieldName = fieldNameToken.value;
+      this.advance();
+
+      let typeName = 'Integer';
+      if (this.matchType(TokenType.LPAREN)) {
+        const typeToken = this.current();
+        if (typeToken && typeToken.type === TokenType.IDENT) {
+          typeName = typeToken.value;
+          this.advance();
+        }
+        this.matchType(TokenType.RPAREN);
+      }
+      this.matchType(TokenType.COMMA);
+      fields.push({ name: fieldName, typeName });
+    }
+
+    if (!this.matchType(TokenType.RBRACE)) {
+      throw new Error('} 필요');
+    }
+
+    return { type: 'StructDeclaration', name, fields };
+  }
+
+  /**
    * 표현식 또는 할당 문장
    */
   private parseExpressionStatement(): ASTNode {
     const expr = this.parseExpression();
 
-    // 할당 연산 (x = expr  or  arr[i] = expr)
+    // 할당 연산 (x = expr  or  arr[i] = expr  or  p1.ID = expr)
     if (this.matchType(TokenType.ASSIGN)) {
       const value = this.parseExpression();
       this.matchType(TokenType.SEMICOLON); // ; 선택사항
@@ -303,6 +353,16 @@ export class SimpleLangParser {
           object: expr.object,  // 배열 식별자
           index: expr.index,    // 인덱스 식
           value                 // 대입 값
+        };
+      }
+
+      // v5.7: 구조체 멤버 할당 — p1.ID = 101
+      if (expr.type === 'MemberExpression') {
+        return {
+          type: 'MemberAssignment',
+          object: expr.object,
+          field: expr.field,
+          value
         };
       }
 
@@ -457,7 +517,7 @@ export class SimpleLangParser {
   }
 
   /**
-   * 후위 연산: 함수 호출, 배열 인덱싱
+   * 후위 연산: 함수 호출, 배열 인덱싱, 구조체 멤버 접근
    */
   private parsePostfix(): ASTNode {
     let expr = this.parsePrimary();
@@ -485,6 +545,15 @@ export class SimpleLangParser {
           object: expr,
           index
         };
+      } else if (this.matchType(TokenType.DOT)) {
+        // v5.7: 구조체 멤버 접근
+        const fieldToken = this.current();
+        if (!fieldToken || fieldToken.type !== TokenType.IDENT) {
+          throw new Error('멤버 이름 필요');
+        }
+        const field = fieldToken.value;
+        this.advance();
+        expr = { type: 'MemberExpression', object: expr, field };
       } else {
         break;
       }
