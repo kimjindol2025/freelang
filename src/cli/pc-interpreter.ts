@@ -444,6 +444,10 @@ export class PCInterpreter {
         if (!Array.isArray(arr)) {
           throw new Error(`[INDEX ERROR] 배열이 아닌 변수에 인덱스 할당 불가`);
         }
+        // v5.1: 변수 인덱스 감지 — Dynamic Indexing (런타임 주소 계산)
+        if (node.index.type === 'Identifier') {
+          this.log(`[DYNAMIC INDEX] '${node.index.name}' = ${idx} → 런타임 주소 계산`);
+        }
         this.log(`[BOUNDS CHECK] 인덱스 ${idx} vs 배열 크기 ${arr.length}`);
         if (idx < 0 || idx >= arr.length) {
           throw new Error(`[INDEX OUT OF BOUNDS] 인덱스 ${idx} 가 범위 [0, ${arr.length - 1}] 를 벗어남`);
@@ -476,6 +480,10 @@ export class PCInterpreter {
         const idx = this.eval(node.index);
         if (!Array.isArray(obj)) {
           throw new Error(`[INDEX ERROR] 배열이 아닌 값에 인덱스 접근 불가`);
+        }
+        // v5.1: 변수 인덱스 감지 — Dynamic Indexing (런타임 주소 계산)
+        if (node.index.type === 'Identifier') {
+          this.log(`[DYNAMIC INDEX] '${node.index.name}' = ${idx} → 런타임 주소 계산`);
         }
         this.log(`[BOUNDS CHECK] 인덱스 ${idx} vs 배열 크기 ${obj.length}`);
         if (idx < 0 || idx >= obj.length) {
@@ -1054,6 +1062,9 @@ export class PCInterpreter {
         // 값이 변경됨
         if (controlVariables.has(varName)) {
           // 루프 제어 변수: 허용됨
+          changes.push({ varName, before: beforeValue, after: afterValue });
+        } else if (Array.isArray(afterValue) || Array.isArray(beforeValue)) {
+          // v5.1: 배열은 인덱스 쓰기로 원소 변경이 허용된 작업 → 오염 아님
           changes.push({ varName, before: beforeValue, after: afterValue });
         } else {
           // 루프 제어 변수 아님: 오염!
