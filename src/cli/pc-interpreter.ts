@@ -183,6 +183,37 @@ export class PCInterpreter {
       this.log(`[INDEX READ] linear[${addr}] = ${val}`);
       return val;
     });
+
+    // v5.8: arr_struct_new(count, structType) — 구조체 배열 생성 (Stride 기반)
+    this.variables.set('arr_struct_new', (count: number, structTypeName: string) => {
+      if (!this.structTable.has(structTypeName)) {
+        throw new Error(`[STRUCT ERROR] '${structTypeName}' 구조체가 정의되지 않았습니다`);
+      }
+      const structDef = this.structTable.get(structTypeName)!;
+      const stride = structDef.totalSize;
+      const totalBytes = count * stride;
+
+      // 1D 플래튼화: 모든 필드를 선형 배열로
+      const data = new Array(totalBytes).fill(0);
+
+      const allocIdx = this.variables.size;
+      const baseAddr = `0x${(0x4000 + allocIdx * 0x100).toString(16).padStart(4, '0')}`;
+
+      const structArray: any = {
+        __type: 'struct_array',
+        __typeName: structTypeName,
+        __stride: stride,
+        __structDef: structDef,
+        __baseAddr: baseAddr,
+        __count: count,
+        __data: data
+      };
+
+      this.log(`[STRUCT ARRAY ALLOC] ${structTypeName}[${count}] @ ${baseAddr} (stride=${stride}, total=${totalBytes} bytes)`);
+      this.log(`[MEMORY FLATTENING] 구조체 배열을 1D 선형 메모리로 취급 (${count}개 × ${stride} bytes)`);
+
+      return structArray;
+    });
   }
 
   /**
@@ -652,8 +683,41 @@ export class PCInterpreter {
         return val;
       }
 
-      // v5.7: 구조체 멤버 읽기
+      // v5.7/v5.8: 구조체 멤버 읽기 (단일 구조체 또는 구조체 배열)
       case 'MemberExpression': {
+        // v5.8: army[i].field 형태 처리
+        if (node.object.type === 'IndexExpression') {
+          const arrExpr = node.object;
+          const arrObj = this.eval(arrExpr.object);
+
+          if (arrObj && arrObj.__type === 'struct_array') {
+            const idx = this.eval(arrExpr.index);
+            const structDef = arrObj.__structDef;
+            const fieldDef = structDef.fields.find((f: any) => f.name === node.field);
+
+            if (!fieldDef) throw new Error(`[MEMBER ERROR] '${arrObj.__typeName}'에 '${node.field}' 필드 없음`);
+            if (idx < 0 || idx >= arrObj.__count) {
+              this.log(`[BOUNDARY VIOLATION] 인덱스 ${idx} ≥ count ${arrObj.__count}`);
+              throw new Error(`[INDEX OUT OF BOUNDS] 구조체 배열 인덱스 ${idx} 가 범위를 벗어남`);
+            }
+
+            const stride = arrObj.__stride;
+            const fieldOffset = fieldDef.offset;
+            const linearIdx = idx * stride + fieldOffset;
+            const value = arrObj.__data[linearIdx];
+
+            const arrName = arrExpr.object.name;
+            const elemAddr = parseInt(arrObj.__baseAddr, 16) + (idx * stride);
+            const fieldAddr = `0x${(elemAddr + fieldOffset).toString(16).padStart(4, '0')}`;
+
+            this.log(`[STRIDE INDEX] ${arrName}[${idx}].${node.field} → Base(${arrObj.__baseAddr}) + ${idx}×${stride} + ${fieldOffset}`);
+            this.log(`[STRIDE ACCESS] ${arrName}[${idx}].${node.field} → linear_idx=${linearIdx} → ${fieldAddr} → ${value}`);
+
+            return value;
+          }
+        }
+
+        // v5.7: p1.field 형태 (단일 구조체)
         const obj = this.eval(node.object);
         if (!obj || obj.__type !== 'struct') throw new Error(`[MEMBER ERROR] 구조체가 아님`);
         const structDef = this.structTable.get(obj.__typeName);
@@ -664,8 +728,42 @@ export class PCInterpreter {
         return value;
       }
 
-      // v5.7: 구조체 멤버 쓰기
+      // v5.7/v5.8: 구조체 멤버 쓰기 (단일 구조체 또는 구조체 배열)
       case 'MemberAssignment': {
+        // v5.8: army[i].field = value 형태 처리
+        if (node.object.type === 'IndexExpression') {
+          const arrExpr = node.object;
+          const arrObj = this.eval(arrExpr.object);
+
+          if (arrObj && arrObj.__type === 'struct_array') {
+            const idx = this.eval(arrExpr.index);
+            const structDef = arrObj.__structDef;
+            const fieldDef = structDef.fields.find((f: any) => f.name === node.field);
+
+            if (!fieldDef) throw new Error(`[MEMBER ERROR] '${arrObj.__typeName}'에 '${node.field}' 필드 없음`);
+            if (idx < 0 || idx >= arrObj.__count) {
+              this.log(`[BOUNDARY VIOLATION] 인덱스 ${idx} ≥ count ${arrObj.__count}`);
+              throw new Error(`[INDEX OUT OF BOUNDS] 구조체 배열 인덱스 ${idx} 가 범위를 벗어남`);
+            }
+
+            const stride = arrObj.__stride;
+            const fieldOffset = fieldDef.offset;
+            const linearIdx = idx * stride + fieldOffset;
+            const value = this.eval(node.value);
+
+            arrObj.__data[linearIdx] = value;
+            const elemAddr = parseInt(arrObj.__baseAddr, 16) + (idx * stride);
+            const fieldAddr = `0x${(elemAddr + fieldOffset).toString(16).padStart(4, '0')}`;
+
+            const arrName = arrExpr.object.name;
+            this.log(`[STRIDE INDEX] ${arrName}[${idx}].${node.field} → Base(${arrObj.__baseAddr}) + ${idx}×${stride} + ${fieldOffset}`);
+            this.log(`[STRIDE WRITE] ${arrName}[${idx}].${node.field} = ${value} → linear_idx=${linearIdx} → ${fieldAddr}`);
+
+            return value;
+          }
+        }
+
+        // v5.7: p1.field = value 형태 (단일 구조체)
         const objName = node.object.name ?? node.object.object?.name;
         const obj = this.variables.get(objName);
         if (!obj || obj.__type !== 'struct') throw new Error(`[MEMBER ERROR] ${objName}은 구조체가 아님`);
@@ -973,6 +1071,25 @@ export class PCInterpreter {
       calleeName = node.callee.name;
     } else {
       throw new Error('Only identifier function calls supported');
+    }
+
+    // v5.8: arr_struct_new(count, StructType) — 구조체 이름을 문자열로 처리
+    if (calleeName === 'arr_struct_new') {
+      if (node.arguments.length < 2) {
+        throw new Error('[STRUCT ERROR] arr_struct_new은 최소 2개 인자 필요');
+      }
+      const count = this.eval(node.arguments[0]);
+      // 두 번째 인자가 Identifier면 구조체 이름 추출
+      let structTypeName: string;
+      if (node.arguments[1].type === 'Identifier') {
+        structTypeName = node.arguments[1].name;
+      } else {
+        structTypeName = this.eval(node.arguments[1]);
+      }
+      const func = this.variables.get('arr_struct_new');
+      if (typeof func === 'function') {
+        return func(count, structTypeName);
+      }
     }
 
     // 인자 평가 (호출 전 — 현재 스코프에서)
