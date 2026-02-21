@@ -16,6 +16,147 @@ export interface ASTNode {
   [key: string]: any;
 }
 
+/**
+ * v5.9: HeapAllocator — 동적 메모리 할당 관리자
+ * First-Fit 알고리즘 + Coalescing으로 메모리 단편화 방지
+ */
+class HeapAllocator {
+  private freeBlocks: Map<number, number> = new Map();  // address → size (가용 블록)
+  private allocatedBlocks: Map<number, number> = new Map();  // address → size (사용 중 블록)
+  private heapMemory: Map<number, any> = new Map();  // 절대 주소 → 값
+  private nextFreeAddress: number = 0x8000;  // 힙 시작 주소
+  private log: (msg: string) => void;  // 로깅 콜백
+
+  constructor(logCallback: (msg: string) => void) {
+    this.log = logCallback;
+  }
+
+  /**
+   * First-Fit 할당 알고리즘
+   */
+  allocate(size: number): number {
+    if (size <= 0) throw new Error('[ALLOC ERROR] 크기는 양수여야 합니다');
+
+    // 1. freeBlocks에서 충분한 크기의 첫 번째 블록 찾기
+    for (const [addr, blockSize] of this.freeBlocks) {
+      if (blockSize >= size) {
+        // 이 블록을 할당함
+        this.freeBlocks.delete(addr);
+        this.allocatedBlocks.set(addr, size);
+        this.log(`[ALLOC] size=${size}, found_block @ 0x${addr.toString(16)}, block_size=${blockSize}`);
+        this.log(`[ALLOC] address=0x${addr.toString(16)}, size=${size}`);
+        return addr;
+      }
+    }
+
+    // 2. 없으면 새로 할당
+    const newAddr = this.nextFreeAddress;
+    this.allocatedBlocks.set(newAddr, size);
+    this.log(`[ALLOC] size=${size}, new_block @ 0x${newAddr.toString(16)}`);
+    this.log(`[ALLOC] address=0x${newAddr.toString(16)}, size=${size}`);
+    this.nextFreeAddress += size;
+    return newAddr;
+  }
+
+  /**
+   * 메모리 해제 (Coalescing 포함)
+   */
+  deallocate(address: number): void {
+    if (!this.allocatedBlocks.has(address)) {
+      throw new Error(`[FREE ERROR] 할당되지 않은 주소 0x${address.toString(16)}`);
+    }
+
+    const size = this.allocatedBlocks.get(address)!;
+    this.allocatedBlocks.delete(address);
+    this.freeBlocks.set(address, size);
+    this.log(`[FREE] address=0x${address.toString(16)}, size=${size}`);
+
+    // Coalescing: 인접한 빈 블록 병합
+    this.coalesce();
+  }
+
+  /**
+   * 인접한 빈 블록 병합 (단편화 방지)
+   */
+  private coalesce(): void {
+    const addrs = Array.from(this.freeBlocks.keys()).sort((a, b) => a - b);
+
+    for (let i = 0; i < addrs.length - 1; i++) {
+      const addr1 = addrs[i];
+      const size1 = this.freeBlocks.get(addr1)!;
+      const addr2 = addrs[i + 1];
+      const size2 = this.freeBlocks.get(addr2)!;
+
+      // addr1과 addr2가 인접하면 병합
+      if (addr1 + size1 === addr2) {
+        this.freeBlocks.delete(addr2);
+        this.freeBlocks.set(addr1, size1 + size2);
+        this.log(`[COALESCE] 블록 병합: 0x${addr1.toString(16)}(${size1}) + 0x${addr2.toString(16)}(${size2}) → 0x${addr1.toString(16)}(${size1 + size2})`);
+        // 재귀적으로 다시 시도 (3개 이상 연속 병합 가능)
+        this.coalesce();
+        return;
+      }
+    }
+  }
+
+  /**
+   * 힙 메모리 읽기
+   */
+  read(address: number, offset: number): any {
+    // 할당된 범위 확인
+    let isValid = false;
+    for (const [allocAddr, allocSize] of this.allocatedBlocks) {
+      if (address >= allocAddr && address < allocAddr + allocSize) {
+        if (offset >= 0 && offset < allocSize - (address - allocAddr)) {
+          isValid = true;
+          break;
+        }
+      }
+    }
+
+    if (!isValid && address !== 0) {
+      // address=0은 null pointer로 허용
+      throw new Error(`[BOUNDARY VIOLATION] 주소 0x${address.toString(16)} + offset=${offset} 범위 초과`);
+    }
+
+    const absoluteAddr = address + offset;
+    const value = this.heapMemory.get(absoluteAddr) ?? 0;
+    this.log(`[HEAP READ] @0x${address.toString(16)}+${offset} = ${value}`);
+    return value;
+  }
+
+  /**
+   * 힙 메모리 쓰기
+   */
+  write(address: number, offset: number, value: any): void {
+    // 할당된 범위 확인
+    let isValid = false;
+    for (const [allocAddr, allocSize] of this.allocatedBlocks) {
+      if (address >= allocAddr && address < allocAddr + allocSize) {
+        if (offset >= 0 && offset < allocSize - (address - allocAddr)) {
+          isValid = true;
+          break;
+        }
+      }
+    }
+
+    if (!isValid && address !== 0) {
+      throw new Error(`[BOUNDARY VIOLATION] 주소 0x${address.toString(16)} + offset=${offset} 범위 초과`);
+    }
+
+    const absoluteAddr = address + offset;
+    this.heapMemory.set(absoluteAddr, value);
+    this.log(`[HEAP WRITE] @0x${address.toString(16)}+${offset} = ${value}`);
+  }
+
+  /**
+   * 할당된 모든 블록 목록 (메모리 누수 감지용)
+   */
+  getAllocatedBlocks(): Array<{ address: number; size: number }> {
+    return Array.from(this.allocatedBlocks.entries()).map(([addr, size]) => ({ address: addr, size }));
+  }
+}
+
 export class PCInterpreter {
   private variables: Map<string, any> = new Map();
   private output: string[] = [];
@@ -45,6 +186,9 @@ export class PCInterpreter {
     totalSize: number;
   }> = new Map();
 
+  // ── v5.9: 동적 메모리 할당 시스템 ─────────────────────────────────────────────
+  private heapAllocator: HeapAllocator;
+
   private callStack: Array<{
     savedScope: Map<string, any>; // 호출 전 변수 환경 전체
     functionName: string;         // 어느 함수 안에 있는지 (디버그용)
@@ -65,6 +209,9 @@ export class PCInterpreter {
   // ──────────────────────────────────────────────────────────────────────────
 
   constructor() {
+    // v5.9: HeapAllocator 초기화
+    this.heapAllocator = new HeapAllocator((msg: string) => this.log(msg));
+
     this.variables.set('println', this.println.bind(this));
 
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
@@ -213,6 +360,29 @@ export class PCInterpreter {
       this.log(`[MEMORY FLATTENING] 구조체 배열을 1D 선형 메모리로 취급 (${count}개 × ${stride} bytes)`);
 
       return structArray;
+    });
+
+    // ── v5.9: 동적 메모리 할당 함수들 ──────────────────────────────────────────
+    // alloc(size) → address
+    this.variables.set('alloc', (size: number) => {
+      const address = this.heapAllocator.allocate(size);
+      return address;
+    });
+
+    // free(address) → void
+    this.variables.set('free', (address: number) => {
+      this.heapAllocator.deallocate(address);
+    });
+
+    // get_at(address, offset) → value
+    this.variables.set('get_at', (address: number, offset: number) => {
+      const value = this.heapAllocator.read(address, offset);
+      return value;
+    });
+
+    // set_at(address, offset, value) → void
+    this.variables.set('set_at', (address: number, offset: number, value: any) => {
+      this.heapAllocator.write(address, offset, value);
     });
   }
 
@@ -1313,6 +1483,24 @@ export class PCInterpreter {
    */
   public getLogs(): string[] {
     return this.debugLog;
+  }
+
+  /**
+   * v5.9: 메모리 누수 감지 (프로그램 종료 시 호출)
+   */
+  public checkMemoryLeaks(): void {
+    const leakedBlocks = this.heapAllocator.getAllocatedBlocks();
+    if (leakedBlocks.length > 0) {
+      this.log(`[LEAK WARNING] ${leakedBlocks.length}개 블록이 해제되지 않음`);
+      let totalLeaked = 0;
+      for (const block of leakedBlocks) {
+        this.log(`  - 0x${block.address.toString(16)}: ${block.size} bytes`);
+        totalLeaked += block.size;
+      }
+      this.log(`[LEAK TOTAL] ${totalLeaked} bytes 미해제`);
+    } else {
+      this.log(`[MEMORY OK] 메모리 누수 없음 ✅`);
+    }
   }
 
   /**
