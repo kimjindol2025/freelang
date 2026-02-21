@@ -81,6 +81,22 @@ export class SimpleLangParser {
       return this.parseWhileStatement();
     }
 
+    // v3.6: break 문
+    if (this.matchType(TokenType.BREAK)) {
+      this.matchType(TokenType.SEMICOLON); // ; 선택사항
+      return {
+        type: 'BreakStatement'
+      };
+    }
+
+    // v3.6: continue 문
+    if (this.matchType(TokenType.CONTINUE)) {
+      this.matchType(TokenType.SEMICOLON); // ; 선택사항
+      return {
+        type: 'ContinueStatement'
+      };
+    }
+
     // 표현식 문장 (println, 함수 호출 등)
     return this.parseExpressionStatement();
   }

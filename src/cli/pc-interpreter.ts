@@ -19,6 +19,8 @@ export class PCInterpreter {
   private loopStack: number[] = []; // WHILE 시작 위치 스택 (v3.3)
   private loopDepthStack: number[] = []; // 루프 깊이 스택 (v3.3 Nested Loop)
   private loopBodyExecutionCount: number[] = []; // v3.4: 루프 바디 실행 횟수 (조건 FALSE 제외)
+  private breakFlag: boolean = false; // v3.6: break 플래그
+  private continueFlag: boolean = false; // v3.6: continue 플래그
   private debugLog: string[] = [];
   private sourceAST: ASTNode | null = null; // 전체 AST 저장 (v3.2 Exit Boundary용)
   private indentLevel: number = 0; // v3.3: 들여쓰기 레벨
@@ -134,9 +136,39 @@ export class PCInterpreter {
           if (stmt.body.type === 'BlockStatement') {
             for (const bodyStmt of stmt.body.statements) {
               this.eval(bodyStmt);
+              // v3.6: break/continue 플래그 확인
+              if (this.breakFlag || this.continueFlag) {
+                this.log(`[FLAG CHECK] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag}`);
+                break;
+              }
             }
           } else {
             this.eval(stmt.body);
+          }
+
+          // v3.6: break 플래그 확인 - 루프 탈출
+          if (this.breakFlag) {
+            this.log(`[BREAK DETECTED] 루프 즉시 탈출`);
+            const currentDepth = this.loopDepthStack.length - 1;
+            const totalBodyExecutions = this.loopBodyExecutionCount[currentDepth] || 0;
+            this.log(`[LOOP STATS] 루프 바디 실행: ${totalBodyExecutions}회`);
+
+            // 루프 탈출: 스택에서 제거
+            this.indentLevel--;
+            this.loopDepthStack.pop();
+            this.loopBodyExecutionCount.pop();
+            this.loopStack.pop();
+
+            // breakFlag 초기화
+            this.breakFlag = false;
+
+            return undefined; // 다음 문으로
+          }
+
+          // v3.6: continue 플래그 초기화 (루프 계속)
+          if (this.continueFlag) {
+            this.log(`[CONTINUE DETECTED] 루프 헤드로 복귀`);
+            this.continueFlag = false;
           }
 
           // v3.4: 루프 종료 후 메모리 스냅샷 및 값 변경 추적
@@ -175,11 +207,23 @@ export class PCInterpreter {
       }
 
       case 'IfStatement': {
+        this.log(`[IF] 조건 평가 시작`);
         const cond = this.eval(stmt.condition);
+        this.log(`[IF] 조건 결과: ${cond}`);
         if (cond) {
+          this.log(`[IF] TRUE 브랜치 실행`);
           this.eval(stmt.thenBranch);
+          // v3.6: break/continue 플래그 확인
+          if (this.breakFlag || this.continueFlag) {
+            this.log(`[IF] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag} 발견 - 즉시 반환`);
+          }
         } else if (stmt.elseBranch) {
+          this.log(`[IF] FALSE 브랜치 실행`);
           this.eval(stmt.elseBranch);
+          // v3.6: break/continue 플래그 확인
+          if (this.breakFlag || this.continueFlag) {
+            this.log(`[IF] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag} 발견 - 즉시 반환`);
+          }
         }
         return undefined;
       }
@@ -246,8 +290,35 @@ export class PCInterpreter {
         let blockResult = null;
         for (const stmt of node.statements) {
           blockResult = this.eval(stmt);
+          // v3.6: break/continue 플래그 확인
+          if (this.breakFlag || this.continueFlag) {
+            break; // BlockStatement 평가 중단
+          }
         }
         return blockResult;
+
+      case 'IfStatement': {
+        // v3.6: eval() 기반 IfStatement 처리 (nested 루프 내부용)
+        this.log(`[IF-EVAL] 조건 평가 시작`);
+        const cond = this.eval(node.condition);
+        this.log(`[IF-EVAL] 조건 결과: ${cond}`);
+        if (cond) {
+          this.log(`[IF-EVAL] TRUE 브랜치 실행`);
+          const thenResult = this.eval(node.thenBranch);
+          if (this.breakFlag || this.continueFlag) {
+            this.log(`[IF-EVAL] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag} 감지`);
+          }
+          return thenResult;
+        } else if (node.elseBranch) {
+          this.log(`[IF-EVAL] FALSE 브랜치 실행`);
+          const elseResult = this.eval(node.elseBranch);
+          if (this.breakFlag || this.continueFlag) {
+            this.log(`[IF-EVAL] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag} 감지`);
+          }
+          return elseResult;
+        }
+        return null;
+      }
 
       case 'WhileStatement': {
         // v3.3: 중첩 루프 처리 (eval 기반)
@@ -255,14 +326,40 @@ export class PCInterpreter {
         this.log(`[WHILE] Nested Loop (Depth=${this.indentLevel - 1})`);
 
         let result = null;
-        while (this.eval(node.condition)) {
+        while (this.eval(node.condition) && !this.breakFlag) {
           this.log(`    [CONDITION] = true`);
+          this.continueFlag = false; // v3.6: continue 플래그 초기화
           result = this.eval(node.body);
+          // v3.6: break는 루프 탈출, continue는 다음 회차로
+          if (this.breakFlag) {
+            this.log(`    [BREAK] 루프 탈출`);
+            this.breakFlag = false;
+            break;
+          }
+          if (this.continueFlag) {
+            this.log(`    [CONTINUE] 다음 회차로`);
+            this.continueFlag = false;
+            // 루프의 조건 재평가로 자동 진행
+          }
         }
 
         this.log(`[WHILE END] (Depth=${this.indentLevel - 1})`);
         this.indentLevel--;
         return result;
+      }
+
+      case 'BreakStatement': {
+        // v3.6: break 문
+        this.log(`[BREAK SIGNAL] break 감지`);
+        this.breakFlag = true;
+        return null;
+      }
+
+      case 'ContinueStatement': {
+        // v3.6: continue 문
+        this.log(`[CONTINUE SIGNAL] continue 감지`);
+        this.continueFlag = true;
+        return null;
       }
 
       default:
