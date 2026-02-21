@@ -105,9 +105,16 @@ export class PCInterpreter {
           this.log(`[WHILE] PC=${this.pc} (Loop Reenter, Depth=${currentDepth}, Execution #${executionCount + 1})`);
         }
 
-        // 조건 평가
-        const condition = this.eval(stmt.condition);
-        this.log(`[CONDITION] (${JSON.stringify(stmt.condition)}) = ${condition}`);
+        // 조건 평가 (v3.5: 복합 조건식 단계별 로깅)
+        const currentExecutionNum = this.loopBodyExecutionCount[this.loopDepthStack.length - 1] || 0;
+        let condition = this.eval(stmt.condition);
+
+        // v3.5: 복합 조건식인 경우 단계별 평가 로깅
+        if (stmt.condition.type === 'BinaryOp') {
+          condition = this.evaluateConditionWithDetails(stmt.condition, currentExecutionNum + 1);
+        } else {
+          this.log(`[CONDITION] (${JSON.stringify(stmt.condition)}) = ${condition}`);
+        }
 
         if (condition) {
           // TRUE: 루프 바디 실행 (v3.4: 메모리 스냅샷)
@@ -425,5 +432,53 @@ export class PCInterpreter {
 
     extractVars(condition);
     return Array.from(vars);
+  }
+
+  /**
+   * v3.5: 조건식의 계산 과정을 상세히 로깅
+   * 복합 조건식: (i + j < limit) → "1 + 2 < 10 = 3 < 10 = true"
+   */
+  private evaluateConditionWithDetails(condition: ASTNode, iteration: number): any {
+    const evaluateWithSteps = (node: ASTNode, depth: number = 0): { value: any; expression: string } => {
+      if (!node) return { value: null, expression: 'null' };
+
+      switch (node.type) {
+        case 'NumberLiteral':
+          return { value: node.value, expression: String(node.value) };
+
+        case 'Identifier':
+          const idValue = this.variables.get(node.name);
+          return { value: idValue, expression: `${node.name}(${idValue})` };
+
+        case 'BinaryOp': {
+          const left = evaluateWithSteps(node.left, depth + 1);
+          const right = evaluateWithSteps(node.right, depth + 1);
+          const result = this.evalBinaryOp({
+            ...node,
+            left: { type: 'NumberLiteral', value: left.value },
+            right: { type: 'NumberLiteral', value: right.value }
+          });
+
+          // 비교 연산자인 경우 결과를 boolean으로 표시
+          const isBooleanOp = ['<', '>', '<=', '>=', '==', '!=', '&&', '||'].includes(node.operator);
+          const resultExpr = isBooleanOp
+            ? (result ? 'true' : 'false')
+            : String(result);
+
+          return {
+            value: result,
+            expression: `${left.expression} ${node.operator} ${right.expression} = ${resultExpr}`
+          };
+        }
+
+        default:
+          const val = this.eval(node);
+          return { value: val, expression: JSON.stringify(val) };
+      }
+    };
+
+    const result = evaluateWithSteps(condition);
+    this.log(`[EVAL STEPS] Iteration #${iteration}: ${result.expression}`);
+    return result.value;
   }
 }
