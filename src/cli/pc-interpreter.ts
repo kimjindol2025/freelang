@@ -24,6 +24,8 @@ export class PCInterpreter {
   private loopDepthStack: number[] = []; // 루프 깊이 스택 (v3.3 Nested Loop)
   private loopBodyExecutionCount: number[] = []; // v3.4: 루프 바디 실행 횟수 (조건 FALSE 제외)
   private loopIterationCounter: number[] = []; // v3.7: 각 루프의 총 반복 횟수 (nested support)
+  private loopPreExecutionSnapshot: Map<string, Map<string, any>>[] = []; // v3.8: 루프 진입 전 메모리 스냅샷 (depth별)
+  private loopControlVariables: Set<string>[] = []; // v3.8: 루프 제어 변수 (i, j 등) - 변경 허용
   private breakFlag: boolean = false; // v3.6: break 플래그
   private continueFlag: boolean = false; // v3.6: continue 플래그
   private debugLog: string[] = [];
@@ -104,9 +106,17 @@ export class PCInterpreter {
 
           // v3.4: 조건에서 추적할 변수 추출
           const conditionVars = this.extractVariablesFromCondition(stmt.condition);
+
+          // v3.8: 메모리 상태 보호 시작
+          const loopControlVars = this.identifyLoopControlVariables(stmt.condition);
+          const preExecutionSnapshot = this.captureFullMemorySnapshot();
+          this.loopPreExecutionSnapshot.push(preExecutionSnapshot);
+          this.loopControlVariables.push(loopControlVars);
+
           this.log(`[WHILE] PC=${this.pc} (Loop Head, Depth=${this.loopDepthStack.length - 1})`);
           this.log(`[TRACKED] 조건 변수: ${conditionVars.join(', ')}`);
           this.log(`[SAFETY GUARD] v3.7 활성화 (MAX_SAFE: ${MAX_SAFE_ITERATION.toLocaleString()}, WARN: ${ITERATION_WARNING_THRESHOLD.toLocaleString()})`);
+          this.log(`[MEMORY INTEGRITY] v3.8 활성화 - Capture pre-loop state (${preExecutionSnapshot.size} variables)`);
         } else {
           // 루프 재진입 (점프 백)
           const currentDepth = this.loopDepthStack.length - 1;
@@ -191,11 +201,22 @@ export class PCInterpreter {
             this.log(`[LOOP STATS] 루프 바디 실행: ${totalBodyExecutions}회`);
             this.log(`[SAFETY GUARD] Break exit - Total iterations: ${totalIterations.toLocaleString()}/${MAX_SAFE_ITERATION.toLocaleString()}`); // v3.7
 
+            // v3.8: 메모리 무결성 검증 (break 탈출 시에도)
+            const preSnapshot = this.loopPreExecutionSnapshot[currentDepth];
+            const postSnapshot = this.captureFullMemorySnapshot();
+            const controlVars = this.loopControlVariables[currentDepth];
+
+            if (preSnapshot && controlVars) {
+              this.detectMemoryContamination(preSnapshot, postSnapshot, controlVars, currentDepth);
+            }
+
             // 루프 탈출: 스택에서 제거
             this.indentLevel--;
             this.loopDepthStack.pop();
             this.loopBodyExecutionCount.pop();
             this.loopIterationCounter.pop(); // v3.7: 반복 횟수 카운터 제거
+            this.loopPreExecutionSnapshot.pop(); // v3.8: 메모리 스냅샷 제거
+            this.loopControlVariables.pop(); // v3.8: 루프 제어 변수 제거
             this.loopStack.pop();
 
             // breakFlag 초기화
@@ -237,11 +258,22 @@ export class PCInterpreter {
 
           this.log(`[EXIT] 다음 PC(${this.pc + 1})로 점프 (Loop 탈출 완료)`);
 
+          // v3.8: 메모리 무결성 검증
+          const preSnapshot = this.loopPreExecutionSnapshot[currentDepth];
+          const postSnapshot = this.captureFullMemorySnapshot();
+          const controlVars = this.loopControlVariables[currentDepth];
+
+          if (preSnapshot && controlVars) {
+            this.detectMemoryContamination(preSnapshot, postSnapshot, controlVars, currentDepth);
+          }
+
           // 루프 탈출: 스택에서 제거
           this.indentLevel--;
           this.loopDepthStack.pop();
           this.loopBodyExecutionCount.pop(); // v3.4: 바디 실행 횟수 카운터 제거
           this.loopIterationCounter.pop(); // v3.7: 반복 횟수 카운터 제거
+          this.loopPreExecutionSnapshot.pop(); // v3.8: 메모리 스냅샷 제거
+          this.loopControlVariables.pop(); // v3.8: 루프 제어 변수 제거
           this.loopStack.pop();
 
           return undefined; // 다음 문으로
@@ -369,6 +401,12 @@ export class PCInterpreter {
         this.log(`[WHILE] Nested Loop (Depth=${nestedLoopDepth})`);
         this.log(`[SAFETY GUARD] v3.7 활성화 (MAX_SAFE: ${MAX_SAFE_ITERATION.toLocaleString()}, WARN: ${ITERATION_WARNING_THRESHOLD.toLocaleString()})`);
 
+        // v3.8: 중첩 루프의 메모리 상태 보호
+        const nestedLoopControlVars = this.identifyLoopControlVariables(node.condition);
+        const nestedPreSnapshot = this.captureFullMemorySnapshot();
+
+        this.log(`[MEMORY INTEGRITY] v3.8 활성화 - Capture pre-nested-loop state (${nestedPreSnapshot.size} variables)`);
+
         let result = null;
         let nestedIterationCount = 0; // v3.7: 중첩 루프 반복 횟수
 
@@ -407,6 +445,10 @@ export class PCInterpreter {
             // 루프의 조건 재평가로 자동 진행
           }
         }
+
+        // v3.8: 중첩 루프 메모리 무결성 검증
+        const nestedPostSnapshot = this.captureFullMemorySnapshot();
+        this.detectMemoryContamination(nestedPreSnapshot, nestedPostSnapshot, nestedLoopControlVars, nestedLoopDepth);
 
         this.log(`[WHILE END] (Depth=${nestedLoopDepth}) - Safe exit: ${nestedIterationCount.toLocaleString()} iterations`);
         this.indentLevel--;
@@ -642,5 +684,99 @@ export class PCInterpreter {
     const result = evaluateWithSteps(condition);
     this.log(`[EVAL STEPS] Iteration #${iteration}: ${result.expression}`);
     return result.value;
+  }
+
+  /**
+   * v3.8: 전체 메모리 상태 스냅샷 (모든 변수)
+   * 루프 진입 전 상태를 저장하여 나중에 비교
+   */
+  private captureFullMemorySnapshot(): Map<string, any> {
+    const snapshot = new Map<string, any>();
+
+    // 내장 함수(println) 제외, 사용자 정의 변수만 저장
+    for (const [key, value] of this.variables) {
+      if (key !== 'println') {
+        // 원시값은 그대로, 객체는 깊은 복사
+        snapshot.set(key, JSON.parse(JSON.stringify(value)));
+      }
+    }
+
+    return snapshot;
+  }
+
+  /**
+   * v3.8: 루프 제어 변수 추출 및 저장
+   * 루프 조건에서 나타나는 변수들은 "허용된 변경"으로 취급
+   */
+  private identifyLoopControlVariables(condition: ASTNode): Set<string> {
+    const controlVars = new Set<string>();
+
+    const extract = (node: ASTNode): void => {
+      if (!node) return;
+
+      if (node.type === 'Identifier') {
+        controlVars.add(node.name);
+      } else if (node.type === 'BinaryOp') {
+        extract(node.left);
+        extract(node.right);
+      } else if (node.type === 'UnaryOp') {
+        extract(node.operand);
+      }
+    };
+
+    extract(condition);
+    return controlVars;
+  }
+
+  /**
+   * v3.8: 메모리 상태 비교 및 오염 감지
+   * 루프 전후의 메모리를 비교하여 의도하지 않은 변경 감지
+   */
+  private detectMemoryContamination(
+    beforeSnapshot: Map<string, any>,
+    afterSnapshot: Map<string, any>,
+    controlVariables: Set<string>,
+    loopDepth: number
+  ): void {
+    const changes: { varName: string; before: any; after: any }[] = [];
+    const contaminations: { varName: string; before: any; after: any }[] = [];
+
+    // 모든 현재 변수 확인
+    for (const [varName, afterValue] of afterSnapshot) {
+      const beforeValue = beforeSnapshot.get(varName);
+
+      if (beforeValue === undefined) {
+        // 새로 추가된 변수 (문제 없음)
+        changes.push({ varName, before: undefined, after: afterValue });
+      } else if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+        // 값이 변경됨
+        if (controlVariables.has(varName)) {
+          // 루프 제어 변수: 허용됨
+          changes.push({ varName, before: beforeValue, after: afterValue });
+        } else {
+          // 루프 제어 변수 아님: 오염!
+          contaminations.push({ varName, before: beforeValue, after: afterValue });
+        }
+      }
+    }
+
+    // 로그 출력
+    if (changes.length > 0) {
+      const changeLog = changes
+        .map(c => `${c.varName}: ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}`)
+        .join(', ');
+      this.log(`[STATE CHANGE] Depth=${loopDepth} - Permitted: {${changeLog}}`);
+    }
+
+    // 오염 감지!
+    if (contaminations.length > 0) {
+      const contaminationLog = contaminations
+        .map(c => `${c.varName}: ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}`)
+        .join(', ');
+      this.log(`[CONTAMINATION ALERT] Depth=${loopDepth} - ILLEGAL CHANGES DETECTED: {${contaminationLog}}`);
+      this.log(`[MEMORY INTEGRITY] ⚠️  Loop modified unexpected memory region!`);
+    } else {
+      this.log(`[MEMORY INTEGRITY] ✅ Memory isolation verified (Depth=${loopDepth})`);
+    }
   }
 }
