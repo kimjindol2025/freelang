@@ -778,10 +778,46 @@ export class PCInterpreter {
   /**
    * 단항 연산
    */
+  /**
+   * v5.5: 심볼 테이블에서 변수의 메모리 주소 계산
+   */
+  private getSymbolAddress(varName: string): string {
+    const varNames = [...this.variables.keys()];
+    const index = varNames.indexOf(varName);
+    if (index === -1) {
+      throw new Error(`[SYMBOL ERROR] 변수 '${varName}'를 찾을 수 없음`);
+    }
+    const offset = index * 4; // 각 변수는 4바이트 (32-bit)
+    return `0x${(0x1000 + offset).toString(16).padStart(4, '0')}`;
+  }
+
   private evalUnaryOp(node: ASTNode): any {
-    const operand = this.eval(node.operand);
     const op = node.operator;
 
+    // v5.5: Address-of (&) — 변수의 메모리 주소 반환
+    if (op === '&') {
+      if (node.operand.type !== 'Identifier') {
+        throw new Error('[REF ERROR] & 연산자는 변수에만 사용 가능');
+      }
+      const varName = node.operand.name;
+      const addr = this.getSymbolAddress(varName);
+      this.log(`[ADDRESS-OF] &${varName} → ${addr}`);
+      return { __type: 'address', varName, address: addr };
+    }
+
+    // v5.5: Dereference (*) — 주소가 가리키는 값 반환
+    if (op === '*') {
+      const ref = this.eval(node.operand);
+      if (!ref || typeof ref !== 'object' || ref.__type !== 'address') {
+        throw new Error('[DEREF ERROR] * 연산자는 주소에만 사용 가능');
+      }
+      const value = this.variables.get(ref.varName);
+      this.log(`[DEREFERENCE] *${ref.address} → ${ref.varName} = ${value}`);
+      return value;
+    }
+
+    // 기존 연산자
+    const operand = this.eval(node.operand);
     if (op === '-') return -operand;
     if (op === '!') return !operand ? 1 : 0;
 
@@ -1132,6 +1168,9 @@ export class PCInterpreter {
       } else if (value && typeof value === 'object' && value.__type === 'matrix') {
         // v5.4: matrix 딥 카피
         snapshot.set(key, { ...value, data: value.data.slice() });
+      } else if (value && typeof value === 'object' && value.__type === 'address') {
+        // v5.5: address 객체 (참조)는 그대로 복사 (자신은 불변)
+        snapshot.set(key, { ...value });
       } else {
         snapshot.set(key, value);
       }
@@ -1197,6 +1236,12 @@ export class PCInterpreter {
           (beforeValue && typeof beforeValue === 'object' && beforeValue.__type === 'matrix')
         ) {
           // v5.4: matrix 내부 변경은 허용됨
+          changes.push({ varName, before: beforeValue, after: afterValue });
+        } else if (
+          (afterValue && typeof afterValue === 'object' && afterValue.__type === 'address') ||
+          (beforeValue && typeof beforeValue === 'object' && beforeValue.__type === 'address')
+        ) {
+          // v5.5: address (참조) 초기화/변경은 허용됨
           changes.push({ varName, before: beforeValue, after: afterValue });
         } else {
           // 루프 제어 변수 아님: 오염!

@@ -439,10 +439,11 @@ export class SimpleLangParser {
   }
 
   /**
-   * 단항 연산: -, !
+   * 단항 연산: -, !, &, *
+   * v5.5: & (address-of), * (dereference) 추가
    */
   private parseUnary(): ASTNode {
-    if (this.matchAnyType([TokenType.MINUS, TokenType.NOT])) {
+    if (this.matchAnyType([TokenType.MINUS, TokenType.NOT, TokenType.BIT_AND, TokenType.STAR])) {
       const op = this.previous().value;
       const expr = this.parseUnary();
       return {
