@@ -126,12 +126,22 @@ export class PCInterpreter {
       case 'VariableDeclaration': {
         const val = this.eval(stmt.value);
         this.variables.set(stmt.name, val);
+        // v4.2: DELIVERY 추적 (최상위 문에서도)
+        if (stmt.value?.type === 'CallExpression') {
+          const callee = stmt.value.callee?.name ?? '?';
+          this.log(`[DELIVERY] '${callee}()' 반환값 ${val} → '${stmt.name}'`);
+        }
         return undefined; // 다음 문으로
       }
 
       case 'Assignment': {
         const val = this.eval(stmt.value);
         this.variables.set(stmt.name, val);
+        // v4.2: DELIVERY 추적 (최상위 문에서도)
+        if (stmt.value?.type === 'CallExpression') {
+          const callee = stmt.value.callee?.name ?? '?';
+          this.log(`[DELIVERY] '${callee}()' 반환값 ${val} → '${stmt.name}'`);
+        }
         return undefined;
       }
 
@@ -389,12 +399,22 @@ export class PCInterpreter {
       case 'VariableDeclaration': {
         const val = this.eval(node.value);
         this.variables.set(node.name, val);
+        // v4.2: DELIVERY 추적 — 함수 호출 결과가 변수에 안착하는 순간
+        if (node.value?.type === 'CallExpression') {
+          const callee = node.value.callee?.name ?? '?';
+          this.log(`[DELIVERY] '${callee}()' 반환값 ${val} → '${node.name}'`);
+        }
         return val;
       }
 
       case 'Assignment': {
         const val = this.eval(node.value);
         this.variables.set(node.name, val);
+        // v4.2: DELIVERY 추적
+        if (node.value?.type === 'CallExpression') {
+          const callee = node.value.callee?.name ?? '?';
+          this.log(`[DELIVERY] '${callee}()' 반환값 ${val} → '${node.name}'`);
+        }
         return val;
       }
 
@@ -621,6 +641,7 @@ export class PCInterpreter {
   /**
    * v4.0: 사용자 정의 함수 실행 (Call Stack + Scope 격리)
    * v4.1: 중첩 호출 지원 (재귀적으로 안전)
+   * v4.2: 데이터 핸드오버 무결성 로깅 추가
    */
   private callUserFunction(name: string, args: any[]): any {
     const fn = this.functionTable.get(name)!;
@@ -632,14 +653,16 @@ export class PCInterpreter {
     const savedScope = new Map(this.variables);
     this.callStack.push({ savedScope, functionName: name, callDepth });
 
-    // ── 2. 로컬 스코프 생성: 매개변수 바인딩 + 내장 함수 ───────────────────
+    // ── 2. v4.2 HANDOVER: 인자 → 매개변수 순서대로 바인딩 ─────────────────
     const localScope = new Map<string, any>();
     localScope.set('println', this.println.bind(this));
-    // 함수 테이블의 다른 함수들도 호출 가능해야 하므로, evalCall이 functionTable을 먼저 보는 구조로 충분
 
+    this.log(`[HANDOVER] ${fn.params.length}개 인자 전달 시작`);
     for (let i = 0; i < fn.params.length; i++) {
-      localScope.set(fn.params[i], args[i] ?? null);
-      this.log(`[PARAM] ${fn.params[i]} = ${args[i]}`);
+      const paramName = fn.params[i];
+      const argVal   = args[i] ?? null;
+      localScope.set(paramName, argVal);
+      this.log(`[HANDOVER] [${i}] 호출자 args[${i}]=${argVal} → 로컬 '${paramName}'`);
     }
 
     this.variables = localScope;
@@ -651,17 +674,33 @@ export class PCInterpreter {
       if (this.returnFlag) break; // RETURN 신호 감지 즉시 탈출
     }
 
-    // ── 4. 반환값 회수 ────────────────────────────────────────────────────
+    // ── 4. v4.2 LOCAL ISOLATION: 소멸할 로컬 변수 목록 기록 ──────────────
+    const localVarNames = [...this.variables.keys()]
+      .filter(k => k !== 'println');
+    this.log(`[LOCAL ISOLATION] 소멸 예정 로컬 변수: [${localVarNames.join(', ')}]`);
+
+    // ── 5. 반환값 회수 ────────────────────────────────────────────────────
     const retVal = this.returnValue ?? null;
     this.returnValue = undefined;
     this.returnFlag = false;
-    this.log(`[RETURN COMPLETE] '${name}' → ${retVal}`);
+    this.log(`[RETURN COMPLETE] '${name}' 반환값: ${retVal}`);
 
-    // ── 5. Call Stack Pop: 이전 스코프 복구 (Memory Cleanup) ─────────────
+    // ── 6. Call Stack Pop: 이전 스코프 복구 (Memory Cleanup) ─────────────
     this.indentLevel--;
     const frame = this.callStack.pop()!;
     this.variables = frame.savedScope;
-    this.log(`[SCOPE RESTORED] depth=${callDepth}, vars=${this.variables.size}개`);
+
+    // v4.2: 로컬 변수 소멸 확인
+    // savedScope에 없었던 로컬 변수(함수가 새로 만든 것)만 검사 — 이름 충돌 오탐 방지
+    const addedByFunc = localVarNames.filter(k => !frame.savedScope.has(k));
+    const leaked      = addedByFunc.filter(k => this.variables.has(k));
+    if (leaked.length === 0) {
+      this.log(`[LOCAL ISOLATION] ✅ 소멸 완료 — 외부 스코프 오염 없음`);
+    } else {
+      this.log(`[LOCAL ISOLATION] ⚠️  누수 감지: [${leaked.join(', ')}]`);
+    }
+
+    this.log(`[SCOPE RESTORED] depth=${callDepth}, 복구된 외부 변수: ${this.variables.size - 1}개`);
 
     return retVal;
   }
