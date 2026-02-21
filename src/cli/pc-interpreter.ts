@@ -119,6 +119,64 @@ export class PCInterpreter {
 
       return newArr;
     });
+
+    // v5.4: matrix_new(rows, cols) — 다차원 배열 (2D matrix) 생성
+    this.variables.set('matrix_new', (rows: number, cols: number) => {
+      const total = rows * cols;
+      const mat = { __type: 'matrix', rows, cols, data: new Array(total).fill(0) };
+      this.log(`[MATRIX ALLOC] matrix_new(${rows}, ${cols}) → ${total}개 슬롯 (Row-Major Order)`);
+      this.log(`[HEADER WRITE] rows=${rows}, cols=${cols}, stride=${cols} 기록 완료 (2D Metadata Header)`);
+      this.log(`[LINEARITY] 선형 주소 범위: Base+0 ~ Base+${total - 1}`);
+      return mat;
+    });
+
+    // v5.4: matrix_set(mat, row, col, val) — 행렬 원소 쓰기
+    this.variables.set('matrix_set', (mat: any, row: number, col: number, val: number) => {
+      if (!mat || mat.__type !== 'matrix') throw new Error('[MATRIX ERROR] 행렬이 아닙니다');
+      this.log(`[HEADER READ] rows=${mat.rows}, cols=${mat.cols}, stride=${mat.cols} 조회`);
+
+      // 각 차원 독립 검사 (Bound Overlap 방지)
+      if (row < 0 || row >= mat.rows) {
+        this.log(`[BOUNDARY VIOLATION] row=${row} ≥ rows ${mat.rows} — 행 범위 초과!`);
+        this.log(`[VIOLATION LOG] 위반 위치: row[${row}], 허용 범위: [0, ${mat.rows-1}], 쓰기`);
+        throw new Error(`[INDEX OUT OF BOUNDS] row ${row} 가 범위 [0, ${mat.rows-1}] 를 벗어남`);
+      }
+      if (col < 0 || col >= mat.cols) {
+        this.log(`[BOUNDARY VIOLATION] col=${col} ≥ cols ${mat.cols} — 열 범위 초과!`);
+        this.log(`[VIOLATION LOG] 위반 위치: col[${col}], 허용 범위: [0, ${mat.cols-1}], 쓰기`);
+        throw new Error(`[INDEX OUT OF BOUNDS] col ${col} 가 범위 [0, ${mat.cols-1}] 를 벗어남`);
+      }
+
+      const addr = row * mat.cols + col;
+      this.log(`[ROW-MAJOR] matrix[${row}][${col}] → linear[${addr}] (공식: ${row}*${mat.cols}+${col}=${addr})`);
+      const prev = mat.data[addr];
+      mat.data[addr] = val;
+      this.log(`[INDEX WRITE] linear[${addr}]: ${prev} → ${val}`);
+      return null;
+    });
+
+    // v5.4: matrix_get(mat, row, col) — 행렬 원소 읽기
+    this.variables.set('matrix_get', (mat: any, row: number, col: number) => {
+      if (!mat || mat.__type !== 'matrix') throw new Error('[MATRIX ERROR] 행렬이 아닙니다');
+      this.log(`[HEADER READ] rows=${mat.rows}, cols=${mat.cols}, stride=${mat.cols} 조회`);
+
+      if (row < 0 || row >= mat.rows) {
+        this.log(`[BOUNDARY VIOLATION] row=${row} ≥ rows ${mat.rows} — 행 범위 초과!`);
+        this.log(`[VIOLATION LOG] 위반 위치: row[${row}], 허용 범위: [0, ${mat.rows-1}], 읽기`);
+        throw new Error(`[INDEX OUT OF BOUNDS] row ${row} 가 범위 [0, ${mat.rows-1}] 를 벗어남`);
+      }
+      if (col < 0 || col >= mat.cols) {
+        this.log(`[BOUNDARY VIOLATION] col=${col} ≥ cols ${mat.cols} — 열 범위 초과!`);
+        this.log(`[VIOLATION LOG] 위반 위치: col[${col}], 허용 범위: [0, ${mat.cols-1}], 읽기`);
+        throw new Error(`[INDEX OUT OF BOUNDS] col ${col} 가 범위 [0, ${mat.cols-1}] 를 벗어남`);
+      }
+
+      const addr = row * mat.cols + col;
+      this.log(`[ROW-MAJOR] matrix[${row}][${col}] → linear[${addr}] (공식: ${row}*${mat.cols}+${col}=${addr})`);
+      const val = mat.data[addr];
+      this.log(`[INDEX READ] linear[${addr}] = ${val}`);
+      return val;
+    });
   }
 
   /**
@@ -1071,6 +1129,9 @@ export class PCInterpreter {
       // v5.0: 배열은 slice()로 얕은 복사 (요소가 원시값이므로 충분)
       if (Array.isArray(value)) {
         snapshot.set(key, value.slice());
+      } else if (value && typeof value === 'object' && value.__type === 'matrix') {
+        // v5.4: matrix 딥 카피
+        snapshot.set(key, { ...value, data: value.data.slice() });
       } else {
         snapshot.set(key, value);
       }
@@ -1130,6 +1191,12 @@ export class PCInterpreter {
           changes.push({ varName, before: beforeValue, after: afterValue });
         } else if (Array.isArray(afterValue) || Array.isArray(beforeValue)) {
           // v5.1: 배열은 인덱스 쓰기로 원소 변경이 허용된 작업 → 오염 아님
+          changes.push({ varName, before: beforeValue, after: afterValue });
+        } else if (
+          (afterValue && typeof afterValue === 'object' && afterValue.__type === 'matrix') ||
+          (beforeValue && typeof beforeValue === 'object' && beforeValue.__type === 'matrix')
+        ) {
+          // v5.4: matrix 내부 변경은 허용됨
           changes.push({ varName, before: beforeValue, after: afterValue });
         } else {
           // 루프 제어 변수 아님: 오염!
