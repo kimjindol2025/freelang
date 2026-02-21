@@ -60,6 +60,12 @@ export class PCInterpreter {
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
+    // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
+    this.variables.set('arr_new', (size: number) => {
+      const arr = new Array(Math.max(0, size)).fill(0);
+      this.log(`[ARRAY ALLOC] arr_new(${size}) → ${size}개 슬롯 확보 (Base+0 ~ Base+${size - 1}), 모두 0 초기화`);
+      return arr;
+    });
   }
 
   /**
@@ -430,8 +436,30 @@ export class PCInterpreter {
         return val;
       }
 
-      case 'ArrayLiteral':
-        return node.elements.map((e: ASTNode) => this.eval(e));
+      case 'IndexAssignment': {
+        // v5.0: 배열 인덱스 쓰기 — Bounds Check + 주소 계산 + 기록
+        const arr = this.eval(node.object);
+        const idx = this.eval(node.index);
+        const val = this.eval(node.value);
+        if (!Array.isArray(arr)) {
+          throw new Error(`[INDEX ERROR] 배열이 아닌 변수에 인덱스 할당 불가`);
+        }
+        this.log(`[BOUNDS CHECK] 인덱스 ${idx} vs 배열 크기 ${arr.length}`);
+        if (idx < 0 || idx >= arr.length) {
+          throw new Error(`[INDEX OUT OF BOUNDS] 인덱스 ${idx} 가 범위 [0, ${arr.length - 1}] 를 벗어남`);
+        }
+        const prev = arr[idx];
+        arr[idx] = val;
+        this.log(`[INDEX WRITE] Base+${idx}×1: ${prev} → ${val} (데이터 오염 0%)`);
+        return val;
+      }
+
+      case 'ArrayLiteral': {
+        // v5.0: 리터럴 배열 생성 — 연속 메모리 할당 로그
+        const elems = node.elements.map((e: ASTNode) => this.eval(e));
+        this.log(`[ARRAY ALLOC] 리터럴 크기 ${elems.length} → [${elems.join(', ')}]`);
+        return elems;
+      }
 
       case 'BinaryOp':
         return this.evalBinaryOp(node);
@@ -442,13 +470,21 @@ export class PCInterpreter {
       case 'CallExpression':
         return this.evalCall(node);
 
-      case 'IndexExpression':
+      case 'IndexExpression': {
+        // v5.0: 인덱스 읽기 — Bounds Check + 주소 계산
         const obj = this.eval(node.object);
         const idx = this.eval(node.index);
-        if (Array.isArray(obj)) {
-          return obj[idx];
+        if (!Array.isArray(obj)) {
+          throw new Error(`[INDEX ERROR] 배열이 아닌 값에 인덱스 접근 불가`);
         }
-        throw new Error(`Cannot index non-array value`);
+        this.log(`[BOUNDS CHECK] 인덱스 ${idx} vs 배열 크기 ${obj.length}`);
+        if (idx < 0 || idx >= obj.length) {
+          throw new Error(`[INDEX OUT OF BOUNDS] 인덱스 ${idx} 가 범위 [0, ${obj.length - 1}] 를 벗어남`);
+        }
+        const val = obj[idx];
+        this.log(`[INDEX READ ] Base+${idx}×1 = ${val}`);
+        return val;
+      }
 
       case 'FunctionDeclaration': {
         // v4.0: eval() 내에서 함수 정의 만나면 등록만 (실행 안 함)
@@ -956,11 +992,14 @@ export class PCInterpreter {
   private captureFullMemorySnapshot(): Map<string, any> {
     const snapshot = new Map<string, any>();
 
-    // 내장 함수(println) 제외, 사용자 정의 변수만 저장
     for (const [key, value] of this.variables) {
-      if (key !== 'println') {
-        // 원시값은 그대로, 객체는 깊은 복사
-        snapshot.set(key, JSON.parse(JSON.stringify(value)));
+      // 함수 타입 제외 (println, arr_new 등 내장 함수)
+      if (typeof value === 'function') continue;
+      // v5.0: 배열은 slice()로 얕은 복사 (요소가 원시값이므로 충분)
+      if (Array.isArray(value)) {
+        snapshot.set(key, value.slice());
+      } else {
+        snapshot.set(key, value);
       }
     }
 

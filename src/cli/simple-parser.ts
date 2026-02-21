@@ -287,21 +287,26 @@ export class SimpleLangParser {
   private parseExpressionStatement(): ASTNode {
     const expr = this.parseExpression();
 
-    // 할당 연산 (x = expr)
+    // 할당 연산 (x = expr  or  arr[i] = expr)
     if (this.matchType(TokenType.ASSIGN)) {
       const value = this.parseExpression();
       this.matchType(TokenType.SEMICOLON); // ; 선택사항
 
-      // expr은 Identifier여야 함
-      if (expr.type !== 'Identifier') {
-        throw new Error('할당 좌변은 변수명이어야 합니다');
+      if (expr.type === 'Identifier') {
+        return { type: 'Assignment', name: expr.name, value };
       }
 
-      return {
-        type: 'Assignment',
-        name: expr.name,
-        value
-      };
+      // v5.0: 인덱스 할당 — list[0] = 10
+      if (expr.type === 'IndexExpression') {
+        return {
+          type: 'IndexAssignment',
+          object: expr.object,  // 배열 식별자
+          index: expr.index,    // 인덱스 식
+          value                 // 대입 값
+        };
+      }
+
+      throw new Error('할당 좌변은 변수명 또는 배열 인덱스여야 합니다');
     }
 
     this.matchType(TokenType.SEMICOLON); // ; 선택사항
