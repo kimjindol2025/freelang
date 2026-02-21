@@ -18,9 +18,11 @@ export class PCInterpreter {
   private pc: number = 0; // Program Counter
   private loopStack: number[] = []; // WHILE 시작 위치 스택 (v3.3)
   private loopDepthStack: number[] = []; // 루프 깊이 스택 (v3.3 Nested Loop)
+  private loopBodyExecutionCount: number[] = []; // v3.4: 루프 바디 실행 횟수 (조건 FALSE 제외)
   private debugLog: string[] = [];
   private sourceAST: ASTNode | null = null; // 전체 AST 저장 (v3.2 Exit Boundary용)
   private indentLevel: number = 0; // v3.3: 들여쓰기 레벨
+  private trackedVariables: Set<string> = new Set(); // v3.4: 추적할 변수 목록
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
@@ -85,14 +87,22 @@ export class PCInterpreter {
         const isFirstEntry = !this.loopStack.includes(this.pc);
 
         if (isFirstEntry) {
-          // 루프 첫 진입: 스택에 저장
+          // 루프 첫 진입: 스택에 저장 (v3.4: 바디 실행 횟수 초기화)
           this.loopStack.push(this.pc);
           this.loopDepthStack.push(this.indentLevel);
+          this.loopBodyExecutionCount.push(0); // v3.4: 바디 실행 횟수 (0부터 시작)
           this.indentLevel++;
+
+          // v3.4: 조건에서 추적할 변수 추출
+          const conditionVars = this.extractVariablesFromCondition(stmt.condition);
           this.log(`[WHILE] PC=${this.pc} (Loop Head, Depth=${this.loopDepthStack.length - 1})`);
+          this.log(`[TRACKED] 조건 변수: ${conditionVars.join(', ')}`);
         } else {
           // 루프 재진입 (점프 백)
-          this.log(`[WHILE] PC=${this.pc} (Loop Reenter, Depth=${this.loopDepthStack.length - 1})`);
+          const currentDepth = this.loopDepthStack.length - 1;
+          const executionCount = this.loopBodyExecutionCount[currentDepth] || 0;
+
+          this.log(`[WHILE] PC=${this.pc} (Loop Reenter, Depth=${currentDepth}, Execution #${executionCount + 1})`);
         }
 
         // 조건 평가
@@ -100,26 +110,43 @@ export class PCInterpreter {
         this.log(`[CONDITION] (${JSON.stringify(stmt.condition)}) = ${condition}`);
 
         if (condition) {
-          // TRUE: 루프 바디 실행
+          // TRUE: 루프 바디 실행 (v3.4: 메모리 스냅샷)
+          const currentDepth = this.loopDepthStack.length - 1;
+          this.loopBodyExecutionCount[currentDepth] = (this.loopBodyExecutionCount[currentDepth] || 0) + 1;
+          const executionNum = this.loopBodyExecutionCount[currentDepth];
+          const conditionVars = this.extractVariablesFromCondition(stmt.condition);
+
           this.log(`[BRANCH] TRUE → 루프 바디 실행`);
+
+          // v3.4: 루프 시작 전 메모리 스냅샷
+          if (conditionVars.length > 0) {
+            this.captureMemorySnapshot('START', executionNum, conditionVars);
+          }
 
           // 루프 바디 실행 (모든 문장을 eval()로 처리 - 중첩 루프 포함)
           if (stmt.body.type === 'BlockStatement') {
             for (const bodyStmt of stmt.body.statements) {
-              // v3.3: 중첩 루프도 eval()로 재귀 처리
-              // (중첩 루프는 다른 statement 배열에 있으므로)
               this.eval(bodyStmt);
             }
           } else {
             this.eval(stmt.body);
           }
 
-          // 루프 바디 끝: PC를 WHILE 위치로 복원 (최상위 루프만)
+          // v3.4: 루프 종료 후 메모리 스냅샷 및 값 변경 추적
+          if (conditionVars.length > 0) {
+            this.captureMemorySnapshot('END', executionNum, conditionVars);
+          }
+
+          // 루프 바디 끝: PC를 WHILE 위치로 복원
           this.log(`[JUMP BACK] PC=${this.pc}로 복원 (Loop Head로 회귀)`);
           return this.pc; // 같은 PC로 다시 실행
         } else {
           // FALSE: 루프 탈출
-          this.log(`[BRANCH] FALSE → EXIT STRATEGY 시작 (Depth=${this.loopDepthStack.length - 1})`);
+          const currentDepth = this.loopDepthStack.length - 1;
+          const totalBodyExecutions = this.loopBodyExecutionCount[currentDepth] || 0;
+
+          this.log(`[BRANCH] FALSE → EXIT STRATEGY 시작 (Depth=${currentDepth})`);
+          this.log(`[LOOP STATS] 루프 바디 실행: ${totalBodyExecutions}회`);
           this.log(`[SKIPPING] 루프 바디 전체 건너뜀 (Block: ${JSON.stringify(stmt.body.type)})`);
 
           if (stmt.body.type === 'BlockStatement') {
@@ -133,6 +160,7 @@ export class PCInterpreter {
           // 루프 탈출: 스택에서 제거
           this.indentLevel--;
           this.loopDepthStack.pop();
+          this.loopBodyExecutionCount.pop(); // v3.4: 바디 실행 횟수 카운터 제거
           this.loopStack.pop();
 
           return undefined; // 다음 문으로
@@ -353,5 +381,49 @@ export class PCInterpreter {
       return this.pc + 1; // 루프 다음 statement
     }
     return this.pc + 1;
+  }
+
+  /**
+   * v3.4: 메모리 스냅샷 (변수 상태 추적)
+   * 루프 시작/종료 시 변수 값을 기록
+   */
+  private captureMemorySnapshot(phase: 'START' | 'END', iteration: number, vars: string[]): void {
+    const snapshot = vars
+      .map(v => `${v}:${JSON.stringify(this.variables.get(v))}`)
+      .join(', ');
+    this.log(`[SNAPSHOT] Iteration #${iteration} ${phase} - {${snapshot}}`);
+  }
+
+  /**
+   * v3.4: 값 변경 추적
+   */
+  private trackValueChange(varName: string, oldValue: any, newValue: any, iteration: number): void {
+    if (oldValue !== newValue) {
+      this.log(`[VALUE CHANGE] ${varName}: ${JSON.stringify(oldValue)} → ${JSON.stringify(newValue)} (Iteration #${iteration})`);
+    }
+  }
+
+  /**
+   * v3.4: 조건에서 변수 이름 추출
+   * 예: i <= 3 → ['i']
+   */
+  private extractVariablesFromCondition(condition: ASTNode): string[] {
+    const vars = new Set<string>();
+
+    const extractVars = (node: ASTNode): void => {
+      if (!node) return;
+
+      if (node.type === 'Identifier') {
+        vars.add(node.name);
+      } else if (node.type === 'BinaryOp') {
+        extractVars(node.left);
+        extractVars(node.right);
+      } else if (node.type === 'UnaryOp') {
+        extractVars(node.operand);
+      }
+    };
+
+    extractVars(condition);
+    return Array.from(vars);
   }
 }
