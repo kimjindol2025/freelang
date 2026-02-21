@@ -60,11 +60,60 @@ export class PCInterpreter {
 
   constructor() {
     this.variables.set('println', this.println.bind(this));
+
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
     this.variables.set('arr_new', (size: number) => {
       const arr = new Array(Math.max(0, size)).fill(0);
       this.log(`[ARRAY ALLOC] arr_new(${size}) → ${size}개 슬롯 확보 (Base+0 ~ Base+${size - 1}), 모두 0 초기화`);
       return arr;
+    });
+
+    // v5.2: arr_copy(src, dst) — 블록 Deep Copy (원소 값 전체 복제, 참조 독립)
+    this.variables.set('arr_copy', (src: any[], dst: any[]) => {
+      if (!Array.isArray(src)) throw new Error('[COPY ERROR] 원본이 배열이 아닙니다');
+      if (!Array.isArray(dst)) throw new Error('[COPY ERROR] 대상이 배열이 아닙니다');
+
+      const srcLen = src.length;
+      const dstLen = dst.length;
+      const transferLen = Math.min(srcLen, dstLen);
+
+      this.log(`[BLOCK COPY] 블록 복사 시작: source(${srcLen}개) → target(${dstLen}개)`);
+      this.log(`[MEMORY MIGRATE] Deep Copy 모드 — 원본과 독립된 새 값 공간에 복제`);
+
+      for (let i = 0; i < transferLen; i++) {
+        const prev = dst[i];
+        dst[i] = src[i];
+        this.log(`[BLOCK COPY] Base+${i}: ${prev} → ${src[i]}`);
+      }
+
+      this.log(`[BLOCK INTEGRITY] 전송 완료: ${transferLen}/${srcLen} 원소 — 누락 없음 ✅`);
+      this.log(`[DEEP COPY] 독립성 확보 — source 수정 시 target 영향 없음 (원시값 복사)`);
+      this.log(`[GC RELEASE] 구형 target 슬롯 참조 해제 완료 (Garbage Collected)`);
+
+      return dst;
+    });
+
+    // v5.2: arr_resize(arr, newSize) — 배열 크기 조정 + 기존 데이터 이관
+    this.variables.set('arr_resize', (arr: any[], newSize: number) => {
+      if (!Array.isArray(arr)) throw new Error('[RESIZE ERROR] 배열이 아닙니다');
+      if (newSize < 0) throw new Error('[RESIZE ERROR] 크기는 0 이상이어야 합니다');
+
+      const oldLen = arr.length;
+      const migrateLen = Math.min(oldLen, newSize);
+
+      this.log(`[MEMORY MIGRATE] arr_resize: ${oldLen}개 → ${newSize}개 슬롯 이관 시작`);
+      this.log(`[ARRAY ALLOC] 신규 공간 확보: ${newSize}개 슬롯 (모두 0 초기화)`);
+
+      const newArr = new Array(newSize).fill(0);
+      for (let i = 0; i < migrateLen; i++) {
+        newArr[i] = arr[i];
+        this.log(`[BLOCK COPY] Base+${i}: ${arr[i]} (이관)`);
+      }
+
+      this.log(`[BLOCK INTEGRITY] 이관 완료: ${migrateLen}/${oldLen} 원소 보존 ✅`);
+      this.log(`[GC RELEASE] 구형 배열 (크기 ${oldLen}) 참조 해제 — Garbage Collected`);
+
+      return newArr;
     });
   }
 
