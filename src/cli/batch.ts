@@ -27,16 +27,20 @@ export class BatchMode {
   private interpreter: any; // Interpreter 인스턴스 (전역 상태)
 
   /**
-   * 파일에서 입력 읽기
+   * 파일에서 입력 읽기 (전체 코드를 하나로 처리)
    */
   async readInputFile(filepath: string): Promise<string[]> {
     try {
       const fs = require('fs');
       const content = fs.readFileSync(filepath, 'utf-8');
-      return content
+      // 주석 제거하고 전체를 하나의 입력으로 처리
+      const code = content
         .split('\n')
-        .map((line: string) => line.trim())
-        .filter((line: string) => line && !line.startsWith('#'));
+        .filter((line: string) => !line.trim().startsWith('#'))
+        .join('\n')
+        .trim();
+
+      return code ? [code] : [];
     } catch (error) {
       throw new Error(`파일 읽기 실패: ${filepath}`);
     }

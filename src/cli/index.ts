@@ -158,17 +158,13 @@ async function startBatchMode(
   try {
     console.log(`📂 Reading batch file: ${inputFile}`);
 
-    // 입력 파일 읽기
+    // 입력 파일 읽기 (batchMode 사용)
     if (!fs.existsSync(inputFile)) {
       console.error(`❌ File not found: ${inputFile}`);
       process.exit(1);
     }
 
-    const content = fs.readFileSync(inputFile, 'utf-8');
-    const inputs = content
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'));
+    const inputs = await batchMode.readInputFile(inputFile);
 
     console.log(`📋 Found ${inputs.length} inputs`);
 

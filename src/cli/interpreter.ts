@@ -39,6 +39,15 @@ export class SimpleInterpreter {
   private eval(node: ASTNode): any {
     if (!node) return null;
 
+    // Program 노드: 모든 statements 실행
+    if (node.type === 'Program') {
+      let result = null;
+      for (const stmt of node.statements) {
+        result = this.eval(stmt);
+      }
+      return result;
+    }
+
     switch (node.type) {
       case 'NumberLiteral':
         return node.value;
@@ -64,10 +73,23 @@ export class SimpleInterpreter {
       case 'CallExpression':
         return this.evalCall(node);
 
+      case 'IndexExpression':
+        const obj = this.eval(node.object);
+        const idx = this.eval(node.index);
+        if (Array.isArray(obj)) {
+          return obj[idx];
+        }
+        throw new Error(`Cannot index non-array value`);
+
       case 'VariableDeclaration':
         const val = this.eval(node.value);
         this.variables.set(node.name, val);
         return val;
+
+      case 'Assignment':
+        const assignVal = this.eval(node.value);
+        this.variables.set(node.name, assignVal);
+        return assignVal;
 
       case 'IfStatement':
         const cond = this.eval(node.condition);

@@ -35,17 +35,31 @@ export class SimpleLangParser {
   }
 
   /**
-   * 프로그램 파싱 (첫 번째 문장만 반환)
+   * 프로그램 파싱 (모든 문장 수집)
    */
   private parseProgram(): ASTNode | null {
-    if (this.isAtEnd()) {
+    const statements: ASTNode[] = [];
+
+    while (!this.isAtEnd()) {
+      const stmt = this.parseStatement();
+      if (stmt) {
+        statements.push(stmt);
+      }
+    }
+
+    if (statements.length === 0) {
       return null;
     }
 
-    const stmt = this.parseStatement();
+    if (statements.length === 1) {
+      return statements[0];
+    }
 
-    // 추가 문장들은 무시 (다중 문장 지원은 나중에)
-    return stmt;
+    // 여러 문장: 별도로 처리
+    return {
+      type: 'Program',
+      statements
+    };
   }
 
   /**
@@ -174,10 +188,28 @@ export class SimpleLangParser {
   }
 
   /**
-   * 표현식 문장 (expression만 반환)
+   * 표현식 또는 할당 문장
    */
   private parseExpressionStatement(): ASTNode {
     const expr = this.parseExpression();
+
+    // 할당 연산 (x = expr)
+    if (this.matchType(TokenType.ASSIGN)) {
+      const value = this.parseExpression();
+      this.matchType(TokenType.SEMICOLON); // ; 선택사항
+
+      // expr은 Identifier여야 함
+      if (expr.type !== 'Identifier') {
+        throw new Error('할당 좌변은 변수명이어야 합니다');
+      }
+
+      return {
+        type: 'Assignment',
+        name: expr.name,
+        value
+      };
+    }
+
     this.matchType(TokenType.SEMICOLON); // ; 선택사항
     return expr;
   }
