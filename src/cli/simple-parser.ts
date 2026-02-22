@@ -122,6 +122,16 @@ export class SimpleLangParser {
       };
     }
 
+    // v8.1: try-catch 문
+    if (this.matchType(TokenType.TRY)) {
+      return this.parseTryStatement();
+    }
+
+    // v8.1: throw 문
+    if (this.matchType(TokenType.THROW)) {
+      return this.parseThrowStatement();
+    }
+
     // 표현식 문장 (println, 함수 호출 등)
     return this.parseExpressionStatement();
   }
@@ -267,6 +277,58 @@ export class SimpleLangParser {
       type: 'WhileStatement',
       condition,
       body
+    };
+  }
+
+  /**
+   * v8.1: try-catch 문
+   * try { ... } catch (e) { ... }
+   */
+  private parseTryStatement(): ASTNode {
+    // try 블록
+    const tryBlock = this.parseBlock();
+
+    // catch 블록
+    if (!this.matchType(TokenType.CATCH)) {
+      throw new Error('catch 필요');
+    }
+
+    if (!this.matchType(TokenType.LPAREN)) {
+      throw new Error('( 필요');
+    }
+
+    const exceptionVarToken = this.current();
+    if (!exceptionVarToken || exceptionVarToken.type !== TokenType.IDENT) {
+      throw new Error('예외 변수명 필요');
+    }
+    const exceptionVar = exceptionVarToken.value;
+    this.advance();
+
+    if (!this.matchType(TokenType.RPAREN)) {
+      throw new Error(') 필요');
+    }
+
+    const catchBlock = this.parseBlock();
+
+    return {
+      type: 'TryStatement',
+      tryBlock,
+      catchBlock,
+      exceptionVar
+    };
+  }
+
+  /**
+   * v8.1: throw 문
+   * throw new Exception(message)
+   */
+  private parseThrowStatement(): ASTNode {
+    const expr = this.parseExpression();
+    this.matchType(TokenType.SEMICOLON);
+
+    return {
+      type: 'ThrowStatement',
+      expression: expr
     };
   }
 

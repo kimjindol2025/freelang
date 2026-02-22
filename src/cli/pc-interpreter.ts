@@ -770,6 +770,21 @@ class MemoryPool {
   }
 }
 
+// ── v8.1: Handler Stack & Exception Handling Foundation ──────────────────────
+/**
+ * HandlerFrame: TRY/CATCH 피난처 정보 저장 구조
+ * 예외 발생 시 여기로 점프할 수 있도록 필요한 모든 메타데이터 기록
+ */
+interface HandlerFrame {
+  returnAddress: number;    // PC: CATCH 블록 시작 주소
+  stackPointer: number;     // SP: TRY 진입 시점의 데이터 스택 깊이
+  framePointer: number;     // FP: 현재 함수의 지역 변수 시작 지점
+  catchBlockPC: number;     // CATCH 블록의 bytecode PC
+  tryStartPC?: number;      // TRY 블록 시작 PC (로깅용)
+  exceptionVarName?: string; // 예외 변수명 (선택사항)
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 export class PCInterpreter {
   private variables: Map<string, any> = new Map();
   private output: string[] = [];
@@ -895,6 +910,11 @@ export class PCInterpreter {
   private objectIdCounter: number = 0;  // 객체 고유 ID
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v8.1: Handler Stack & Exception Handling Foundation ──────────────────
+  private handlerStack: HandlerFrame[] = [];  // TRY/CATCH 핸들러 스택
+  private readonly MAX_HANDLER_DEPTH: number = 100;  // 최대 중첩 깊이
+  // ────────────────────────────────────────────────────────────────────────
+
   constructor() {
     // v5.9: HeapAllocator 초기화
     this.heapAllocator = new HeapAllocator((msg: string) => this.log(msg));
@@ -909,6 +929,20 @@ export class PCInterpreter {
       }
       this.log(`[CHECK OK] 무결성 검증 성공`);
       return true;
+    });
+
+    // v8.1: __GET_HANDLER_COUNT() — 현재 핸들러 스택 깊이 조회
+    this.variables.set('__GET_HANDLER_COUNT', () => {
+      const depth = this.handlerStack.length;
+      this.log(`[HANDLER QUERY] 핸들러 스택 깊이: ${depth}`);
+      return depth;
+    });
+
+    // v8.1: __GET_STACK_DEPTH() — 현재 콜스택 깊이 조회 (스택 복원 검증용)
+    this.variables.set('__GET_STACK_DEPTH', () => {
+      const depth = this.callStack.length;
+      this.log(`[STACK QUERY] 콜스택 깊이: ${depth}`);
+      return depth;
     });
 
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
@@ -1510,6 +1544,84 @@ export class PCInterpreter {
         this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes, vTable@${vTableStaticAddr})`);
         return undefined;
       }
+
+      // ── v8.1: Exception Handling ────────────────────────────────────────
+      case 'TryStatement': {
+        const handler: HandlerFrame = {
+          returnAddress: stmt.catchBlock.statements ? 0 : -1,
+          stackPointer: this.callStack.length,
+          framePointer: 0,
+          catchBlockPC: 0,
+          tryStartPC: this.pc,
+          exceptionVarName: stmt.exceptionVar
+        };
+
+        // PUSH_HANDLER: 핸들러 스택에 추가
+        if (this.handlerStack.length >= this.MAX_HANDLER_DEPTH) {
+          throw new Error(`[HANDLER ERROR] 핸들러 스택 오버플로우 (depth > ${this.MAX_HANDLER_DEPTH})`);
+        }
+
+        this.handlerStack.push(handler);
+        this.log(`[PUSH_HANDLER] TRY 진입 (depth=${this.handlerStack.length})`);
+        this.log(`  → SP=${handler.stackPointer}, FP=${handler.framePointer}`);
+
+        try {
+          // TRY 블록 실행
+          for (const tryStmt of stmt.tryBlock.statements) {
+            this.eval(tryStmt);
+          }
+
+          // 정상 종료: POP_HANDLER
+          this.handlerStack.pop();
+          this.log(`[POP_HANDLER] TRY 정상 종료 (depth=${this.handlerStack.length})`);
+
+        } catch (e: any) {
+          // 예외 발생: CATCH 블록으로 이동
+          const savedStackPointer = this.handlerStack[this.handlerStack.length - 1]?.stackPointer || 0;
+
+          // 스택 언와인딩: 콜스택을 저장된 포인트로 복원
+          while (this.callStack.length > savedStackPointer) {
+            this.callStack.pop();
+          }
+
+          this.log(`[EXCEPTION CAUGHT] 스택 언와인드 (SP: ${this.callStack.length + (this.callStack.pop() ? 1 : 0)} → ${savedStackPointer})`);
+
+          // 핸들러 팝
+          this.handlerStack.pop();
+
+          // CATCH 블록에 예외 변수 바인딩
+          if (stmt.exceptionVar) {
+            this.variables.set(stmt.exceptionVar, { __type: 'exception', message: e.message || String(e) });
+            this.log(`[BIND EXCEPTION] ${stmt.exceptionVar} = "${e.message || String(e)}"`);
+          }
+
+          // CATCH 블록 실행
+          for (const catchStmt of stmt.catchBlock.statements) {
+            this.eval(catchStmt);
+          }
+
+          // CATCH 완료
+          this.log(`[CATCH COMPLETE] 예외 처리 완료`);
+        }
+
+        return undefined;
+      }
+
+      case 'ThrowStatement': {
+        // new Exception(message) 형식 처리
+        let message = 'Exception';
+
+        if (stmt.expression && stmt.expression.type === 'CallExpression') {
+          const constructorName = stmt.expression.callee?.name || 'Exception';
+          if (stmt.expression.arguments && stmt.expression.arguments.length > 0) {
+            message = this.eval(stmt.expression.arguments[0]);
+          }
+          this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
+        }
+
+        throw new Error(message);
+      }
+      // ────────────────────────────────────────────────────────────────
 
       case 'WhileStatement': {
         // v3.3: 루프 시작/재진입 시 처리
@@ -2314,6 +2426,84 @@ export class PCInterpreter {
         this.breakFlag = true;
         return null;
       }
+
+      // ── v8.1: Exception Handling (eval용) ────────────────────────────────────
+      case 'TryStatement': {
+        const handler: HandlerFrame = {
+          returnAddress: (node as any).catchBlock.statements ? 0 : -1,
+          stackPointer: this.callStack.length,
+          framePointer: 0,
+          catchBlockPC: 0,
+          tryStartPC: this.pc,
+          exceptionVarName: (node as any).exceptionVar
+        };
+
+        // PUSH_HANDLER: 핸들러 스택에 추가
+        if (this.handlerStack.length >= this.MAX_HANDLER_DEPTH) {
+          throw new Error(`[HANDLER ERROR] 핸들러 스택 오버플로우 (depth > ${this.MAX_HANDLER_DEPTH})`);
+        }
+
+        this.handlerStack.push(handler);
+        this.log(`[PUSH_HANDLER] TRY 진입 (depth=${this.handlerStack.length})`);
+        this.log(`  → SP=${handler.stackPointer}, FP=${handler.framePointer}`);
+
+        try {
+          // TRY 블록 실행
+          for (const tryStmt of (node as any).tryBlock.statements) {
+            this.eval(tryStmt);
+          }
+
+          // 정상 종료: POP_HANDLER
+          this.handlerStack.pop();
+          this.log(`[POP_HANDLER] TRY 정상 종료 (depth=${this.handlerStack.length})`);
+
+        } catch (e: any) {
+          // 예외 발생: CATCH 블록으로 이동
+          const savedStackPointer = this.handlerStack[this.handlerStack.length - 1]?.stackPointer || 0;
+
+          // 스택 언와인딩: 콜스택을 저장된 포인트로 복원
+          while (this.callStack.length > savedStackPointer) {
+            this.callStack.pop();
+          }
+
+          this.log(`[EXCEPTION CAUGHT] 스택 언와인드 (SP: ${this.callStack.length + (this.callStack.pop() ? 1 : 0)} → ${savedStackPointer})`);
+
+          // 핸들러 팝
+          this.handlerStack.pop();
+
+          // CATCH 블록에 예외 변수 바인딩
+          if ((node as any).exceptionVar) {
+            this.variables.set((node as any).exceptionVar, { __type: 'exception', message: e.message || String(e) });
+            this.log(`[BIND EXCEPTION] ${(node as any).exceptionVar} = "${e.message || String(e)}"`);
+          }
+
+          // CATCH 블록 실행
+          for (const catchStmt of (node as any).catchBlock.statements) {
+            this.eval(catchStmt);
+          }
+
+          // CATCH 완료
+          this.log(`[CATCH COMPLETE] 예외 처리 완료`);
+        }
+
+        return undefined;
+      }
+
+      case 'ThrowStatement': {
+        // new Exception(message) 형식 처리
+        let message = 'Exception';
+
+        if ((node as any).expression && (node as any).expression.type === 'CallExpression') {
+          const constructorName = (node as any).expression.callee?.name || 'Exception';
+          if ((node as any).expression.arguments && (node as any).expression.arguments.length > 0) {
+            message = this.eval((node as any).expression.arguments[0]);
+          }
+          this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
+        }
+
+        throw new Error(message);
+      }
+      // ────────────────────────────────────────────────────────────────────────
 
       case 'ContinueStatement': {
         // v3.6: continue 문
