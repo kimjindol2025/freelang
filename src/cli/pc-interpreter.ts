@@ -828,6 +828,14 @@ export class PCInterpreter {
   private recursionDepth: number = 0;                    // 현재 재귀 깊이
   // ────────────────────────────────────────────────────────────────────────
 
+  // ── v6.1: Stack Frame Isolation & Type Signature Tracking ────────────────
+  private typeSignatureTable: Map<string, {
+    paramCount: number;
+    returnType: string | null;  // null = 아직 미확정
+    callCount: number;
+  }> = new Map();
+  // ────────────────────────────────────────────────────────────────────────
+
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
   private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
@@ -843,6 +851,16 @@ export class PCInterpreter {
     this.heapAllocator = new HeapAllocator((msg: string) => this.log(msg));
 
     this.variables.set('println', this.println.bind(this));
+
+    // v6.1: check(condition) — 어서션 기반 무결성 검증
+    this.variables.set('check', (cond: boolean) => {
+      if (!cond) {
+        this.log(`[CHECK FAILED] 무결성 검증 실패`);
+        throw new Error(`[CHECK FAILED] assertion failed`);
+      }
+      this.log(`[CHECK OK] 무결성 검증 성공`);
+      return true;
+    });
 
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
     this.variables.set('arr_new', (size: number) => {
@@ -1209,6 +1227,22 @@ export class PCInterpreter {
     this.inlineCache.clear();
     this.callCountMap.clear();
 
+    // ── v6.1: Forward Declaration (Pass 1) ────────────────────────────────────
+    // 실행 전에 모든 함수 정의를 먼저 등록하여 호출 순서와 무관하게 동작
+    for (const stmt of statements) {
+      if (stmt && stmt.type === 'FunctionDeclaration') {
+        this.functionTable.set(stmt.name, { params: stmt.params, body: stmt.body });
+        this.typeSignatureTable.set(stmt.name, {
+          paramCount: stmt.params.length,
+          returnType: null,  // 아직 미확정
+          callCount: 0
+        });
+        this.log(`[FORWARD DECL] '${stmt.name}' 사전 등록 (params: ${stmt.params.length}개)`);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
+    // ── Pass 2: 실제 실행 ──────────────────────────────────────────────────
     while (this.pc < statements.length) {
       const stmt = statements[this.pc];
       const nextPC = this.executeStatement(stmt, statements);
@@ -1258,8 +1292,19 @@ export class PCInterpreter {
 
       // v4.0: 함수 정의 — 실행 없이 Function Table에 등록만
       case 'FunctionDeclaration': {
-        this.functionTable.set(stmt.name, { params: stmt.params, body: stmt.body });
-        this.log(`[FUNC DEF] '${stmt.name}' 등록 (params: [${stmt.params.join(', ')}])`);
+        // v6.1: 이미 Forward Declaration에서 등록되었는지 확인
+        if (!this.typeSignatureTable.has(stmt.name)) {
+          // 동적 함수 정의 (executeProgram의 Forward Declaration 단계를 건너뜀)
+          this.functionTable.set(stmt.name, { params: stmt.params, body: stmt.body });
+          this.typeSignatureTable.set(stmt.name, {
+            paramCount: stmt.params.length,
+            returnType: null,
+            callCount: 0
+          });
+          this.log(`[FUNC DEF] '${stmt.name}' 등록 (params: [${stmt.params.join(', ')}])`);
+        } else {
+          this.log(`[FUNC DEF] '${stmt.name}' 이미 등록됨 (Forward Declaration)`);
+        }
         return undefined;
       }
 
@@ -2197,6 +2242,8 @@ export class PCInterpreter {
     // ── 2. v4.2 HANDOVER: 인자 → 매개변수 순서대로 바인딩 ─────────────────
     const localScope = new Map<string, any>();
     localScope.set('println', this.println.bind(this));
+    // v6.1: 내장 함수들을 localScope에 복사
+    localScope.set('check', this.variables.get('check'));
 
     this.log(`[HANDOVER] ${fn.params.length}개 인자 전달 시작`);
     for (let i = 0; i < fn.params.length; i++) {
@@ -2208,6 +2255,11 @@ export class PCInterpreter {
 
     this.variables = localScope;
     this.indentLevel++;
+
+    // ── v6.1: Frame Integrity Logging - 진입 ────────────────────────────────
+    const frameVarNames = [...localScope.keys()].join(', ');
+    this.log(`[FRAME ENTER] '${name}' depth=${callDepth}, vars=[${frameVarNames}]`);
+    // ────────────────────────────────────────────────────────────────────────
 
     // ── 3. 함수 바디 실행 ────────────────────────────────────────────────
     for (const stmt of fn.body.statements) {
@@ -2226,6 +2278,20 @@ export class PCInterpreter {
     this.returnFlag = false;
     this.log(`[RETURN COMPLETE] '${name}' 반환값: ${retVal}`);
 
+    // ── v6.1: Type Signature Tracking ────────────────────────────────────
+    const retType = retVal === null ? 'null' : typeof retVal;
+    const sig = this.typeSignatureTable.get(name);
+    if (sig) {
+      sig.callCount++;
+      if (sig.returnType === null) {
+        sig.returnType = retType;
+        this.log(`[TYPE LOCK] '${name}' 반환 타입 확정: ${retType}`);
+      } else if (sig.returnType !== retType) {
+        this.log(`[TYPE WARN] '${name}' 반환 타입 불일치: 기대=${sig.returnType}, 실제=${retType}`);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
+
     // ── 6. Call Stack Pop: 이전 스코프 복구 (Memory Cleanup) ─────────────
     this.indentLevel--;
     const frame = this.callStack.pop()!;
@@ -2242,6 +2308,10 @@ export class PCInterpreter {
     }
 
     this.log(`[SCOPE RESTORED] depth=${callDepth}, 복구된 외부 변수: ${this.variables.size - 1}개`);
+
+    // ── v6.1: Frame Integrity Logging - 퇴출 ────────────────────────────────
+    this.log(`[FRAME EXIT] '${name}' depth=${callDepth}, retVal=${retVal}`);
+    // ────────────────────────────────────────────────────────────────────────
 
     // ── v5.9.9: Stack Depth Management (함수 퇴장) ──────────────────────
     this.currentStackDepth--;
