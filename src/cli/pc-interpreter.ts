@@ -17,6 +17,108 @@ export interface ASTNode {
 }
 
 /**
+ * v5.9.6: PoolBucket — 고정 크기 메모리 풀
+ * Slab Allocation 기반의 소형 객체 고속 할당
+ */
+class PoolBucket {
+  size: number;
+  bucketId: number;
+  freeList: number[] = [];
+  allocatedCount: number = 0;
+  totalCapacity: number;
+
+  constructor(size: number, bucketId: number, capacity: number) {
+    this.size = size;
+    this.bucketId = bucketId;
+    this.totalCapacity = capacity;
+    this.initializePool();
+  }
+
+  private initializePool(): void {
+    const baseAddr = 0xC000 + this.bucketId * 0x100000;
+    for (let i = 0; i < this.totalCapacity; i++) {
+      const addr = baseAddr + (i * this.size);
+      this.freeList.push(addr);
+    }
+  }
+
+  allocate(): number {
+    if (this.freeList.length === 0) {
+      throw new Error(`[POOL ERROR] ${this.size}-byte pool 고갈`);
+    }
+    this.allocatedCount++;
+    return this.freeList.pop()!;  // O(1)
+  }
+
+  deallocate(address: number): void {
+    this.allocatedCount--;
+    this.freeList.push(address);
+  }
+
+  getUtilization(): number {
+    return (this.allocatedCount / this.totalCapacity) * 100;
+  }
+}
+
+/**
+ * v5.9.6: SmallObjectAllocator — 소형 객체 전용 할당기
+ * 8, 16, 32바이트 풀을 관리하여 O(1) 할당
+ */
+class SmallObjectAllocator {
+  pools: Map<number, PoolBucket> = new Map();
+  POOL_SIZES = [8, 16, 32];
+  BUCKET_CAPACITY = 1024;
+  log: (msg: string) => void;
+
+  constructor(log: (msg: string) => void) {
+    this.log = log;
+    this.pools.set(8, new PoolBucket(8, 0, this.BUCKET_CAPACITY));
+    this.pools.set(16, new PoolBucket(16, 1, this.BUCKET_CAPACITY));
+    this.pools.set(32, new PoolBucket(32, 2, this.BUCKET_CAPACITY));
+  }
+
+  canAllocate(size: number): boolean {
+    return this.POOL_SIZES.includes(size);
+  }
+
+  allocate(size: number): number {
+    const bucket = this.pools.get(size);
+    if (!bucket) throw new Error(`[POOL ERROR] ${size}-byte pool 없음`);
+
+    const address = bucket.allocate();
+    this.log(`[POOL ALLOC] ${size}-byte pool, addr=0x${address.toString(16)}, util=${bucket.getUtilization().toFixed(1)}%`);
+    return address;
+  }
+
+  deallocate(size: number, address: number): void {
+    const bucket = this.pools.get(size);
+    if (!bucket) throw new Error(`[POOL ERROR] ${size}-byte pool 없음`);
+
+    bucket.deallocate(address);
+    this.log(`[POOL FREE] ${size}-byte pool, addr=0x${address.toString(16)}, util=${bucket.getUtilization().toFixed(1)}%`);
+  }
+
+  getStats(): { size: number; allocated: number; utilization: number }[] {
+    return Array.from(this.pools.values()).map(b => ({
+      size: b.size,
+      allocated: b.allocatedCount,
+      utilization: b.getUtilization()
+    }));
+  }
+
+  isPoolAddress(address: number): boolean {
+    return address >= 0xC000 && address < 0xC300000;
+  }
+
+  getPoolSizeForAddress(address: number): number {
+    if (address >= 0xC000 && address < 0xC100000) return 8;
+    if (address >= 0xC100000 && address < 0xC200000) return 16;
+    if (address >= 0xC200000 && address < 0xC300000) return 32;
+    throw new Error(`[POOL ERROR] 풀 주소 범위 초과: 0x${address.toString(16)}`);
+  }
+}
+
+/**
  * v5.9.5: HeapAllocator — 동적 메모리 할당 관리자
  * Best-Fit 알고리즘 + Coalescing + Leak Guard
  * 메모리 누수 추적, Double-Free 감지, Use-After-Free 보호
@@ -47,8 +149,14 @@ class HeapAllocator {
   private addressToBlockId: Map<number, number> = new Map();  // address → blockId
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v5.9.6: Fast Pool Strategy ────────────────────────────────────────────
+  private smallObjectAllocator: SmallObjectAllocator;
+  // ──────────────────────────────────────────────────────────────────────────
+
   constructor(logCallback: (msg: string) => void) {
     this.log = logCallback;
+    // v5.9.6: SmallObjectAllocator 초기화
+    this.smallObjectAllocator = new SmallObjectAllocator(logCallback);
   }
 
   /**
@@ -57,6 +165,13 @@ class HeapAllocator {
    */
   allocate(size: number): number {
     if (size <= 0) throw new Error('[ALLOC ERROR] 크기는 양수여야 합니다');
+
+    // ── v5.9.6: Dispatcher Logic ─────────────────────────────────────────────
+    // 소형 객체는 풀에서 할당 (O(1))
+    if (this.smallObjectAllocator.canAllocate(size)) {
+      return this.smallObjectAllocator.allocate(size);
+    }
+    // ──────────────────────────────────────────────────────────────────────────
 
     // 1. Best-Fit: 요청한 크기와 가장 가까운 빈 블록 찾기
     let bestAddr: number | null = null;
@@ -133,6 +248,15 @@ class HeapAllocator {
    * 메모리 해제 (Coalescing 포함)
    */
   deallocate(address: number): void {
+    // ── v5.9.6: Pool Recycling ───────────────────────────────────────────────
+    // 풀 주소면 SmallObjectAllocator에 반환
+    if (this.smallObjectAllocator.isPoolAddress(address)) {
+      const poolSize = this.smallObjectAllocator.getPoolSizeForAddress(address);
+      this.smallObjectAllocator.deallocate(poolSize, address);
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     // ── v5.9.5: Leak Guard - Double-Free 감지 ────────────────────────────────
     const blockId = this.addressToBlockId.get(address);
 
@@ -209,21 +333,25 @@ class HeapAllocator {
     }
     // ────────────────────────────────────────────────────────
 
-    // 할당된 범위 확인
-    let isValid = false;
-    for (const [allocAddr, allocSize] of this.allocatedBlocks) {
-      if (address >= allocAddr && address < allocAddr + allocSize) {
-        if (offset >= 0 && offset < allocSize - (address - allocAddr)) {
-          isValid = true;
-          break;
+    // ── v5.9.6: 풀 주소는 범위 체크 스킵 ──────────────────────────────────
+    if (!this.smallObjectAllocator.isPoolAddress(address)) {
+      // 일반 Heap 주소: allocatedBlocks 확인
+      let isValid = false;
+      for (const [allocAddr, allocSize] of this.allocatedBlocks) {
+        if (address >= allocAddr && address < allocAddr + allocSize) {
+          if (offset >= 0 && offset < allocSize - (address - allocAddr)) {
+            isValid = true;
+            break;
+          }
         }
       }
-    }
 
-    if (!isValid && address !== 0) {
-      // address=0은 null pointer로 허용
-      throw new Error(`[BOUNDARY VIOLATION] 주소 0x${address.toString(16)} + offset=${offset} 범위 초과`);
+      if (!isValid && address !== 0) {
+        // address=0은 null pointer로 허용
+        throw new Error(`[BOUNDARY VIOLATION] 주소 0x${address.toString(16)} + offset=${offset} 범위 초과`);
+      }
     }
+    // ──────────────────────────────────────────────────────────────────────────
 
     const absoluteAddr = address + offset;
     const value = this.heapMemory.get(absoluteAddr) ?? 0;
@@ -245,20 +373,24 @@ class HeapAllocator {
     }
     // ────────────────────────────────────────────────────────
 
-    // 할당된 범위 확인
-    let isValid = false;
-    for (const [allocAddr, allocSize] of this.allocatedBlocks) {
-      if (address >= allocAddr && address < allocAddr + allocSize) {
-        if (offset >= 0 && offset < allocSize - (address - allocAddr)) {
-          isValid = true;
-          break;
+    // ── v5.9.6: 풀 주소는 범위 체크 스킵 ──────────────────────────────────
+    if (!this.smallObjectAllocator.isPoolAddress(address)) {
+      // 일반 Heap 주소: allocatedBlocks 확인
+      let isValid = false;
+      for (const [allocAddr, allocSize] of this.allocatedBlocks) {
+        if (address >= allocAddr && address < allocAddr + allocSize) {
+          if (offset >= 0 && offset < allocSize - (address - allocAddr)) {
+            isValid = true;
+            break;
+          }
         }
       }
-    }
 
-    if (!isValid && address !== 0) {
-      throw new Error(`[BOUNDARY VIOLATION] 주소 0x${address.toString(16)} + offset=${offset} 범위 초과`);
+      if (!isValid && address !== 0) {
+        throw new Error(`[BOUNDARY VIOLATION] 주소 0x${address.toString(16)} + offset=${offset} 범위 초과`);
+      }
     }
+    // ──────────────────────────────────────────────────────────────────────────
 
     const absoluteAddr = address + offset;
     this.heapMemory.set(absoluteAddr, value);
