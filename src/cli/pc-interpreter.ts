@@ -851,6 +851,14 @@ export class PCInterpreter {
   }> = new Map();
   // ────────────────────────────────────────────────────────────────────────
 
+  // ── v7.1: vTable Registry (Virtual Method Table) ──────────────────────────
+  private vTableRegistry: Map<string, {
+    methods: string[];           // 인덱스 → 함수 전체 이름 ('ClassName::methodName')
+    index: Map<string, number>;  // 메서드 이름 → 인덱스
+    superClass: string | null;
+  }> = new Map();
+  // ────────────────────────────────────────────────────────────────────────
+
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
   private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
@@ -1142,16 +1150,16 @@ export class PCInterpreter {
     // ────────────────────────────────────────────────────────────────────────────
 
     // ── v5.9.2: 데이터 정렬(Data Alignment) ──────────────────────────────────
-    // sizeof(structName) → 패딩 포함된 실제 구조체 크기
-    this.variables.set('sizeof', (structName: string) => {
-      if (!this.structTable.has(structName)) {
-        throw new Error(`[SIZE ERROR] '${structName}' 구조체 미정의`);
+    // v7.1: sizeof(structName | className) → 패딩 포함된 실제 크기
+    this.variables.set('sizeof', (typeName: string) => {
+      let def = this.structTable.get(typeName) || this.classTable.get(typeName);
+      if (!def) {
+        throw new Error(`[SIZE ERROR] '${typeName}' 구조체/클래스 미정의`);
       }
 
-      const structDef = this.structTable.get(structName)!;
-      const totalSize = structDef.totalSize;  // 패딩 포함됨
+      const totalSize = def.totalSize;  // 패딩 포함됨
 
-      this.log(`[SIZEOF] ${structName} = ${totalSize} bytes (padding included)`);
+      this.log(`[SIZEOF] ${typeName} = ${totalSize} bytes (padding included)`);
       return totalSize;
     });
   }
@@ -1339,18 +1347,6 @@ export class PCInterpreter {
         return undefined;
       }
 
-      // v7.0: 클래스 정의
-      case 'ClassDeclaration': {
-        if (!this.classTable.has(stmt.name)) {
-          // 동적 클래스 정의 (Forward Declaration에서 건너뜀)
-          this.eval(stmt);
-          this.log(`[CLASS DEF] '${stmt.name}' 등록됨`);
-        } else {
-          this.log(`[CLASS DEF] '${stmt.name}' 이미 등록됨 (Forward Declaration)`);
-        }
-        return undefined;
-      }
-
       // v5.7: 구조체 정의
       case 'StructDeclaration': {
         const fieldsWithLayout: any[] = [];
@@ -1377,12 +1373,28 @@ export class PCInterpreter {
         return undefined;
       }
 
-      // v7.0: ClassDeclaration 처리 (struct + methods)
+      // v7.1: ClassDeclaration 처리 (상속 + vTable)
       case 'ClassDeclaration': {
-        // 필드 레이아웃 계산 (struct와 동일)
+        const className = (stmt as any).name;
+        const superClass = (stmt as any).superClass ?? null;
+
+        // v7.1: 필드 레이아웃 (부모 필드 먼저, 자식 필드 이어붙임)
         const fieldsWithLayout: any[] = [];
         let currentOffset = 0;
         let maxAlignment = 1;
+
+        // 부모 필드 복사 (오프셋 그대로 유지)
+        if (superClass) {
+          const parentDef = this.classTable.get(superClass);
+          if (!parentDef) throw new Error(`[INHERIT ERROR] 부모 클래스 '${superClass}' 미정의`);
+          for (const f of parentDef.fields) {
+            fieldsWithLayout.push({ ...f });
+            currentOffset = f.offset + f.size;
+            maxAlignment = Math.max(maxAlignment, f.size);
+          }
+        }
+
+        // 자식 고유 필드 추가
         for (const f of (stmt as any).fields) {
           const size = this.getTypeSize(f.typeName);
           const alignment = size;
@@ -1392,24 +1404,40 @@ export class PCInterpreter {
           fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
           currentOffset = offset + size;
         }
+
         const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
         const totalSize = currentOffset + tailPadding;
+        this.structTable.set(className, { fields: fieldsWithLayout, totalSize });
 
-        // structTable에도 등록 (MemberExpression/MemberAssignment 재사용)
-        this.structTable.set((stmt as any).name, { fields: fieldsWithLayout, totalSize });
+        // v7.1: vTable 구성 (부모 vTable 복사 후 자식 메서드로 교체)
+        const parentVTable = superClass ? this.vTableRegistry.get(superClass) : null;
+        const vTableMethods: string[] = parentVTable ? [...parentVTable.methods] : [];
+        const vTableIndex: Map<string, number> = new Map(parentVTable ? parentVTable.index : []);
 
-        // 메서드를 functionTable에 'ClassName::methodName' 키로 등록
         const methodMap = new Map<string, { params: string[]; body: ASTNode }>();
         for (const method of (stmt as any).methods) {
-          const fullName = `${(stmt as any).name}::${method.name}`;
-          const params = ['self', ...method.params];  // self 자동 주입
+          const fullName = `${className}::${method.name}`;
+          const params = ['self', ...method.params];
           this.functionTable.set(fullName, { params, body: method.body });
           methodMap.set(method.name, { params, body: method.body });
-          this.log(`[METHOD REG] '${fullName}' 등록 (params: [${params.join(', ')}])`);
+
+          if (vTableIndex.has(method.name)) {
+            // 오버라이딩: 기존 인덱스 자리에 새 함수 이름으로 교체
+            const idx = vTableIndex.get(method.name)!;
+            vTableMethods[idx] = fullName;
+            this.log(`[vTABLE OVERRIDE] [${idx}] ${method.name} → ${fullName}`);
+          } else {
+            // 신규 메서드: vTable 끝에 추가
+            const idx = vTableMethods.length;
+            vTableMethods.push(fullName);
+            vTableIndex.set(method.name, idx);
+            this.log(`[vTABLE ADD] [${idx}] ${method.name} → ${fullName}`);
+          }
         }
 
-        this.classTable.set((stmt as any).name, { fields: fieldsWithLayout, totalSize, methods: methodMap });
-        this.log(`[CLASS DEF] '${(stmt as any).name}' 등록 (${fieldsWithLayout.length}필드, ${(stmt as any).methods.length}메서드, ${totalSize}bytes)`);
+        this.vTableRegistry.set(className, { methods: vTableMethods, index: vTableIndex, superClass });
+        this.classTable.set(className, { fields: fieldsWithLayout, totalSize, methods: methodMap });
+        this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes)`);
         return undefined;
       }
 
@@ -1751,7 +1779,7 @@ export class PCInterpreter {
       case 'CallExpression':
         return this.evalCall(node);
 
-      // v7.0: NEW 표현식 (new ClassName())
+      // v7.1: NEW 표현식 (new ClassName()) + vPtr 주입
       case 'NewExpression': {
         const newExpr = node as any;
         const className = newExpr.className;
@@ -1766,7 +1794,11 @@ export class PCInterpreter {
         const allocIdx = this.variables.size;
         const baseAddr = `0x${(0x6000 + allocIdx * 0x10).toString(16).padStart(4, '0')}`;
         instance.__baseAddr = baseAddr;
-        this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr} (${classDef.totalSize} bytes)`);
+
+        // v7.1: vPtr 주입 (vTable 포인터)
+        const vTable = this.vTableRegistry.get(className);
+        instance.__vPtr = vTable ?? null;
+        this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr} (${classDef.totalSize} bytes, vPtr=${vTable ? 'vTable' : 'null'})`);
         return instance;
       }
 
@@ -1898,10 +1930,26 @@ export class PCInterpreter {
 
       // v7.0: ClassDeclaration 처리 (eval 메서드)
       case 'ClassDeclaration': {
-        // 필드 레이아웃 계산 (struct와 동일)
+        const className = (node as any).name;
+        const superClass = (node as any).superClass ?? null;
+
+        // v7.1: 필드 레이아웃 (부모 필드 먼저, 자식 필드 이어붙임)
         const fieldsWithLayout: any[] = [];
         let currentOffset = 0;
         let maxAlignment = 1;
+
+        // 부모 필드 복사 (오프셋 그대로 유지)
+        if (superClass) {
+          const parentDef = this.classTable.get(superClass);
+          if (!parentDef) throw new Error(`[INHERIT ERROR] 부모 클래스 '${superClass}' 미정의`);
+          for (const f of parentDef.fields) {
+            fieldsWithLayout.push({ ...f });
+            currentOffset = f.offset + f.size;
+            maxAlignment = Math.max(maxAlignment, f.size);
+          }
+        }
+
+        // 자식 고유 필드 추가
         for (const f of (node as any).fields) {
           const size = this.getTypeSize(f.typeName);
           const alignment = size;
@@ -1911,24 +1959,40 @@ export class PCInterpreter {
           fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
           currentOffset = offset + size;
         }
+
         const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
         const totalSize = currentOffset + tailPadding;
+        this.structTable.set(className, { fields: fieldsWithLayout, totalSize });
 
-        // structTable에도 등록 (MemberExpression/MemberAssignment 재사용)
-        this.structTable.set((node as any).name, { fields: fieldsWithLayout, totalSize });
+        // v7.1: vTable 구성 (부모 vTable 복사 후 자식 메서드로 교체)
+        const parentVTable = superClass ? this.vTableRegistry.get(superClass) : null;
+        const vTableMethods: string[] = parentVTable ? [...parentVTable.methods] : [];
+        const vTableIndex: Map<string, number> = new Map(parentVTable ? parentVTable.index : []);
 
-        // 메서드를 functionTable에 'ClassName::methodName' 키로 등록
         const methodMap = new Map<string, { params: string[]; body: ASTNode }>();
         for (const method of (node as any).methods) {
-          const fullName = `${(node as any).name}::${method.name}`;
-          const params = ['self', ...method.params];  // self 자동 주입
+          const fullName = `${className}::${method.name}`;
+          const params = ['self', ...method.params];
           this.functionTable.set(fullName, { params, body: method.body });
           methodMap.set(method.name, { params, body: method.body });
-          this.log(`[METHOD REG] '${fullName}' 등록 (params: [${params.join(', ')}])`);
+
+          if (vTableIndex.has(method.name)) {
+            // 오버라이딩: 기존 인덱스 자리에 새 함수 이름으로 교체
+            const idx = vTableIndex.get(method.name)!;
+            vTableMethods[idx] = fullName;
+            this.log(`[vTABLE OVERRIDE] [${idx}] ${method.name} → ${fullName}`);
+          } else {
+            // 신규 메서드: vTable 끝에 추가
+            const idx = vTableMethods.length;
+            vTableMethods.push(fullName);
+            vTableIndex.set(method.name, idx);
+            this.log(`[vTABLE ADD] [${idx}] ${method.name} → ${fullName}`);
+          }
         }
 
-        this.classTable.set((node as any).name, { fields: fieldsWithLayout, totalSize, methods: methodMap });
-        this.log(`[CLASS DEF] '${(node as any).name}' 등록 (${fieldsWithLayout.length}필드, ${(node as any).methods.length}메서드, ${totalSize}bytes)`);
+        this.vTableRegistry.set(className, { methods: vTableMethods, index: vTableIndex, superClass });
+        this.classTable.set(className, { fields: fieldsWithLayout, totalSize, methods: methodMap });
+        this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes)`);
         return null;
       }
 
@@ -2231,12 +2295,24 @@ export class PCInterpreter {
   private evalCall(node: ASTNode): any {
     let calleeName: string;
 
-    // v7.0: 메서드 호출 감지 (callee가 MemberExpression)
+    // v7.1: 메서드 호출 감지 (callee가 MemberExpression) + vTable 디스패치
     if (node.callee.type === 'MemberExpression') {
       const obj = this.eval(node.callee.object);
       if (obj && (obj.__type === 'object' || obj.__type === 'struct')) {
-        const className = obj.__class || obj.__typeName;
         const methodName = node.callee.field;
+        const vTable = obj.__vPtr;
+
+        // v7.1: vTable 기반 디스패치 (*(*(obj+0) + MethodIndex × 4))
+        if (vTable && vTable.index.has(methodName)) {
+          const methodIndex = vTable.index.get(methodName)!;
+          const fullName = vTable.methods[methodIndex];
+          const argValues = node.arguments.map((a: ASTNode) => this.eval(a));
+          this.log(`[vTABLE DISPATCH] ${obj.__class}.${methodName} → [${methodIndex}] → ${fullName}`);
+          return this.callUserFunction(fullName, [obj, ...argValues]);
+        }
+
+        // Fallback: vTable 미구성 케이스 (구조체 등)
+        const className = obj.__class || obj.__typeName;
         const fullName = `${className}::${methodName}`;
         if (this.functionTable.has(fullName)) {
           const argValues = node.arguments.map((a: ASTNode) => this.eval(a));

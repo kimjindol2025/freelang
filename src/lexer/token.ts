@@ -44,6 +44,9 @@ export enum TokenType {
   METHOD = 'METHOD',     // method name(params) { ... }
   NEW = 'NEW',           // new ClassName()
 
+  // v7.1: Inheritance (1개 추가)
+  EXTENDS = 'EXTENDS',   // class Child extends Parent { ... }
+
   // Phase 5 minimal .free 포맷 토큰 (3개 추가)
   INPUT = 'INPUT',       // input: 타입 정의
   OUTPUT = 'OUTPUT',     // output: 타입 정의
@@ -172,6 +175,9 @@ export const KEYWORDS: Record<string, TokenType> = {
   'class': TokenType.CLASS,
   'method': TokenType.METHOD,
   'new': TokenType.NEW,
+
+  // v7.1: Inheritance
+  'extends': TokenType.EXTENDS,
 
   // Phase 5 minimal .free 포맷 토큰 (3개)
   'input': TokenType.INPUT,

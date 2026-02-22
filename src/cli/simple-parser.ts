@@ -343,6 +343,14 @@ export class SimpleLangParser {
   private parseClassDeclaration(): ASTNode {
     const name = this.current().value;
     this.advance();  // 클래스 이름 소비
+
+    // v7.1: extends 상속
+    let superClass: string | null = null;
+    if (this.matchType(TokenType.EXTENDS)) {
+      superClass = this.current().value;
+      this.advance();
+    }
+
     if (!this.matchType(TokenType.LBRACE)) {
       throw new Error("'{' 필요");
     }
@@ -376,7 +384,7 @@ export class SimpleLangParser {
     if (!this.matchType(TokenType.RBRACE)) {
       throw new Error("'}' 필요");
     }
-    return { type: 'ClassDeclaration', name, fields, methods };
+    return { type: 'ClassDeclaration', name, superClass, fields, methods };
   }
 
   /**
@@ -701,6 +709,14 @@ export class SimpleLangParser {
       return {
         type: 'Identifier',
         name: 'self'
+      };
+    }
+
+    // v7.1: super 키워드
+    if (this.matchType(TokenType.SUPER)) {
+      return {
+        type: 'Identifier',
+        name: 'super'
       };
     }
 
