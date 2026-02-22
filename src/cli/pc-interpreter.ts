@@ -2973,37 +2973,59 @@ export class PCInterpreter {
   }
 
   /**
-   * v7.5 Phase 2: Destructor 호출
+   * v7.5 Phase 3: Destructor 체인 호출 (Deep Inheritance Support)
    * refCount == 0이 되었을 때 자동으로 호출되어 정리 작업 수행
+   * 상속 체인을 따라 자식부터 부모까지 모든 Destructor 호출
    */
   private callDestructor(obj: any): void {
-    const className = obj.__class;
-    const destructorName = `${className}::Finalize`;  // method Finalize() 형식
-    const destructorName2 = `${className}::~${className}`;  // method ~ClassName() 형식
+    this.callDestructorChain(obj);
+  }
 
-    // Destructor가 정의되어 있으면 호출
+  /**
+   * v7.5 Phase 3: Destructor 체인 재귀 호출
+   * 자식부터 시작 → 부모까지 모든 Finalize 호출
+   */
+  private callDestructorChain(obj: any, currentClassName?: string, depth: number = 0): void {
+    const className = currentClassName || obj.__class;
+    const indent = '  '.repeat(depth);
+
+    // 1단계: 현재 클래스의 Finalize 호출
+    const destructorName = `${className}::Finalize`;
+    const destructorName2 = `${className}::~${className}`;
+
     if (this.functionTable.has(destructorName)) {
-      this.log(`[FINALIZE] ${className}::Finalize() 호출 시작`);
+      this.log(`${indent}[FINALIZE] ${className}::Finalize() 호출 시작`);
       try {
         const prevContext = this.currentClassContext;
         this.currentClassContext = className;
         this.callUserFunction(destructorName, [obj]);
         this.currentClassContext = prevContext;
-        this.log(`[FINALIZE] ${className}::Finalize() 호출 완료`);
+        this.log(`${indent}[FINALIZE] ${className}::Finalize() 호출 완료`);
       } catch (e) {
-        this.log(`[FINALIZE ERROR] ${className}::Finalize() 실행 중 오류: ${e}`);
+        this.log(`${indent}[FINALIZE ERROR] ${className}::Finalize() 실행 중 오류: ${e}`);
       }
     } else if (this.functionTable.has(destructorName2)) {
-      this.log(`[FINALIZE] ${className}::~${className}() 호출 시작`);
+      this.log(`${indent}[FINALIZE] ${className}::~${className}() 호출 시작`);
       try {
         const prevContext = this.currentClassContext;
         this.currentClassContext = className;
         this.callUserFunction(destructorName2, [obj]);
         this.currentClassContext = prevContext;
-        this.log(`[FINALIZE] ${className}::~${className}() 호출 완료`);
+        this.log(`${indent}[FINALIZE] ${className}::~${className}() 호출 완료`);
       } catch (e) {
-        this.log(`[FINALIZE ERROR] ${className}::~${className}() 실행 중 오류: ${e}`);
+        this.log(`${indent}[FINALIZE ERROR] ${className}::~${className}() 실행 중 오류: ${e}`);
       }
+    }
+
+    // 2단계: 부모 클래스의 Finalize 재귀 호출
+    const classDef = this.classTable.get(className);
+    if (classDef && classDef.superClass) {
+      const superClass = classDef.superClass;
+      this.log(`${indent}[FINALIZE CHAIN] ${className} → ${superClass} (부모 소멸자 호출)`);
+      this.callDestructorChain(obj, superClass, depth + 1);
+    } else if (currentClassName) {
+      // 최상위 부모에 도달했을 때만 로그
+      this.log(`${indent}[FINALIZE COMPLETE] 소멸자 체인 완료 (최상위 클래스: ${className})`);
     }
   }
 
