@@ -851,12 +851,14 @@ export class PCInterpreter {
   }> = new Map();
   // ────────────────────────────────────────────────────────────────────────
 
-  // ── v7.1: vTable Registry (Virtual Method Table) ──────────────────────────
+  // ── v7.2: vTable Registry (Virtual Method Table) + 정적 주소 ──────────────────────────
   private vTableRegistry: Map<string, {
-    methods: string[];           // 인덱스 → 함수 전체 이름 ('ClassName::methodName')
-    index: Map<string, number>;  // 메서드 이름 → 인덱스
+    __staticAddress: string;             // v7.2: 정적 vTable 주소 (0xVT100, 0xVT200...)
+    methods: string[];                   // 인덱스 → 함수 전체 이름 ('ClassName::methodName')
+    index: Map<string, number>;          // 메서드 이름 → 인덱스
     superClass: string | null;
   }> = new Map();
+  private vTableAddressCounter: number = 0x100;  // v7.2: vTable 정적 주소 카운터
   // ────────────────────────────────────────────────────────────────────────
 
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
@@ -1435,9 +1437,18 @@ export class PCInterpreter {
           }
         }
 
-        this.vTableRegistry.set(className, { methods: vTableMethods, index: vTableIndex, superClass });
+        // v7.2: vTable 정적 주소 할당
+        const vTableStaticAddr = `0xVT${this.vTableAddressCounter.toString(16).padStart(3, '0')}`;
+        this.vTableAddressCounter += 0x100;
+
+        this.vTableRegistry.set(className, {
+          __staticAddress: vTableStaticAddr,
+          methods: vTableMethods,
+          index: vTableIndex,
+          superClass
+        });
         this.classTable.set(className, { fields: fieldsWithLayout, totalSize, methods: methodMap });
-        this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes)`);
+        this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes, vTable@${vTableStaticAddr})`);
         return undefined;
       }
 
@@ -1779,7 +1790,7 @@ export class PCInterpreter {
       case 'CallExpression':
         return this.evalCall(node);
 
-      // v7.1: NEW 표현식 (new ClassName()) + vPtr 주입
+      // v7.2: NEW 표현식 (new ClassName()) + vPtr 족보 기입
       case 'NewExpression': {
         const newExpr = node as any;
         const className = newExpr.className;
@@ -1795,10 +1806,17 @@ export class PCInterpreter {
         const baseAddr = `0x${(0x6000 + allocIdx * 0x10).toString(16).padStart(4, '0')}`;
         instance.__baseAddr = baseAddr;
 
-        // v7.1: vPtr 주입 (vTable 포인터)
+        // v7.2: vPtr 족보 기입 (vTable 정적 주소)
         const vTable = this.vTableRegistry.get(className);
         instance.__vPtr = vTable ?? null;
-        this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr} (${classDef.totalSize} bytes, vPtr=${vTable ? 'vTable' : 'null'})`);
+
+        // v7.2: 물리적 메모리처럼 명시
+        const vTableAddr = vTable?.__staticAddress ?? 'null';
+        this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr}`);
+        this.log(`  → HEAP[${baseAddr}+0] = ${vTableAddr}  // vPtr 족보 기입 (메서드 테이블 주소)`);
+        this.log(`  → FIELDS: ${classDef.fields.map((f: any) => `${f.name}@[${baseAddr}+${f.offset}]`).join(', ')}`);
+        this.log(`  → TOTAL SIZE: ${classDef.totalSize} bytes`);
+
         return instance;
       }
 
@@ -1990,9 +2008,18 @@ export class PCInterpreter {
           }
         }
 
-        this.vTableRegistry.set(className, { methods: vTableMethods, index: vTableIndex, superClass });
+        // v7.2: vTable 정적 주소 할당
+        const vTableStaticAddr = `0xVT${this.vTableAddressCounter.toString(16).padStart(3, '0')}`;
+        this.vTableAddressCounter += 0x100;
+
+        this.vTableRegistry.set(className, {
+          __staticAddress: vTableStaticAddr,
+          methods: vTableMethods,
+          index: vTableIndex,
+          superClass
+        });
         this.classTable.set(className, { fields: fieldsWithLayout, totalSize, methods: methodMap });
-        this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes)`);
+        this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes, vTable@${vTableStaticAddr})`);
         return null;
       }
 
@@ -2295,19 +2322,30 @@ export class PCInterpreter {
   private evalCall(node: ASTNode): any {
     let calleeName: string;
 
-    // v7.1: 메서드 호출 감지 (callee가 MemberExpression) + vTable 디스패치
+    // v7.2: 메서드 호출 감지 (callee가 MemberExpression) + 간접 호출 공식
     if (node.callee.type === 'MemberExpression') {
       const obj = this.eval(node.callee.object);
       if (obj && (obj.__type === 'object' || obj.__type === 'struct')) {
         const methodName = node.callee.field;
         const vTable = obj.__vPtr;
 
-        // v7.1: vTable 기반 디스패치 (*(*(obj+0) + MethodIndex × 4))
+        // v7.2: 간접 호출 공식 (*(*(obj+0) + MethodIndex × 4))
         if (vTable && vTable.index.has(methodName)) {
           const methodIndex = vTable.index.get(methodName)!;
           const fullName = vTable.methods[methodIndex];
           const argValues = node.arguments.map((a: ASTNode) => this.eval(a));
-          this.log(`[vTABLE DISPATCH] ${obj.__class}.${methodName} → [${methodIndex}] → ${fullName}`);
+
+          // v7.2: 간접 참조 공식 단계별 로깅
+          const objAddr = obj.__baseAddr;
+          const vTableAddr = vTable.__staticAddress;
+          const methodOffset = methodIndex * 4;  // 각 메서드 포인터는 4바이트
+
+          this.log(`[INDIRECT CALL] ${obj.__class}.${methodName}() - 간접 호출 공식 분해:`);
+          this.log(`  STEP 1: vPtr = *(${objAddr}+0) = ${vTableAddr}`);
+          this.log(`  STEP 2: methodAddr = *(${vTableAddr}+${methodOffset}) = &${fullName}`);
+          this.log(`  STEP 3: methodIndex[${methodName}] = ${methodIndex}`);
+          this.log(`  TARGET: CALL &${fullName}(${obj.__class} self, args)`);
+
           return this.callUserFunction(fullName, [obj, ...argValues]);
         }
 
