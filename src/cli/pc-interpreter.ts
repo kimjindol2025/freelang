@@ -838,6 +838,11 @@ export class PCInterpreter {
   }> = new Map();
   // ────────────────────────────────────────────────────────────────────────
 
+  // ── v6.3: Tail Call Optimization (TCO) ────────────────────────────────────
+  private tcoFlag: boolean = false;
+  private tcoCallArgs: any[] = [];
+  // ────────────────────────────────────────────────────────────────────────
+
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
   private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
@@ -1786,7 +1791,22 @@ export class PCInterpreter {
       }
 
       case 'ReturnStatement': {
-        // v4.0: RETURN — 값을 회수하고 returnFlag를 올림
+        // v6.3: TCO - 꼬리 호출 감지 (callExpression이고 현재 함수 자신을 호출)
+        if (
+          node.value &&
+          node.value.type === 'CallExpression' &&
+          node.value.callee?.type === 'Identifier' &&
+          this.callStack.length > 0 &&
+          node.value.callee.name === this.callStack[this.callStack.length - 1].functionName
+        ) {
+          const tcoArgs = node.value.arguments.map((a: ASTNode) => this.eval(a));
+          this.tcoFlag = true;
+          this.tcoCallArgs = tcoArgs;
+          this.returnFlag = true;
+          this.log(`[TCO DETECTED] '${node.value.callee.name}' 꼬리 호출 감지, args=[${tcoArgs.join(', ')}]`);
+          return undefined;
+        }
+        // 일반 반환
         const retVal = node.value ? this.eval(node.value) : null;
         this.returnValue = retVal;
         this.returnFlag = true;
@@ -2239,6 +2259,7 @@ export class PCInterpreter {
     // ──────────────────────────────────────────────────────────────────────
 
     // ── v6.0: Recursion Depth Guard ──────────────────────────────────────
+    // v6.3: TCO 루프 전에 1회만 증가 (다시 증가하지 않음)
     this.recursionDepth++;
     if (this.recursionDepth > this.MAX_RECURSION_DEPTH) {
       this.recursionDepth--;
@@ -2253,24 +2274,7 @@ export class PCInterpreter {
     const savedScope = new Map(this.variables);
     this.callStack.push({ savedScope, functionName: name, callDepth });
 
-    // ── 2. v4.2 HANDOVER: 인자 → 매개변수 순서대로 바인딩 ─────────────────
-    const localScope = new Map<string, any>();
-    localScope.set('println', this.println.bind(this));
-    // v6.1: 내장 함수들을 localScope에 복사
-    localScope.set('check', this.variables.get('check'));
-
-    this.log(`[HANDOVER] ${fn.params.length}개 인자 전달 시작`);
-    for (let i = 0; i < fn.params.length; i++) {
-      const paramName = fn.params[i];
-      const argVal   = args[i] ?? null;
-      localScope.set(paramName, argVal);
-      this.log(`[HANDOVER] [${i}] 호출자 args[${i}]=${argVal} → 로컬 '${paramName}'`);
-    }
-
-    this.variables = localScope;
-    this.indentLevel++;
-
-    // ── v6.2: Recursive Type Inference - is_analyzing 설정 ──────────────────
+    // ── v6.2: Recursive Type Inference - is_analyzing 설정 (루프 전 1회) ────
     const sig = this.typeSignatureTable.get(name);
     if (sig) {
       if (sig.is_analyzing) {
@@ -2285,16 +2289,59 @@ export class PCInterpreter {
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    // ── v6.1: Frame Integrity Logging - 진입 ────────────────────────────────
-    const frameVarNames = [...localScope.keys()].join(', ');
-    this.log(`[FRAME ENTER] '${name}' depth=${callDepth}, vars=[${frameVarNames}]`);
-    // ────────────────────────────────────────────────────────────────────────
+    let currentArgs = args;
+    let jumpCount = 0;  // TCO 점프 카운트 (로컬 변수)
+    let retVal: any = null;
 
-    // ── 3. 함수 바디 실행 ────────────────────────────────────────────────
-    for (const stmt of fn.body.statements) {
-      this.eval(stmt);
-      if (this.returnFlag) break; // RETURN 신호 감지 즉시 탈출
+    // ── v6.3: TCO while(true) 루프 - 꼬리 호출 반복 ────────────────────────
+    while (true) {
+      // ── 2. v4.2 HANDOVER: 인자 → 매개변수 순서대로 바인딩 ───────────────
+      const localScope = new Map<string, any>();
+      localScope.set('println', this.println.bind(this));
+      localScope.set('check', this.variables.get('check'));
+
+      this.log(`[HANDOVER] ${fn.params.length}개 인자 전달 시작`);
+      for (let i = 0; i < fn.params.length; i++) {
+        const paramName = fn.params[i];
+        const argVal   = currentArgs[i] ?? null;
+        localScope.set(paramName, argVal);
+        this.log(`[HANDOVER] [${i}] 호출자 args[${i}]=${argVal} → 로컬 '${paramName}'`);
+      }
+
+      this.variables = localScope;
+      this.indentLevel++;
+
+      // ── v6.1: Frame Integrity Logging - 진입 ────────────────────────────────
+      const frameVarNames = [...localScope.keys()].join(', ');
+      this.log(`[FRAME ENTER] '${name}' depth=${callDepth}, vars=[${frameVarNames}]`);
+      // ────────────────────────────────────────────────────────────────────────
+
+      // ── 3. 함수 바디 실행 ────────────────────────────────────────────────
+      this.returnFlag = false;
+      this.tcoFlag = false;
+      for (const stmt of fn.body.statements) {
+        this.eval(stmt);
+        if (this.returnFlag) break; // RETURN 신호 감지 즉시 탈출
+      }
+
+      // ── v6.3: TCO 신호 확인 (tcoFlag 설정 여부) ─────────────────────────
+      if (this.tcoFlag) {
+        jumpCount++;
+        currentArgs = this.tcoCallArgs;
+        this.tcoFlag = false;
+        this.returnFlag = false;
+        this.log(`[TCO JUMP #${jumpCount}] '${name}' args=[${currentArgs.join(', ')}]`);
+        this.indentLevel--;  // 현재 반복 종료
+        continue;  // 새 스택 프레임 없이 다음 반복으로 점프!
+      }
+
+      // 일반 반환 (TCO 아님)
+      retVal = this.returnValue ?? null;
+      this.returnValue = undefined;
+      this.indentLevel--;
+      break;
     }
+    // ────────────────────────────────────────────────────────────────────────
 
     // ── 4. v4.2 LOCAL ISOLATION: 소멸할 로컬 변수 목록 기록 ──────────────
     const localVarNames = [...this.variables.keys()]
@@ -2302,9 +2349,6 @@ export class PCInterpreter {
     this.log(`[LOCAL ISOLATION] 소멸 예정 로컬 변수: [${localVarNames.join(', ')}]`);
 
     // ── 5. 반환값 회수 ────────────────────────────────────────────────────
-    const retVal = this.returnValue ?? null;
-    this.returnValue = undefined;
-    this.returnFlag = false;
     this.log(`[RETURN COMPLETE] '${name}' 반환값: ${retVal}`);
 
     // ── v6.1 → v6.2: Type Signature Tracking & Recursive Type Validation ─────
@@ -2312,21 +2356,22 @@ export class PCInterpreter {
     const sigFinal = this.typeSignatureTable.get(name);
     if (sigFinal) {
       sigFinal.callCount++;
-      sigFinal.typeCheckCount++;  // v6.2: 타입 검증 횟수 증가
-      if (sigFinal.returnType === null) {
-        sigFinal.returnType = retType;
-        this.log(`[TYPE LOCK] '${name}' 반환 타입 확정: ${retType} (check #${sigFinal.typeCheckCount})`);
-      } else if (sigFinal.returnType !== retType) {
-        this.log(`[TYPE WARN] '${name}' 반환 타입 불일치: 기대=${sigFinal.returnType}, 실제=${retType}`);
-      } else {
-        this.log(`[TYPE CHECK] '${name}' 타입 검증 성공: ${retType} (check #${sigFinal.typeCheckCount})`);
+      if (jumpCount === 0) {  // TCO 함수가 아닐 때만 타입 체크 수행
+        sigFinal.typeCheckCount++;
+        if (sigFinal.returnType === null) {
+          sigFinal.returnType = retType;
+          this.log(`[TYPE LOCK] '${name}' 반환 타입 확정: ${retType} (check #${sigFinal.typeCheckCount})`);
+        } else if (sigFinal.returnType !== retType) {
+          this.log(`[TYPE WARN] '${name}' 반환 타입 불일치: 기대=${sigFinal.returnType}, 실제=${retType}`);
+        } else {
+          this.log(`[TYPE CHECK] '${name}' 타입 검증 성공: ${retType} (check #${sigFinal.typeCheckCount})`);
+        }
       }
       sigFinal.is_analyzing = false;  // v6.2: 분석 완료
     }
     // ────────────────────────────────────────────────────────────────────
 
     // ── 6. Call Stack Pop: 이전 스코프 복구 (Memory Cleanup) ─────────────
-    this.indentLevel--;
     const frame = this.callStack.pop()!;
     this.variables = frame.savedScope;
 
@@ -2343,7 +2388,7 @@ export class PCInterpreter {
     this.log(`[SCOPE RESTORED] depth=${callDepth}, 복구된 외부 변수: ${this.variables.size - 1}개`);
 
     // ── v6.1: Frame Integrity Logging - 퇴출 ────────────────────────────────
-    this.log(`[FRAME EXIT] '${name}' depth=${callDepth}, retVal=${retVal}`);
+    this.log(`[FRAME EXIT] '${name}' depth=${callDepth}${jumpCount > 0 ? ` [TCO DONE: ${jumpCount} jumps]` : ''}, retVal=${retVal}`);
     // ────────────────────────────────────────────────────────────────────────
 
     // ── v5.9.9: Stack Depth Management (함수 퇴장) ──────────────────────
