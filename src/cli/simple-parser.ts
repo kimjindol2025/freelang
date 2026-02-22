@@ -375,9 +375,21 @@ export class SimpleLangParser {
     const methods: any[] = [];
 
     while (!this.checkType(TokenType.RBRACE) && !this.isAtEnd()) {
+      // v7.4: 접근 제어자 파싱
+      let access = 'public';  // 기본값: public
+      if (this.matchType(TokenType.PRIVATE)) {
+        access = 'private';
+      } else if (this.matchType(TokenType.PROTECTED)) {
+        access = 'protected';
+      } else if (this.matchType(TokenType.PUBLIC)) {
+        access = 'public';
+      }
+
       if (this.matchType(TokenType.METHOD)) {
         // method name(params) { body }
-        methods.push(this.parseMethodDeclaration());
+        const method = this.parseMethodDeclaration();
+        (method as any).access = access;  // v7.4: 메서드에 접근 제어자 추가
+        methods.push(method);
       } else if (this.checkType(TokenType.IDENT)) {
         // 필드: fieldName (TypeName) 형식 (struct와 동일)
         const fieldName = this.current().value;
@@ -391,7 +403,7 @@ export class SimpleLangParser {
           }
         }
         if (this.matchType(TokenType.COMMA)) {} // optional comma
-        fields.push({ name: fieldName, typeName });
+        fields.push({ name: fieldName, typeName, access });  // v7.4: 필드에 접근 제어자 추가
       } else {
         this.advance(); // 예상치 못한 토큰 스킵
       }
@@ -405,20 +417,28 @@ export class SimpleLangParser {
 
   /**
    * v7.0: 메서드 선언
-   * 문법: method name(params) { body }
+   * 문법: method name(param1 Type1, param2 Type2) { body }
    */
   private parseMethodDeclaration(): ASTNode {
     const name = this.current().value;
     this.advance();  // 메서드 이름 소비
 
-    // 파라미터 (fn과 동일)
+    // 파라미터
     if (!this.matchType(TokenType.LPAREN)) {
       throw new Error("'(' 필요");
     }
     const params: string[] = [];
     while (!this.checkType(TokenType.RPAREN) && !this.isAtEnd()) {
-      params.push(this.current().value);
-      this.advance();
+      // v7.4: paramName Type 형식 파싱 (Type 스킵)
+      const paramName = this.current().value;
+      params.push(paramName);
+      this.advance();  // 파라미터 이름 소비
+
+      // 타입 정보 건너뛰기 (선택사항)
+      if (this.checkType(TokenType.IDENT) && !this.checkType(TokenType.COMMA) && !this.checkType(TokenType.RPAREN)) {
+        this.advance();  // Type 소비
+      }
+
       if (!this.matchType(TokenType.COMMA)) break;
     }
     if (!this.matchType(TokenType.RPAREN)) {

@@ -52,6 +52,11 @@ export enum TokenType {
   IMPLEMENTS = 'IMPLEMENTS', // class Circle implements Shape { ... }
   ABSTRACT = 'ABSTRACT',     // abstract method GetArea()
 
+  // v7.4: Access Control (3개 추가)
+  PRIVATE = 'PRIVATE',       // private field (클래스 내부만)
+  PROTECTED = 'PROTECTED',   // protected field (자식 클래스도 포함)
+  PUBLIC = 'PUBLIC',         // public field (모든 곳에서 접근)
+
   // Phase 5 minimal .free 포맷 토큰 (3개 추가)
   INPUT = 'INPUT',       // input: 타입 정의
   OUTPUT = 'OUTPUT',     // output: 타입 정의
@@ -188,6 +193,11 @@ export const KEYWORDS: Record<string, TokenType> = {
   'interface': TokenType.INTERFACE,
   'implements': TokenType.IMPLEMENTS,
   'abstract': TokenType.ABSTRACT,
+
+  // v7.4: Access Control
+  'private': TokenType.PRIVATE,
+  'protected': TokenType.PROTECTED,
+  'public': TokenType.PUBLIC,
 
   // Phase 5 minimal .free 포맷 토큰 (3개)
   'input': TokenType.INPUT,

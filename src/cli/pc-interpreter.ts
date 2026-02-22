@@ -848,6 +848,7 @@ export class PCInterpreter {
     fields: { name: string; typeName: string; size: number; offset: number; padding: number }[];
     totalSize: number;
     methods: Map<string, { params: string[]; body: ASTNode }>;
+    superClass?: string | null;  // v7.4: 부모 클래스 추적 (access control용)
   }> = new Map();
   // ────────────────────────────────────────────────────────────────────────
 
@@ -876,6 +877,10 @@ export class PCInterpreter {
   // 함수별 호출 횟수 (Pipeline 모니터링)
   private callCountMap: Map<string, number> = new Map();
   private static readonly HOT_THRESHOLD = 100;
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── v7.4: 접근 제어 (Access Control) ──────────────────────────────────────
+  private currentClassContext: string | null = null;  // 현재 실행 중인 클래스 (메서드 내부 추적)
   // ──────────────────────────────────────────────────────────────────────────
 
   constructor() {
@@ -1927,6 +1932,12 @@ export class PCInterpreter {
         const structDef = this.structTable.get(obj.__typeName);
         const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
         if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
+
+        // v7.4: 접근 제어 검증 (필드가 정의된 클래스 기준)
+        const fieldAccess = (fieldDef as any).access || 'public';  // 기본값: public
+        const definedInClass = (fieldDef as any).definedIn || obj.__typeName;  // v7.4: 정의된 클래스
+        this.validateMemberAccess(fieldAccess, definedInClass, node.field);
+
         const value = obj[node.field];
         this.log(`[MEMBER ACCESS] ${node.object.name}.${node.field} → offset=${fieldDef.offset} → ${value}`);
         return value;
@@ -1974,6 +1985,12 @@ export class PCInterpreter {
         const structDef = this.structTable.get(obj.__typeName);
         const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
         if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
+
+        // v7.4: 접근 제어 검증 (필드가 정의된 클래스 기준)
+        const fieldAccess = (fieldDef as any).access || 'public';  // 기본값: public
+        const definedInClass = (fieldDef as any).definedIn || obj.__typeName;  // v7.4: 정의된 클래스
+        this.validateMemberAccess(fieldAccess, definedInClass, node.field);
+
         const value = this.eval(node.value);
         obj[node.field] = value;
         const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
@@ -2023,7 +2040,8 @@ export class PCInterpreter {
           const parentDef = this.classTable.get(superClass);
           if (!parentDef) throw new Error(`[INHERIT ERROR] 부모 클래스 '${superClass}' 미정의`);
           for (const f of parentDef.fields) {
-            fieldsWithLayout.push({ ...f });
+            // v7.4: definedIn 정보 유지 (필드가 정의된 원본 클래스)
+            fieldsWithLayout.push({ ...f, definedIn: (f as any).definedIn || superClass });
             currentOffset = f.offset + f.size;
             maxAlignment = Math.max(maxAlignment, f.size);
           }
@@ -2036,7 +2054,8 @@ export class PCInterpreter {
           maxAlignment = Math.max(maxAlignment, alignment);
           const padding = (alignment - currentOffset % alignment) % alignment;
           const offset = currentOffset + padding;
-          fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
+          // v7.4: access 속성 포함, definedIn 설정 (현재 클래스에서 정의됨)
+          fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding, access: f.access || 'public', definedIn: className });
           currentOffset = offset + size;
         }
 
@@ -2095,7 +2114,8 @@ export class PCInterpreter {
           index: vTableIndex,
           superClass
         });
-        this.classTable.set(className, { fields: fieldsWithLayout, totalSize, methods: methodMap });
+        // v7.4: superClass를 classTable에도 추가 (access control 검증용)
+        this.classTable.set(className, { fields: fieldsWithLayout, totalSize, methods: methodMap, superClass });
         this.log(`[CLASS DEF] '${className}' (super: ${superClass ?? 'none'}, ${fieldsWithLayout.length}필드, ${totalSize}bytes, vTable@${vTableStaticAddr})`);
         return null;
       }
@@ -2312,6 +2332,75 @@ export class PCInterpreter {
     // v5.6: 배열 원소 주소 = 기본 주소 + elemOffset * 4
     const totalOffset = baseOffset + elemOffset * 4;
     return `0x${(0x1000 + totalOffset).toString(16).padStart(4, '0')}`;
+  }
+
+  /**
+   * ── v7.4: 접근 제어 검증 메서드 ──────────────────────────────────────
+   * 현재 실행 컨텍스트에서 특정 필드에 접근할 수 있는지 확인
+   * @param access: 필드의 접근 레벨 ('private', 'protected', 'public')
+   * @param targetClass: 필드가 속한 클래스명
+   * @returns: 접근 가능하면 true, 불가능하면 throw
+   */
+  private validateMemberAccess(access: string, targetClass: string, memberName: string): boolean {
+    // public은 항상 접근 가능
+    if (access === 'public') {
+      return true;
+    }
+
+    // private: 같은 클래스 내부(메서드)에서만 접근 가능
+    if (access === 'private') {
+      if (this.currentClassContext === targetClass) {
+        this.log(`[ACCESS OK] private ${targetClass}.${memberName} - 클래스 내부 접근`);
+        return true;
+      }
+      this.log(`[ACCESS DENIED] private ${targetClass}.${memberName} - 외부 접근 시도`);
+      throw new Error(`[ACCESS VIOLATION] private 필드 '${memberName}'에 외부에서 접근할 수 없습니다 (현재: ${this.currentClassContext || 'global'}, 대상: ${targetClass})`);
+    }
+
+    // protected: 같은 클래스, 자식 클래스, 또는 부모 클래스에서 접근 가능
+    if (access === 'protected') {
+      if (!this.currentClassContext) {
+        this.log(`[ACCESS DENIED] protected ${targetClass}.${memberName} - 전역 스코프에서 접근`);
+        throw new Error(`[ACCESS VIOLATION] protected 필드 '${memberName}'에 전역 스코프에서 접근할 수 없습니다`);
+      }
+
+      // 1. 같은 클래스
+      if (this.currentClassContext === targetClass) {
+        this.log(`[ACCESS OK] protected ${targetClass}.${memberName} - 클래스 내부 접근`);
+        return true;
+      }
+
+      // 2. 현재 클래스가 target의 자식인지 확인 (현재의 부모 체인에 target이 있는가)
+      let currentClass: string | null = this.currentClassContext;
+      while (currentClass) {
+        const classInfo = this.classTable.get(currentClass);
+        if (!classInfo) break;
+        const superClass = (classInfo as any).superClass;
+        if (superClass === targetClass) {
+          this.log(`[ACCESS OK] protected ${targetClass}.${memberName} - 자식 클래스 접근`);
+          return true;
+        }
+        currentClass = superClass;
+      }
+
+      // 3. target이 현재 클래스의 자식인지 확인 (target의 부모 체인에 현재가 있는가)
+      let targetClassPtr: string | null = targetClass;
+      while (targetClassPtr) {
+        const classInfo = this.classTable.get(targetClassPtr);
+        if (!classInfo) break;
+        const superClass = (classInfo as any).superClass;
+        if (superClass === this.currentClassContext) {
+          this.log(`[ACCESS OK] protected ${targetClass}.${memberName} - 부모 클래스 메서드에서 자식 필드 접근`);
+          return true;
+        }
+        targetClassPtr = superClass;
+      }
+
+      this.log(`[ACCESS DENIED] protected ${targetClass}.${memberName} - 무관한 클래스 접근`);
+      throw new Error(`[ACCESS VIOLATION] protected 필드 '${memberName}'에 무관한 클래스에서 접근할 수 없습니다 (현재: ${this.currentClassContext}, 대상: ${targetClass})`);
+    }
+
+    return false;
   }
 
   private evalUnaryOp(node: ASTNode): any {
@@ -2618,6 +2707,16 @@ export class PCInterpreter {
 
     this.log(`[CALL] '${name}(${args.join(', ')})' → Depth=${callDepth + 1}, RecursionDepth=${this.recursionDepth}`);
 
+    // ── v7.4: 메서드 호출 시 currentClassContext 설정 ──────────────────
+    const previousContext = this.currentClassContext;
+    const isMethodCall = name.includes('::');
+    if (isMethodCall) {
+      const className = name.split('::')[0];
+      this.currentClassContext = className;
+      this.log(`[CLASS CONTEXT] 진입: ${className} (메서드: ${name.split('::')[1]})`);
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
     // ── 1. Return Address: 현재 스코프 전체를 Call Stack에 저장 ──────────
     const savedScope = new Map(this.variables);
     this.callStack.push({ savedScope, functionName: name, callDepth });
@@ -2745,6 +2844,13 @@ export class PCInterpreter {
 
     // ── v6.0: Recursion Depth Decrement ──────────────────────────────────
     this.recursionDepth--;
+    // ──────────────────────────────────────────────────────────────────────
+
+    // ── v7.4: currentClassContext 복원 ──────────────────────────────────
+    if (isMethodCall) {
+      this.currentClassContext = previousContext;
+      this.log(`[CLASS CONTEXT] 퇴출: 이전 컨텍스트로 복원 (${previousContext || 'global'})`);
+    }
     // ──────────────────────────────────────────────────────────────────────
 
     return retVal;
