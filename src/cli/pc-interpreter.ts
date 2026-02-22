@@ -130,11 +130,15 @@ interface BlockMetadata {
   size: number;
   timestamp: number;
   lineNumber: number;
-  status: 'ALLOCATED' | 'FREED' | 'DOUBLE_FREE_DETECTED';
+  status: 'ALLOCATED' | 'FREED' | 'DOUBLE_FREE_DETECTED' | 'ZAPPED';
   freed_timestamp?: number;
   // ── v5.9.7: Canary (매직 넘버) ──────────────────────────────────
   canary_front: number;  // 블록 앞 경계 매직 넘버 (0xDEADBEEF)
   canary_back: number;   // 블록 뒤 경계 매직 넘버 (0xCAFEBABE)
+  // ─────────────────────────────────────────────────────────────────
+  // ── v5.9.8: Zapping (Tombstone) ──────────────────────────────────
+  is_zapped: boolean;    // 메모리가 0xDEADBEEF로 채워졌는지 표시
+  zapped_timestamp?: number;
   // ─────────────────────────────────────────────────────────────────
 }
 
@@ -164,6 +168,12 @@ class HeapAllocator {
   private canaryViolationCount: number = 0;            // Canary 침범 횟수
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v5.9.8: Dangling Pointer Guard & Access Privilege ──────────────────
+  private readonly ZAPPING_VALUE: number = 0xDEADBEEF; // Zapping 값 (동일)
+  private zappedAddresses: Set<number> = new Set();    // 이미 Zapped된 주소 추적
+  private zappingCount: number = 0;                    // Zapping 실행 횟수
+  // ────────────────────────────────────────────────────────────────────────
+
   constructor(logCallback: (msg: string) => void) {
     this.log = logCallback;
     // v5.9.6: SmallObjectAllocator 초기화
@@ -192,7 +202,8 @@ class HeapAllocator {
         lineNumber: 0,
         status: 'ALLOCATED',
         canary_front: this.CANARY_FRONT,
-        canary_back: this.CANARY_BACK
+        canary_back: this.CANARY_BACK,
+        is_zapped: false
       };
       this.blockMetadata.set(blockId, metadata);
       this.addressToBlockId.set(poolAddr, blockId);
@@ -245,7 +256,10 @@ class HeapAllocator {
         status: 'ALLOCATED',
         // ── v5.9.7: Canary (매직 넘버) ────────────────────────────────
         canary_front: this.CANARY_FRONT,
-        canary_back: this.CANARY_BACK
+        canary_back: this.CANARY_BACK,
+        // ────────────────────────────────────────────────────────────────
+        // ── v5.9.8: Zapping (Tombstone) ────────────────────────────────
+        is_zapped: false
         // ────────────────────────────────────────────────────────────────
       };
       this.blockMetadata.set(blockId, metadata);
@@ -275,7 +289,10 @@ class HeapAllocator {
       status: 'ALLOCATED',
       // ── v5.9.7: Canary (매직 넘버) ────────────────────────────────
       canary_front: this.CANARY_FRONT,
-      canary_back: this.CANARY_BACK
+      canary_back: this.CANARY_BACK,
+      // ────────────────────────────────────────────────────────────────
+      // ── v5.9.8: Zapping (Tombstone) ────────────────────────────────
+      is_zapped: false
       // ────────────────────────────────────────────────────────────────
     };
     this.blockMetadata.set(blockId, metadata);
@@ -300,15 +317,26 @@ class HeapAllocator {
     if (this.smallObjectAllocator.isPoolAddress(address)) {
       const poolSize = this.smallObjectAllocator.getPoolSizeForAddress(address);
 
+      // ── v5.9.8: Zapping (Pool도 Tombstone으로 무효화) ───────────────────────
+      for (let i = 0; i < poolSize; i++) {
+        this.heapMemory.set(address + i, this.ZAPPING_VALUE);
+      }
+      this.zappedAddresses.add(address);
+      this.zappingCount++;
+      // ────────────────────────────────────────────────────────────────────
+
       // ── v5.9.7: Pool metadata 업데이트 ────────────────────────────────────
       const blockId = this.addressToBlockId.get(address);
       if (blockId) {
         const metadata = this.blockMetadata.get(blockId)!;
-        if (metadata.status === 'FREED') {
+        if (metadata.status === 'FREED' || metadata.status === 'ZAPPED') {
           throw new Error(`[DOUBLE-FREE ERROR] Block #${blockId}는 이미 해제됨 (원래 해제: ${metadata.freed_timestamp})`);
         }
-        metadata.status = 'FREED';
+        metadata.status = 'ZAPPED';
+        metadata.is_zapped = true;
+        metadata.zapped_timestamp = Date.now();
         metadata.freed_timestamp = Date.now();
+        this.log(`[ZAPPING] Block #${blockId} @ 0x${address.toString(16)}, size=${poolSize}, count=${this.zappingCount}`);
         this.log(`[FREE] Block #${blockId} (POOL) address=0x${address.toString(16)}, size=${poolSize}`);
       }
       // ────────────────────────────────────────────────────────────────────
@@ -332,7 +360,7 @@ class HeapAllocator {
 
     const metadata = this.blockMetadata.get(blockId)!;
 
-    if (metadata.status === 'FREED') {
+    if (metadata.status === 'FREED' || metadata.status === 'ZAPPED') {
       throw new Error(`[DOUBLE-FREE ERROR] Block #${blockId}는 이미 해제됨 (원래 해제: ${metadata.freed_timestamp})`);
     }
 
@@ -346,11 +374,23 @@ class HeapAllocator {
     }
 
     const size = this.allocatedBlocks.get(address)!;
+
+    // ── v5.9.8: Zapping (Tombstone) - 메모리 무효화 ────────────────────────
+    for (let i = 0; i < size; i++) {
+      this.heapMemory.set(address + i, this.ZAPPING_VALUE);
+    }
+    this.zappedAddresses.add(address);
+    this.zappingCount++;
+    this.log(`[ZAPPING] Block #${blockId} @ 0x${address.toString(16)}, size=${size}, count=${this.zappingCount}`);
+    // ────────────────────────────────────────────────────────────────────────
+
     this.allocatedBlocks.delete(address);
     this.freeBlocks.set(address, size);
 
     // ── v5.9.5: Leak Guard - 메타데이터 업데이트 ────────────────────────────
-    metadata.status = 'FREED';
+    metadata.status = 'ZAPPED';  // v5.9.8: FREED → ZAPPED로 변경
+    metadata.is_zapped = true;
+    metadata.zapped_timestamp = Date.now();
     metadata.freed_timestamp = Date.now();
     // addressToBlockId 유지 (Use-After-Free 감지 필요)
     // ──────────────────────────────────────────────────────────────────────────
@@ -469,11 +509,20 @@ class HeapAllocator {
     const blockId = this.addressToBlockId.get(address);
     if (blockId) {
       const metadata = this.blockMetadata.get(blockId)!;
-      if (metadata.status === 'FREED') {
-        throw new Error(`[USE-AFTER-FREE ERROR] Block #${blockId}는 이미 해제됨. 해제된 메모리(0x${address.toString(16)})에 접근할 수 없습니다.`);
+      if (metadata.status === 'FREED' || metadata.status === 'ZAPPED') {
+        throw new Error(`[USE-AFTER-FREE ERROR] Block #${blockId}는 이미 해제됨 (Zapped). 해제된 메모리(0x${address.toString(16)})에 접근할 수 없습니다.`);
       }
     }
     // ────────────────────────────────────────────────────────
+
+    // ── v5.9.8: Safe Dereference - Dangling Pointer 추가 검증 ──────────
+    if (blockId) {
+      const metadata = this.blockMetadata.get(blockId)!;
+      if (metadata.is_zapped) {
+        throw new Error(`[DANGLING POINTER] Block #${blockId}는 Zapped됨. Dangling 포인터 접근 감지 (Address: 0x${address.toString(16)})`);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     // ── v5.9.7: Overflow Trap ───────────────────────────────────────────────
     this.checkBufferOverflow(address, offset);
@@ -513,11 +562,20 @@ class HeapAllocator {
     const blockId = this.addressToBlockId.get(address);
     if (blockId) {
       const metadata = this.blockMetadata.get(blockId)!;
-      if (metadata.status === 'FREED') {
-        throw new Error(`[USE-AFTER-FREE ERROR] Block #${blockId}는 이미 해제됨. 해제된 메모리(0x${address.toString(16)})에 쓸 수 없습니다.`);
+      if (metadata.status === 'FREED' || metadata.status === 'ZAPPED') {
+        throw new Error(`[USE-AFTER-FREE ERROR] Block #${blockId}는 이미 해제됨 (Zapped). 해제된 메모리(0x${address.toString(16)})에 쓸 수 없습니다.`);
       }
     }
     // ────────────────────────────────────────────────────────
+
+    // ── v5.9.8: Safe Dereference - Dangling Pointer 추가 검증 ──────────
+    if (blockId) {
+      const metadata = this.blockMetadata.get(blockId)!;
+      if (metadata.is_zapped) {
+        throw new Error(`[DANGLING POINTER] Block #${blockId}는 Zapped됨. Dangling 포인터 쓰기 감지 (Address: 0x${address.toString(16)})`);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     // ── v5.9.7: Overflow Trap ───────────────────────────────────────────────
     this.checkBufferOverflow(address, offset);
