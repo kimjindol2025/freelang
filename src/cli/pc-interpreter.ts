@@ -248,6 +248,28 @@ class HeapAllocator {
   }
 }
 
+/**
+ * v5.9.5: MemoryPool — 사전 할당 메모리 풀 관리
+ * 고정 크기 블록 할당/해제로 단편화 완전 제거
+ */
+class MemoryPool {
+  poolId: number;
+  totalSize: number;
+  baseAddress: number;
+  allocatedBlocks: Map<number, number> = new Map();  // address → size
+  freeBlocks: Map<number, number> = new Map();       // address → size
+  createdAt: number;
+
+  constructor(poolId: number, totalSize: number, baseAddress: number) {
+    this.poolId = poolId;
+    this.totalSize = totalSize;
+    this.baseAddress = baseAddress;
+    this.createdAt = Date.now();
+    // 초기: 전체 크기를 1개 자유 블록으로 설정
+    this.freeBlocks.set(baseAddress, totalSize);
+  }
+}
+
 export class PCInterpreter {
   private variables: Map<string, any> = new Map();
   private output: string[] = [];
@@ -279,6 +301,13 @@ export class PCInterpreter {
 
   // ── v5.9: 동적 메모리 할당 시스템 ─────────────────────────────────────────────
   private heapAllocator: HeapAllocator;
+
+  // ── v5.9.5: Memory Pool Management ──────────────────────────────────────
+  private memoryPools: Map<number, MemoryPool> = new Map();  // poolId → MemoryPool
+  private poolCounter: number = 0;                           // 풀 고유 ID 카운터
+  private readonly POOL_BASE_OFFSET = 0xA000;                // 풀 시작 주소
+  private readonly POOL_SPACING = 0x10000;                   // 풀 간 주소 간격
+  // ────────────────────────────────────────────────────────────────────────
 
   private callStack: Array<{
     savedScope: Map<string, any>; // 호출 전 변수 환경 전체
@@ -476,6 +505,99 @@ export class PCInterpreter {
       this.heapAllocator.write(address, offset, value);
     });
 
+    // ── v5.9.5: Memory Pool Management ──────────────────────────────────────────
+    // create_pool(size) → poolObject
+    this.variables.set('create_pool', (size: number) => {
+      if (size <= 0) throw new Error('[POOL ERROR] 크기는 양수여야 합니다');
+
+      const poolId = this.poolCounter++;
+      const baseAddr = this.POOL_BASE_OFFSET + poolId * this.POOL_SPACING;
+
+      const pool = new MemoryPool(poolId, size, baseAddr);
+      this.memoryPools.set(poolId, pool);
+
+      this.log(`[POOL CREATE] ID=${poolId}, size=${size}, base=0x${baseAddr.toString(16)}`);
+      return pool;
+    });
+
+    // pool_alloc(pool, size) → address
+    this.variables.set('pool_alloc', (pool: MemoryPool, size: number) => {
+      if (!(pool instanceof MemoryPool)) {
+        throw new Error('[POOL ERROR] 첫 인자는 Pool 객체여야 합니다');
+      }
+      if (size <= 0) throw new Error('[POOL ERROR] 크기는 양수여야 합니다');
+
+      // Best-Fit 검색
+      let bestAddr: number | null = null;
+      let bestSize: number = Infinity;
+      let bestWaste: number = Infinity;
+
+      for (const [addr, blockSize] of pool.freeBlocks) {
+        if (blockSize >= size) {
+          const waste = blockSize - size;
+          if (waste < bestWaste) {
+            bestAddr = addr;
+            bestSize = blockSize;
+            bestWaste = waste;
+          }
+        }
+      }
+
+      if (bestAddr === null) {
+        throw new Error(`[POOL ERROR] Pool ID=${pool.poolId} 공간 부족 (요청=${size}, 가용=${Array.from(pool.freeBlocks.values()).reduce((a, b) => a + b, 0)})`);
+      }
+
+      // 할당
+      const remainder = bestSize - size;
+      pool.freeBlocks.delete(bestAddr);
+      pool.allocatedBlocks.set(bestAddr, size);
+
+      // Block Splitting (4 bytes 이상만)
+      if (remainder > 4) {
+        pool.freeBlocks.set(bestAddr + size, remainder);
+      }
+
+      this.log(`[POOL ALLOC] Pool=${pool.poolId}, addr=0x${bestAddr.toString(16)}, size=${size}, waste=${bestWaste}`);
+      return bestAddr;
+    });
+
+    // pool_free(pool, address) → void
+    this.variables.set('pool_free', (pool: MemoryPool, address: number) => {
+      if (!(pool instanceof MemoryPool)) {
+        throw new Error('[POOL ERROR] 첫 인자는 Pool 객체여야 합니다');
+      }
+      if (!pool.allocatedBlocks.has(address)) {
+        throw new Error(`[POOL ERROR] Pool ID=${pool.poolId}: 할당되지 않은 주소 0x${address.toString(16)}`);
+      }
+
+      const size = pool.allocatedBlocks.get(address)!;
+      pool.allocatedBlocks.delete(address);
+      pool.freeBlocks.set(address, size);
+
+      this.log(`[POOL FREE] Pool=${pool.poolId}, addr=0x${address.toString(16)}, size=${size}`);
+
+      // Coalescing
+      this.pool_coalesce(pool);
+    });
+
+    // destroy_pool(pool) → void
+    this.variables.set('destroy_pool', (pool: MemoryPool) => {
+      if (!(pool instanceof MemoryPool)) {
+        throw new Error('[POOL ERROR] 인자는 Pool 객체여야 합니다');
+      }
+
+      const poolId = pool.poolId;
+
+      // 미해제 블록 경고
+      if (pool.allocatedBlocks.size > 0) {
+        this.log(`[POOL WARN] Pool=${poolId}: ${pool.allocatedBlocks.size}개 블록 미해제`);
+      }
+
+      this.memoryPools.delete(poolId);
+      this.log(`[POOL DESTROY] ID=${poolId}`);
+    });
+    // ────────────────────────────────────────────────────────────────────────────
+
     // ── v5.9.2: 데이터 정렬(Data Alignment) ──────────────────────────────────
     // sizeof(structName) → 패딩 포함된 실제 구조체 크기
     this.variables.set('sizeof', (structName: string) => {
@@ -489,6 +611,29 @@ export class PCInterpreter {
       this.log(`[SIZEOF] ${structName} = ${totalSize} bytes (padding included)`);
       return totalSize;
     });
+  }
+
+  /**
+   * v5.9.5: Pool Coalescing - 메모리 풀 내 인접 블록 병합
+   */
+  private pool_coalesce(pool: MemoryPool): void {
+    const addrs = Array.from(pool.freeBlocks.keys()).sort((a, b) => a - b);
+
+    for (let i = 0; i < addrs.length - 1; i++) {
+      const addr1 = addrs[i];
+      const size1 = pool.freeBlocks.get(addr1)!;
+      const addr2 = addrs[i + 1];
+      const size2 = pool.freeBlocks.get(addr2)!;
+
+      // 인접 블록 병합
+      if (addr1 + size1 === addr2) {
+        pool.freeBlocks.delete(addr2);
+        pool.freeBlocks.set(addr1, size1 + size2);
+        this.log(`[POOL COALESCE] Pool=${pool.poolId}, 0x${addr1.toString(16)}(${size1}) + 0x${addr2.toString(16)}(${size2}) → 0x${addr1.toString(16)}(${size1 + size2})`);
+        this.pool_coalesce(pool);  // 재귀
+        return;
+      }
+    }
   }
 
   /**
