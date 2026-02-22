@@ -17,10 +17,21 @@ export interface ASTNode {
 }
 
 /**
- * v5.9.4: HeapAllocator — 동적 메모리 할당 관리자
- * Best-Fit 알고리즘 + Coalescing으로 메모리 단편화 최소화
- * Smart Placement, Fragmentation Monitor, Block Splitting 포함
+ * v5.9.5: HeapAllocator — 동적 메모리 할당 관리자
+ * Best-Fit 알고리즘 + Coalescing + Leak Guard
+ * 메모리 누수 추적, Double-Free 감지, Use-After-Free 보호
  */
+
+interface BlockMetadata {
+  blockId: number;
+  address: number;
+  size: number;
+  timestamp: number;
+  lineNumber: number;
+  status: 'ALLOCATED' | 'FREED' | 'DOUBLE_FREE_DETECTED';
+  freed_timestamp?: number;
+}
+
 class HeapAllocator {
   private freeBlocks: Map<number, number> = new Map();  // address → size (가용 블록)
   private allocatedBlocks: Map<number, number> = new Map();  // address → size (사용 중 블록)
@@ -29,6 +40,12 @@ class HeapAllocator {
   private log: (msg: string) => void;  // 로깅 콜백
   private readonly MIN_BLOCK_SIZE: number = 4;  // v5.9.4: 최소 블록 크기
   private readonly FRAGMENTATION_THRESHOLD: number = 0.3;  // v5.9.4: 30% 이상 시 경고
+
+  // ── v5.9.5: Leak Guard ───────────────────────────────────────────────────
+  private blockMetadata: Map<number, BlockMetadata> = new Map();  // blockId → metadata
+  private blockIdCounter: number = 1;
+  private addressToBlockId: Map<number, number> = new Map();  // address → blockId
+  // ──────────────────────────────────────────────────────────────────────────
 
   constructor(logCallback: (msg: string) => void) {
     this.log = logCallback;
@@ -69,7 +86,21 @@ class HeapAllocator {
         this.log(`[SPLIT] 블록 분할: 0x${bestAddr.toString(16)}(${bestSize}) → 할당=${size}, 여유=${remainder}`);
       }
 
-      this.log(`[ALLOC] Best-Fit size=${size}, found_block @ 0x${bestAddr.toString(16)}, block_size=${bestSize}, waste=${bestWaste}`);
+      // ── v5.9.5: Leak Guard - 메타데이터 기록 ────────────────────────────
+      const blockId = this.blockIdCounter++;
+      const metadata: BlockMetadata = {
+        blockId,
+        address: bestAddr,
+        size,
+        timestamp: Date.now(),
+        lineNumber: 0,
+        status: 'ALLOCATED'
+      };
+      this.blockMetadata.set(blockId, metadata);
+      this.addressToBlockId.set(bestAddr, blockId);
+      // ───────────────────────────────────────────────────────────────────────
+
+      this.log(`[ALLOC] Best-Fit Block #${blockId} size=${size}, found_block @ 0x${bestAddr.toString(16)}, block_size=${bestSize}, waste=${bestWaste}`);
       this.log(`[ALLOC] address=0x${bestAddr.toString(16)}, size=${size}`);
       return bestAddr;
     }
@@ -77,7 +108,22 @@ class HeapAllocator {
     // 2. 없으면 새로 할당
     const newAddr = this.nextFreeAddress;
     this.allocatedBlocks.set(newAddr, size);
-    this.log(`[ALLOC] size=${size}, new_block @ 0x${newAddr.toString(16)}`);
+
+    // ── v5.9.5: Leak Guard - 메타데이터 기록 ────────────────────────────
+    const blockId = this.blockIdCounter++;
+    const metadata: BlockMetadata = {
+      blockId,
+      address: newAddr,
+      size,
+      timestamp: Date.now(),
+      lineNumber: 0,
+      status: 'ALLOCATED'
+    };
+    this.blockMetadata.set(blockId, metadata);
+    this.addressToBlockId.set(newAddr, blockId);
+    // ───────────────────────────────────────────────────────────────────────
+
+    this.log(`[ALLOC] new_block Block #${blockId} size=${size} @ 0x${newAddr.toString(16)}`);
     this.log(`[ALLOC] address=0x${newAddr.toString(16)}, size=${size}`);
     this.nextFreeAddress += size;
     return newAddr;
@@ -87,6 +133,24 @@ class HeapAllocator {
    * 메모리 해제 (Coalescing 포함)
    */
   deallocate(address: number): void {
+    // ── v5.9.5: Leak Guard - Double-Free 감지 ────────────────────────────────
+    const blockId = this.addressToBlockId.get(address);
+
+    if (!blockId) {
+      throw new Error(`[DOUBLE-FREE ERROR] 할당되지 않았거나 이미 해제된 주소 0x${address.toString(16)}`);
+    }
+
+    const metadata = this.blockMetadata.get(blockId)!;
+
+    if (metadata.status === 'FREED') {
+      throw new Error(`[DOUBLE-FREE ERROR] Block #${blockId}는 이미 해제됨 (원래 해제: ${metadata.freed_timestamp})`);
+    }
+
+    if (metadata.status === 'DOUBLE_FREE_DETECTED') {
+      throw new Error(`[ZOMBIE BLOCK] Block #${blockId}는 이미 좀비 블록으로 마킹됨`);
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     if (!this.allocatedBlocks.has(address)) {
       throw new Error(`[FREE ERROR] 할당되지 않은 주소 0x${address.toString(16)}`);
     }
@@ -94,7 +158,14 @@ class HeapAllocator {
     const size = this.allocatedBlocks.get(address)!;
     this.allocatedBlocks.delete(address);
     this.freeBlocks.set(address, size);
-    this.log(`[FREE] address=0x${address.toString(16)}, size=${size}`);
+
+    // ── v5.9.5: Leak Guard - 메타데이터 업데이트 ────────────────────────────
+    metadata.status = 'FREED';
+    metadata.freed_timestamp = Date.now();
+    // addressToBlockId 유지 (Use-After-Free 감지 필요)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    this.log(`[FREE] Block #${blockId} address=0x${address.toString(16)}, size=${size}`);
 
     // Coalescing: 인접한 빈 블록 병합
     this.coalesce();
@@ -128,6 +199,16 @@ class HeapAllocator {
    * 힙 메모리 읽기
    */
   read(address: number, offset: number): any {
+    // ── v5.9.5: Use-After-Free 감지 ──────────────────────────
+    const blockId = this.addressToBlockId.get(address);
+    if (blockId) {
+      const metadata = this.blockMetadata.get(blockId)!;
+      if (metadata.status === 'FREED') {
+        throw new Error(`[USE-AFTER-FREE ERROR] Block #${blockId}는 이미 해제됨. 해제된 메모리(0x${address.toString(16)})에 접근할 수 없습니다.`);
+      }
+    }
+    // ────────────────────────────────────────────────────────
+
     // 할당된 범위 확인
     let isValid = false;
     for (const [allocAddr, allocSize] of this.allocatedBlocks) {
@@ -154,6 +235,16 @@ class HeapAllocator {
    * 힙 메모리 쓰기
    */
   write(address: number, offset: number, value: any): void {
+    // ── v5.9.5: Use-After-Free 감지 ──────────────────────────
+    const blockId = this.addressToBlockId.get(address);
+    if (blockId) {
+      const metadata = this.blockMetadata.get(blockId)!;
+      if (metadata.status === 'FREED') {
+        throw new Error(`[USE-AFTER-FREE ERROR] Block #${blockId}는 이미 해제됨. 해제된 메모리(0x${address.toString(16)})에 쓸 수 없습니다.`);
+      }
+    }
+    // ────────────────────────────────────────────────────────
+
     // 할당된 범위 확인
     let isValid = false;
     for (const [allocAddr, allocSize] of this.allocatedBlocks) {
@@ -245,6 +336,49 @@ class HeapAllocator {
       fragmentation,
       heapHealth,
     };
+  }
+
+  /**
+   * v5.9.5: 메모리 누수 리포트 생성 (프로그램 종료 시 호출)
+   */
+  generateLeakReport(): string {
+    let report = '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '[LEAK REPORT] 프로그램 종료 메모리 감시\n';
+    report += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+    let totalLeaked = 0;
+    const startTime = Math.min(...Array.from(this.blockMetadata.values()).map(m => m.timestamp));
+
+    // 미해제 블록 찾기
+    const leakedBlocks = Array.from(this.blockMetadata.values())
+      .filter(m => m.status === 'ALLOCATED')
+      .sort((a, b) => a.blockId - b.blockId);
+
+    if (leakedBlocks.length === 0) {
+      report += '✅ 메모리 누수 없음. 모든 메모리가 올바르게 해제되었습니다.\n';
+    } else {
+      report += `❌ [누수 감지] ${leakedBlocks.length}개 블록이 해제되지 않음\n\n`;
+
+      for (const block of leakedBlocks) {
+        const elapsed = block.timestamp - startTime;
+        totalLeaked += block.size;
+
+        report += `  Block #${block.blockId}: ${block.size} bytes @ 0x${block.address.toString(16)}\n`;
+        report += `    할당 시간: ${block.timestamp}ms\n`;
+        report += `    경과 시간: ${elapsed}ms\n`;
+        report += `    소스 라인: ${block.lineNumber}\n`;
+        report += `    상태: ${block.status}\n\n`;
+      }
+
+      report += `📊 통계:\n`;
+      report += `  • 누수 블록: ${leakedBlocks.length}개\n`;
+      report += `  • 누수량: ${totalLeaked} bytes\n`;
+      report += `  • 총 할당량: ${Array.from(this.blockMetadata.values()).reduce((sum, m) => sum + m.size, 0)} bytes\n`;
+    }
+
+    report += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+
+    return report;
   }
 }
 
@@ -709,6 +843,11 @@ export class PCInterpreter {
         this.pc = nextPC;
       }
     }
+
+    // ── v5.9.5: 프로그램 종료 시 누수 리포트 출력 ───────────
+    const leakReport = this.heapAllocator.generateLeakReport();
+    console.log(leakReport);
+    // ────────────────────────────────────────────────────────
 
     return null;
   }
