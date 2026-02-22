@@ -828,11 +828,13 @@ export class PCInterpreter {
   private recursionDepth: number = 0;                    // 현재 재귀 깊이
   // ────────────────────────────────────────────────────────────────────────
 
-  // ── v6.1: Stack Frame Isolation & Type Signature Tracking ────────────────
+  // ── v6.1 → v6.2: Stack Frame Isolation & Recursive Type Inference ──────────
   private typeSignatureTable: Map<string, {
     paramCount: number;
-    returnType: string | null;  // null = 아직 미확정
+    returnType: string | null;   // null = 아직 미확정
     callCount: number;
+    is_analyzing: boolean;       // v6.2: 현재 분석 중 (재귀 감지)
+    typeCheckCount: number;      // v6.2: 타입 검증 성공 횟수
   }> = new Map();
   // ────────────────────────────────────────────────────────────────────────
 
@@ -1235,7 +1237,9 @@ export class PCInterpreter {
         this.typeSignatureTable.set(stmt.name, {
           paramCount: stmt.params.length,
           returnType: null,  // 아직 미확정
-          callCount: 0
+          callCount: 0,
+          is_analyzing: false,   // v6.2: 초기값
+          typeCheckCount: 0      // v6.2: 타입 체크 카운터
         });
         this.log(`[FORWARD DECL] '${stmt.name}' 사전 등록 (params: ${stmt.params.length}개)`);
       }
@@ -1253,6 +1257,14 @@ export class PCInterpreter {
         this.pc = nextPC;
       }
     }
+
+    // ── v6.2: Symbol Table 최종 상태 요약 ────────────────────────────────────
+    for (const [fname, sigInfo] of this.typeSignatureTable.entries()) {
+      if (sigInfo.callCount > 0) {
+        this.log(`[SYMBOL TABLE] '${fname}' 최종타입: ${sigInfo.returnType}, 호출수: ${sigInfo.callCount}, 타입체크: ${sigInfo.typeCheckCount}`);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // ── v5.9.5: 프로그램 종료 시 누수 리포트 출력 ───────────
     const leakReport = this.heapAllocator.generateLeakReport();
@@ -1299,7 +1311,9 @@ export class PCInterpreter {
           this.typeSignatureTable.set(stmt.name, {
             paramCount: stmt.params.length,
             returnType: null,
-            callCount: 0
+            callCount: 0,
+            is_analyzing: false,   // v6.2
+            typeCheckCount: 0      // v6.2
           });
           this.log(`[FUNC DEF] '${stmt.name}' 등록 (params: [${stmt.params.join(', ')}])`);
         } else {
@@ -2256,6 +2270,21 @@ export class PCInterpreter {
     this.variables = localScope;
     this.indentLevel++;
 
+    // ── v6.2: Recursive Type Inference - is_analyzing 설정 ──────────────────
+    const sig = this.typeSignatureTable.get(name);
+    if (sig) {
+      if (sig.is_analyzing) {
+        // 재귀 호출 감지: 이미 분석 중인 함수를 다시 호출
+        this.log(`[RECURSIVE TYPE] '${name}' 재귀 호출 감지 (depth=${callDepth}), placeholder 추론 사용`);
+        if (sig.returnType !== null) {
+          this.log(`[RECURSIVE TYPE] '${name}' → 확정 타입 '${sig.returnType}' 적용`);
+        }
+      } else {
+        sig.is_analyzing = true;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // ── v6.1: Frame Integrity Logging - 진입 ────────────────────────────────
     const frameVarNames = [...localScope.keys()].join(', ');
     this.log(`[FRAME ENTER] '${name}' depth=${callDepth}, vars=[${frameVarNames}]`);
@@ -2278,17 +2307,21 @@ export class PCInterpreter {
     this.returnFlag = false;
     this.log(`[RETURN COMPLETE] '${name}' 반환값: ${retVal}`);
 
-    // ── v6.1: Type Signature Tracking ────────────────────────────────────
+    // ── v6.1 → v6.2: Type Signature Tracking & Recursive Type Validation ─────
     const retType = retVal === null ? 'null' : typeof retVal;
-    const sig = this.typeSignatureTable.get(name);
-    if (sig) {
-      sig.callCount++;
-      if (sig.returnType === null) {
-        sig.returnType = retType;
-        this.log(`[TYPE LOCK] '${name}' 반환 타입 확정: ${retType}`);
-      } else if (sig.returnType !== retType) {
-        this.log(`[TYPE WARN] '${name}' 반환 타입 불일치: 기대=${sig.returnType}, 실제=${retType}`);
+    const sigFinal = this.typeSignatureTable.get(name);
+    if (sigFinal) {
+      sigFinal.callCount++;
+      sigFinal.typeCheckCount++;  // v6.2: 타입 검증 횟수 증가
+      if (sigFinal.returnType === null) {
+        sigFinal.returnType = retType;
+        this.log(`[TYPE LOCK] '${name}' 반환 타입 확정: ${retType} (check #${sigFinal.typeCheckCount})`);
+      } else if (sigFinal.returnType !== retType) {
+        this.log(`[TYPE WARN] '${name}' 반환 타입 불일치: 기대=${sigFinal.returnType}, 실제=${retType}`);
+      } else {
+        this.log(`[TYPE CHECK] '${name}' 타입 검증 성공: ${retType} (check #${sigFinal.typeCheckCount})`);
       }
+      sigFinal.is_analyzing = false;  // v6.2: 분석 완료
     }
     // ────────────────────────────────────────────────────────────────────
 
