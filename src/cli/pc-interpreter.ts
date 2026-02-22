@@ -174,6 +174,11 @@ class HeapAllocator {
   private zappingCount: number = 0;                    // Zapping 실행 횟수
   // ────────────────────────────────────────────────────────────────────────
 
+  // ── v5.9.9: Stack-Heap Bridge & Recursion Readiness ────────────────────
+  private frameOwnership: Map<number, Set<number>> = new Map();  // 깊이별 할당
+  private currentStackDepth: number = 0;               // 현재 스택 깊이
+  // ────────────────────────────────────────────────────────────────────
+
   constructor(logCallback: (msg: string) => void) {
     this.log = logCallback;
     // v5.9.6: SmallObjectAllocator 초기화
@@ -212,6 +217,13 @@ class HeapAllocator {
       // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
       this.verifyHeapInvariant();
       // ──────────────────────────────────────────────────────────────────────
+
+      // ── v5.9.9: Frame Ownership Tracking ──────────────────────────────────
+      if (!this.frameOwnership.has(this.currentStackDepth)) {
+        this.frameOwnership.set(this.currentStackDepth, new Set());
+      }
+      this.frameOwnership.get(this.currentStackDepth)!.add(poolAddr);
+      // ───────────────────────────────────────────────────────────────────────
 
       return poolAddr;
     }
@@ -305,6 +317,14 @@ class HeapAllocator {
     // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
     this.verifyHeapInvariant();
     // ──────────────────────────────────────────────────────────────────────
+
+    // ── v5.9.9: Frame Ownership Tracking ──────────────────────────────────
+    if (!this.frameOwnership.has(this.currentStackDepth)) {
+      this.frameOwnership.set(this.currentStackDepth, new Set());
+    }
+    this.frameOwnership.get(this.currentStackDepth)!.add(newAddr);
+    // ───────────────────────────────────────────────────────────────────────
+
     return newAddr;
   }
 
@@ -402,6 +422,12 @@ class HeapAllocator {
 
     // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
     this.verifyHeapInvariant();
+    // ──────────────────────────────────────────────────────────────────────
+
+    // ── v5.9.9: Frame Ownership Cleanup ──────────────────────────────────
+    if (this.frameOwnership.has(this.currentStackDepth)) {
+      this.frameOwnership.get(this.currentStackDepth)!.delete(address);
+    }
     // ──────────────────────────────────────────────────────────────────────
   }
 
@@ -791,6 +817,11 @@ export class PCInterpreter {
 
   private returnValue: any = undefined; // 함수가 돌려주는 값
   private returnFlag: boolean = false;  // RETURN 신호
+
+  // ── v5.9.9: Stack-Heap Bridge & Recursion Readiness ────────────────────
+  private frameOwnership: Map<number, Set<number>> = new Map();  // 깊이별 할당
+  private currentStackDepth: number = 0;               // 현재 스택 깊이
+  // ────────────────────────────────────────────────────────────────────
 
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
@@ -2138,6 +2169,10 @@ export class PCInterpreter {
     const fn = this.functionTable.get(name)!;
     const callDepth = this.callStack.length;
 
+    // ── v5.9.9: Stack Depth Management ───────────────────────────────────
+    this.currentStackDepth++;
+    // ──────────────────────────────────────────────────────────────────────
+
     this.log(`[CALL] '${name}(${args.join(', ')})' → Depth=${callDepth + 1}`);
 
     // ── 1. Return Address: 현재 스코프 전체를 Call Stack에 저장 ──────────
@@ -2192,6 +2227,10 @@ export class PCInterpreter {
     }
 
     this.log(`[SCOPE RESTORED] depth=${callDepth}, 복구된 외부 변수: ${this.variables.size - 1}개`);
+
+    // ── v5.9.9: Stack Depth Management (함수 퇴장) ──────────────────────
+    this.currentStackDepth--;
+    // ──────────────────────────────────────────────────────────────────────
 
     return retVal;
   }
