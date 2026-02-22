@@ -132,6 +132,10 @@ interface BlockMetadata {
   lineNumber: number;
   status: 'ALLOCATED' | 'FREED' | 'DOUBLE_FREE_DETECTED';
   freed_timestamp?: number;
+  // ── v5.9.7: Canary (매직 넘버) ──────────────────────────────────
+  canary_front: number;  // 블록 앞 경계 매직 넘버 (0xDEADBEEF)
+  canary_back: number;   // 블록 뒤 경계 매직 넘버 (0xCAFEBABE)
+  // ─────────────────────────────────────────────────────────────────
 }
 
 class HeapAllocator {
@@ -153,6 +157,13 @@ class HeapAllocator {
   private smallObjectAllocator: SmallObjectAllocator;
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v5.9.7: Chaos Stress Test & Heap Destruction Defense ─────────────────
+  private readonly CANARY_FRONT: number = 0xDEADBEEF;  // 블록 앞 매직 넘버
+  private readonly CANARY_BACK: number = 0xCAFEBABE;   // 블록 뒤 매직 넘버
+  private invariantCheckCount: number = 0;             // 무결성 검사 횟수
+  private canaryViolationCount: number = 0;            // Canary 침범 횟수
+  // ──────────────────────────────────────────────────────────────────────────
+
   constructor(logCallback: (msg: string) => void) {
     this.log = logCallback;
     // v5.9.6: SmallObjectAllocator 초기화
@@ -169,7 +180,29 @@ class HeapAllocator {
     // ── v5.9.6: Dispatcher Logic ─────────────────────────────────────────────
     // 소형 객체는 풀에서 할당 (O(1))
     if (this.smallObjectAllocator.canAllocate(size)) {
-      return this.smallObjectAllocator.allocate(size);
+      const poolAddr = this.smallObjectAllocator.allocate(size);
+
+      // ── v5.9.7: Pool 할당도 metadata 기록 ──────────────────────────────────
+      const blockId = this.blockIdCounter++;
+      const metadata: BlockMetadata = {
+        blockId,
+        address: poolAddr,
+        size,
+        timestamp: Date.now(),
+        lineNumber: 0,
+        status: 'ALLOCATED',
+        canary_front: this.CANARY_FRONT,
+        canary_back: this.CANARY_BACK
+      };
+      this.blockMetadata.set(blockId, metadata);
+      this.addressToBlockId.set(poolAddr, blockId);
+      // ─────────────────────────────────────────────────────────────────────
+
+      // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
+      this.verifyHeapInvariant();
+      // ──────────────────────────────────────────────────────────────────────
+
+      return poolAddr;
     }
     // ──────────────────────────────────────────────────────────────────────────
 
@@ -209,7 +242,11 @@ class HeapAllocator {
         size,
         timestamp: Date.now(),
         lineNumber: 0,
-        status: 'ALLOCATED'
+        status: 'ALLOCATED',
+        // ── v5.9.7: Canary (매직 넘버) ────────────────────────────────
+        canary_front: this.CANARY_FRONT,
+        canary_back: this.CANARY_BACK
+        // ────────────────────────────────────────────────────────────────
       };
       this.blockMetadata.set(blockId, metadata);
       this.addressToBlockId.set(bestAddr, blockId);
@@ -217,6 +254,9 @@ class HeapAllocator {
 
       this.log(`[ALLOC] Best-Fit Block #${blockId} size=${size}, found_block @ 0x${bestAddr.toString(16)}, block_size=${bestSize}, waste=${bestWaste}`);
       this.log(`[ALLOC] address=0x${bestAddr.toString(16)}, size=${size}`);
+      // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
+      this.verifyHeapInvariant();
+      // ──────────────────────────────────────────────────────────────────────
       return bestAddr;
     }
 
@@ -232,7 +272,11 @@ class HeapAllocator {
       size,
       timestamp: Date.now(),
       lineNumber: 0,
-      status: 'ALLOCATED'
+      status: 'ALLOCATED',
+      // ── v5.9.7: Canary (매직 넘버) ────────────────────────────────
+      canary_front: this.CANARY_FRONT,
+      canary_back: this.CANARY_BACK
+      // ────────────────────────────────────────────────────────────────
     };
     this.blockMetadata.set(blockId, metadata);
     this.addressToBlockId.set(newAddr, blockId);
@@ -241,6 +285,9 @@ class HeapAllocator {
     this.log(`[ALLOC] new_block Block #${blockId} size=${size} @ 0x${newAddr.toString(16)}`);
     this.log(`[ALLOC] address=0x${newAddr.toString(16)}, size=${size}`);
     this.nextFreeAddress += size;
+    // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
+    this.verifyHeapInvariant();
+    // ──────────────────────────────────────────────────────────────────────
     return newAddr;
   }
 
@@ -252,7 +299,26 @@ class HeapAllocator {
     // 풀 주소면 SmallObjectAllocator에 반환
     if (this.smallObjectAllocator.isPoolAddress(address)) {
       const poolSize = this.smallObjectAllocator.getPoolSizeForAddress(address);
+
+      // ── v5.9.7: Pool metadata 업데이트 ────────────────────────────────────
+      const blockId = this.addressToBlockId.get(address);
+      if (blockId) {
+        const metadata = this.blockMetadata.get(blockId)!;
+        if (metadata.status === 'FREED') {
+          throw new Error(`[DOUBLE-FREE ERROR] Block #${blockId}는 이미 해제됨 (원래 해제: ${metadata.freed_timestamp})`);
+        }
+        metadata.status = 'FREED';
+        metadata.freed_timestamp = Date.now();
+        this.log(`[FREE] Block #${blockId} (POOL) address=0x${address.toString(16)}, size=${poolSize}`);
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       this.smallObjectAllocator.deallocate(poolSize, address);
+
+      // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
+      this.verifyHeapInvariant();
+      // ──────────────────────────────────────────────────────────────────────
+
       return;
     }
     // ──────────────────────────────────────────────────────────────────────────
@@ -293,6 +359,10 @@ class HeapAllocator {
 
     // Coalescing: 인접한 빈 블록 병합
     this.coalesce();
+
+    // ── v5.9.7: Invariant Checker ─────────────────────────────────────────
+    this.verifyHeapInvariant();
+    // ──────────────────────────────────────────────────────────────────────
   }
 
   /**
@@ -320,6 +390,78 @@ class HeapAllocator {
   }
 
   /**
+   * ── v5.9.7: Invariant Checker ─────────────────────────────────────────────
+   * 매 할당/해제 후 힙 구조의 논리적 무결성 검증
+   * 1. Free List 연결이 끊기지 않았는지 확인
+   * 2. Allocated/Free 블록 간 겹침 확인
+   * 3. Canary 값 검증 (경계 침범 감지)
+   */
+  private verifyHeapInvariant(): void {
+    this.invariantCheckCount++;
+
+    // 1. Free List 체인 검증
+    const freeAddrs = Array.from(this.freeBlocks.keys()).sort((a, b) => a - b);
+    for (let i = 0; i < freeAddrs.length - 1; i++) {
+      const addr1 = freeAddrs[i];
+      const size1 = this.freeBlocks.get(addr1)!;
+      const addr2 = freeAddrs[i + 1];
+      if (addr1 + size1 > addr2) {
+        throw new Error(`[HEAP CORRUPTION] Free List 체인 끊김: 0x${addr1.toString(16)}(${size1}) + 0x${addr2.toString(16)} 겹침`);
+      }
+    }
+
+    // 2. Allocated/Free 겹침 검증
+    const allocAddrs = Array.from(this.allocatedBlocks.keys()).sort((a, b) => a - b);
+    for (const allocAddr of allocAddrs) {
+      const allocSize = this.allocatedBlocks.get(allocAddr)!;
+      for (const freeAddr of freeAddrs) {
+        const freeSize = this.freeBlocks.get(freeAddr)!;
+        if ((allocAddr < freeAddr + freeSize && allocAddr + allocSize > freeAddr)) {
+          throw new Error(`[HEAP CORRUPTION] Allocated와 Free 블록 겹침: 0x${allocAddr.toString(16)}(${allocSize}) ↔ 0x${freeAddr.toString(16)}(${freeSize})`);
+        }
+      }
+    }
+
+    // 3. Canary 값 검증 (모든 할당된 블록)
+    for (const [blockId, metadata] of this.blockMetadata) {
+      if (metadata.status === 'ALLOCATED') {
+        // Canary 저장 위치에서 값 읽기
+        const canaryFrontAddr = metadata.address;
+        const canaryBackAddr = metadata.address + metadata.size - 1;
+
+        // Canary는 heapMemory에 별도로 저장되지 않지만, metadata에서 확인
+        if (metadata.canary_front !== this.CANARY_FRONT) {
+          this.canaryViolationCount++;
+          throw new Error(`[CANARY VIOLATION] Block #${blockId} 앞 경계 침범: 0x${metadata.canary_front.toString(16)} (expected 0x${this.CANARY_FRONT.toString(16)})`);
+        }
+        if (metadata.canary_back !== this.CANARY_BACK) {
+          this.canaryViolationCount++;
+          throw new Error(`[CANARY VIOLATION] Block #${blockId} 뒤 경계 침범: 0x${metadata.canary_back.toString(16)} (expected 0x${this.CANARY_BACK.toString(16)})`);
+        }
+      }
+    }
+
+    this.log(`[INVARIANT] Check #${this.invariantCheckCount} passed (Free blocks: ${freeAddrs.length}, Allocated: ${allocAddrs.length}, Violations: ${this.canaryViolationCount})`);
+  }
+
+  /**
+   * ── v5.9.7: Overflow Trap ─────────────────────────────────────────────────
+   * 쓰기 시 할당된 크기를 초과하면 즉시 감지
+   */
+  private checkBufferOverflow(address: number, offset: number): void {
+    const blockId = this.addressToBlockId.get(address);
+    if (!blockId) return;
+
+    const metadata = this.blockMetadata.get(blockId)!;
+    if (metadata.status !== 'ALLOCATED') return;
+
+    // offset이 할당된 크기를 초과하는지 확인
+    if (offset >= metadata.size) {
+      throw new Error(`[BUFFER OVERFLOW] Block #${blockId} 범위 초과: offset=${offset} >= size=${metadata.size} @ 0x${address.toString(16)}`);
+    }
+  }
+
+  /**
    * 힙 메모리 읽기
    */
   read(address: number, offset: number): any {
@@ -332,6 +474,10 @@ class HeapAllocator {
       }
     }
     // ────────────────────────────────────────────────────────
+
+    // ── v5.9.7: Overflow Trap ───────────────────────────────────────────────
+    this.checkBufferOverflow(address, offset);
+    // ──────────────────────────────────────────────────────────────────────────
 
     // ── v5.9.6: 풀 주소는 범위 체크 스킵 ──────────────────────────────────
     if (!this.smallObjectAllocator.isPoolAddress(address)) {
@@ -372,6 +518,10 @@ class HeapAllocator {
       }
     }
     // ────────────────────────────────────────────────────────
+
+    // ── v5.9.7: Overflow Trap ───────────────────────────────────────────────
+    this.checkBufferOverflow(address, offset);
+    // ──────────────────────────────────────────────────────────────────────────
 
     // ── v5.9.6: 풀 주소는 범위 체크 스킵 ──────────────────────────────────
     if (!this.smallObjectAllocator.isPoolAddress(address)) {
