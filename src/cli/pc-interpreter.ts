@@ -823,6 +823,11 @@ export class PCInterpreter {
   private currentStackDepth: number = 0;               // 현재 스택 깊이
   // ────────────────────────────────────────────────────────────────────
 
+  // ── v6.0: Recursion Genesis - 재귀의 기원 ─────────────────────────────────
+  private readonly MAX_RECURSION_DEPTH: number = 1000;  // 무한 재귀 방지
+  private recursionDepth: number = 0;                    // 현재 재귀 깊이
+  // ────────────────────────────────────────────────────────────────────────
+
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
   private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
@@ -1744,21 +1749,22 @@ export class PCInterpreter {
 
       case 'IfStatement': {
         // v3.6: eval() 기반 IfStatement 처리 (nested 루프 내부용)
+        // v6.0: returnFlag 확인 추가 (재귀 함수의 기저 사례 처리)
         this.log(`[IF-EVAL] 조건 평가 시작`);
         const cond = this.eval(node.condition);
         this.log(`[IF-EVAL] 조건 결과: ${cond}`);
         if (cond) {
           this.log(`[IF-EVAL] TRUE 브랜치 실행`);
           const thenResult = this.eval(node.thenBranch);
-          if (this.breakFlag || this.continueFlag) {
-            this.log(`[IF-EVAL] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag} 감지`);
+          if (this.breakFlag || this.continueFlag || this.returnFlag) {
+            this.log(`[IF-EVAL] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag}, returnFlag=${this.returnFlag} 감지`);
           }
           return thenResult;
         } else if (node.elseBranch) {
           this.log(`[IF-EVAL] FALSE 브랜치 실행`);
           const elseResult = this.eval(node.elseBranch);
-          if (this.breakFlag || this.continueFlag) {
-            this.log(`[IF-EVAL] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag} 감지`);
+          if (this.breakFlag || this.continueFlag || this.returnFlag) {
+            this.log(`[IF-EVAL] breakFlag=${this.breakFlag}, continueFlag=${this.continueFlag}, returnFlag=${this.returnFlag} 감지`);
           }
           return elseResult;
         }
@@ -2173,7 +2179,16 @@ export class PCInterpreter {
     this.currentStackDepth++;
     // ──────────────────────────────────────────────────────────────────────
 
-    this.log(`[CALL] '${name}(${args.join(', ')})' → Depth=${callDepth + 1}`);
+    // ── v6.0: Recursion Depth Guard ──────────────────────────────────────
+    this.recursionDepth++;
+    if (this.recursionDepth > this.MAX_RECURSION_DEPTH) {
+      this.recursionDepth--;
+      this.currentStackDepth--;
+      throw new Error(`[STACK OVERFLOW] 재귀 깊이 ${this.MAX_RECURSION_DEPTH} 초과`);
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
+    this.log(`[CALL] '${name}(${args.join(', ')})' → Depth=${callDepth + 1}, RecursionDepth=${this.recursionDepth}`);
 
     // ── 1. Return Address: 현재 스코프 전체를 Call Stack에 저장 ──────────
     const savedScope = new Map(this.variables);
@@ -2230,6 +2245,10 @@ export class PCInterpreter {
 
     // ── v5.9.9: Stack Depth Management (함수 퇴장) ──────────────────────
     this.currentStackDepth--;
+    // ──────────────────────────────────────────────────────────────────────
+
+    // ── v6.0: Recursion Depth Decrement ──────────────────────────────────
+    this.recursionDepth--;
     // ──────────────────────────────────────────────────────────────────────
 
     return retVal;

@@ -140,6 +140,7 @@ export const KEYWORDS: Record<string, TokenType> = {
   'break': TokenType.BREAK,
   'continue': TokenType.CONTINUE,
   'return': TokenType.RETURN,
+  'ret': TokenType.RETURN,  // v6.0: Alias for 'return'
   'async': TokenType.ASYNC,
   'await': TokenType.AWAIT,
   'import': TokenType.IMPORT,
