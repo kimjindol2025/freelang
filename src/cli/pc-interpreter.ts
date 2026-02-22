@@ -775,6 +775,14 @@ class MemoryPool {
  * HandlerFrame: TRY/CATCH 피난처 정보 저장 구조
  * 예외 발생 시 여기로 점프할 수 있도록 필요한 모든 메타데이터 기록
  */
+// ── v8.2: Context Snapshot (레지스터 상태 저장) ───────────────────────────
+interface ContextSnapshot {
+  savedSP: number;      // TRY 진입 시점의 Stack Pointer (callStack.length)
+  savedFP: number;      // TRY 진입 시점의 Frame Pointer
+  savedPC: number;      // TRY 진입 시점의 Program Counter
+  timestamp: number;    // 스냅샷 생성 타임스탐프
+}
+
 interface HandlerFrame {
   returnAddress: number;    // PC: CATCH 블록 시작 주소
   stackPointer: number;     // SP: TRY 진입 시점의 데이터 스택 깊이
@@ -782,6 +790,7 @@ interface HandlerFrame {
   catchBlockPC: number;     // CATCH 블록의 bytecode PC
   tryStartPC?: number;      // TRY 블록 시작 PC (로깅용)
   exceptionVarName?: string; // 예외 변수명 (선택사항)
+  snapshot?: ContextSnapshot; // v8.2: 컨텍스트 스냅샷 (레지스터 상태)
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -943,6 +952,37 @@ export class PCInterpreter {
       const depth = this.callStack.length;
       this.log(`[STACK QUERY] 콜스택 깊이: ${depth}`);
       return depth;
+    });
+
+    // v8.2: __GET_HANDLER_SP() — 현재 핸들러의 스냅샷 SP 조회
+    this.variables.set('__GET_HANDLER_SP', () => {
+      if (this.handlerStack.length === 0) {
+        this.log(`[HANDLER SP QUERY] 활성 핸들러 없음, SP: undefined`);
+        return undefined;
+      }
+      const currentHandler = this.handlerStack[this.handlerStack.length - 1];
+      const savedSP = currentHandler.snapshot?.savedSP ?? undefined;
+      this.log(`[HANDLER SP QUERY] 스냅샷 SP: ${savedSP}`);
+      return savedSP;
+    });
+
+    // v8.2: __GET_HANDLER_FP() — 현재 핸들러의 스냅샷 FP 조회
+    this.variables.set('__GET_HANDLER_FP', () => {
+      if (this.handlerStack.length === 0) {
+        this.log(`[HANDLER FP QUERY] 활성 핸들러 없음, FP: undefined`);
+        return undefined;
+      }
+      const currentHandler = this.handlerStack[this.handlerStack.length - 1];
+      const savedFP = currentHandler.snapshot?.savedFP ?? undefined;
+      this.log(`[HANDLER FP QUERY] 스냅샷 FP: ${savedFP}`);
+      return savedFP;
+    });
+
+    // v8.2: __GET_FP() — 현재 Frame Pointer (기본값 0)
+    this.variables.set('__GET_FP', () => {
+      const fp = 0; // 현재는 전역 FP 사용, 나중에 함수 호출 스택으로 확장 가능
+      this.log(`[FP QUERY] 현재 FP: ${fp}`);
+      return fp;
     });
 
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
@@ -1565,6 +1605,18 @@ export class PCInterpreter {
         this.log(`[PUSH_HANDLER] TRY 진입 (depth=${this.handlerStack.length})`);
         this.log(`  → SP=${handler.stackPointer}, FP=${handler.framePointer}`);
 
+        // ── v8.2: SAVE_CONTEXT (컨텍스트 스냅샷 저장) ──────────────────────
+        const snapshot: ContextSnapshot = {
+          savedSP: this.callStack.length,  // TRY 진입 시의 SP
+          savedFP: 0,                       // 현재는 기본값 0
+          savedPC: this.pc,                 // 현재 PC
+          timestamp: Date.now()
+        };
+        this.handlerStack[this.handlerStack.length - 1].snapshot = snapshot;
+        this.log(`[SAVE_CONTEXT] 스냅샷 저장`);
+        this.log(`  → savedSP=${snapshot.savedSP}, savedFP=${snapshot.savedFP}, savedPC=${snapshot.savedPC}`);
+        // ────────────────────────────────────────────────────────────────────
+
         try {
           // TRY 블록 실행
           for (const tryStmt of stmt.tryBlock.statements) {
@@ -1576,6 +1628,15 @@ export class PCInterpreter {
           this.log(`[POP_HANDLER] TRY 정상 종료 (depth=${this.handlerStack.length})`);
 
         } catch (e: any) {
+          // ── v8.2: RESTORE_CONTEXT (컨텍스트 복구) ────────────────────────
+          const currentHandler = this.handlerStack[this.handlerStack.length - 1];
+          const savedSP = currentHandler?.snapshot?.savedSP ?? 0;
+          const savedFP = currentHandler?.snapshot?.savedFP ?? 0;
+
+          this.log(`[RESTORE_CONTEXT] 스냅샷 복구`);
+          this.log(`  → 저장된 SP: ${savedSP}, 저장된 FP: ${savedFP}`);
+          // ────────────────────────────────────────────────────────────────
+
           // 예외 발생: CATCH 블록으로 이동
           const savedStackPointer = this.handlerStack[this.handlerStack.length - 1]?.stackPointer || 0;
 
@@ -2447,6 +2508,18 @@ export class PCInterpreter {
         this.log(`[PUSH_HANDLER] TRY 진입 (depth=${this.handlerStack.length})`);
         this.log(`  → SP=${handler.stackPointer}, FP=${handler.framePointer}`);
 
+        // ── v8.2: SAVE_CONTEXT (컨텍스트 스냅샷 저장) ──────────────────────
+        const snapshot: ContextSnapshot = {
+          savedSP: this.callStack.length,  // TRY 진입 시의 SP
+          savedFP: 0,                       // 현재는 기본값 0
+          savedPC: this.pc,                 // 현재 PC
+          timestamp: Date.now()
+        };
+        this.handlerStack[this.handlerStack.length - 1].snapshot = snapshot;
+        this.log(`[SAVE_CONTEXT] 스냅샷 저장`);
+        this.log(`  → savedSP=${snapshot.savedSP}, savedFP=${snapshot.savedFP}, savedPC=${snapshot.savedPC}`);
+        // ────────────────────────────────────────────────────────────────────
+
         try {
           // TRY 블록 실행
           for (const tryStmt of (node as any).tryBlock.statements) {
@@ -2458,6 +2531,15 @@ export class PCInterpreter {
           this.log(`[POP_HANDLER] TRY 정상 종료 (depth=${this.handlerStack.length})`);
 
         } catch (e: any) {
+          // ── v8.2: RESTORE_CONTEXT (컨텍스트 복구) ────────────────────────
+          const currentHandler = this.handlerStack[this.handlerStack.length - 1];
+          const savedSP = currentHandler?.snapshot?.savedSP ?? 0;
+          const savedFP = currentHandler?.snapshot?.savedFP ?? 0;
+
+          this.log(`[RESTORE_CONTEXT] 스냅샷 복구`);
+          this.log(`  → 저장된 SP: ${savedSP}, 저장된 FP: ${savedFP}`);
+          // ────────────────────────────────────────────────────────────────
+
           // 예외 발생: CATCH 블록으로 이동
           const savedStackPointer = this.handlerStack[this.handlerStack.length - 1]?.stackPointer || 0;
 
