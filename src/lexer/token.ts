@@ -47,6 +47,11 @@ export enum TokenType {
   // v7.1: Inheritance (1개 추가)
   EXTENDS = 'EXTENDS',   // class Child extends Parent { ... }
 
+  // v7.3: Interfaces & Abstract Methods (3개 추가)
+  INTERFACE = 'INTERFACE',   // interface Shape { method GetArea() }
+  IMPLEMENTS = 'IMPLEMENTS', // class Circle implements Shape { ... }
+  ABSTRACT = 'ABSTRACT',     // abstract method GetArea()
+
   // Phase 5 minimal .free 포맷 토큰 (3개 추가)
   INPUT = 'INPUT',       // input: 타입 정의
   OUTPUT = 'OUTPUT',     // output: 타입 정의
@@ -178,6 +183,11 @@ export const KEYWORDS: Record<string, TokenType> = {
 
   // v7.1: Inheritance
   'extends': TokenType.EXTENDS,
+
+  // v7.3: Interfaces & Abstract Methods
+  'interface': TokenType.INTERFACE,
+  'implements': TokenType.IMPLEMENTS,
+  'abstract': TokenType.ABSTRACT,
 
   // Phase 5 minimal .free 포맷 토큰 (3개)
   'input': TokenType.INPUT,

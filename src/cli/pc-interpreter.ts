@@ -861,6 +861,13 @@ export class PCInterpreter {
   private vTableAddressCounter: number = 0x100;  // v7.2: vTable 정적 주소 카운터
   // ────────────────────────────────────────────────────────────────────────
 
+  // ── v7.3: Interface Registry (계약 강제) ──────────────────────────────
+  private interfaceTable: Map<string, {
+    __methods: string[];  // 메서드 이름 배열 (순서 = vTable 인덱스)
+    __slots: Map<string, number>;  // 메서드명 → 슬롯 인덱스
+  }> = new Map();
+  // ────────────────────────────────────────────────────────────────────────
+
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
   private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
@@ -1375,6 +1382,26 @@ export class PCInterpreter {
         return undefined;
       }
 
+      // v7.3: InterfaceDeclaration 처리
+      case 'InterfaceDeclaration': {
+        const interfaceName = (stmt as any).name;
+        const methods = (stmt as any).methods;
+        const methodNames = methods.map((m: any) => m.name);
+        const methodSlots = new Map<string, number>();
+
+        for (let i = 0; i < methodNames.length; i++) {
+          methodSlots.set(methodNames[i], i);
+          this.log(`[INTERFACE SLOT] ${interfaceName}.${methodNames[i]} → [${i}]`);
+        }
+
+        this.interfaceTable.set(interfaceName, {
+          __methods: methodNames,
+          __slots: methodSlots
+        });
+        this.log(`[INTERFACE DEF] '${interfaceName}' 계약 등록 (${methodNames.length}개 메서드)`);
+        return undefined;
+      }
+
       // v7.1: ClassDeclaration 처리 (상속 + vTable)
       case 'ClassDeclaration': {
         const className = (stmt as any).name;
@@ -1435,6 +1462,21 @@ export class PCInterpreter {
             vTableIndex.set(method.name, idx);
             this.log(`[vTABLE ADD] [${idx}] ${method.name} → ${fullName}`);
           }
+        }
+
+        // v7.3: 인터페이스 계약 검증 (implements)
+        const interfaces = (stmt as any).interfaces ?? [];
+        for (const ifaceName of interfaces) {
+          const iface = this.interfaceTable.get(ifaceName);
+          if (!iface) throw new Error(`[CONTRACT ERROR] 인터페이스 '${ifaceName}' 미정의`);
+
+          // 각 인터페이스 메서드가 구현되었는지 검증
+          for (const requiredMethod of iface.__methods) {
+            if (!methodMap.has(requiredMethod)) {
+              throw new Error(`[CONTRACT VIOLATION] 클래스 '${className}'는 인터페이스 '${ifaceName}'의 메서드 '${requiredMethod}'을(를) 구현해야 함`);
+            }
+          }
+          this.log(`[CONTRACT CHECK] '${className}' implements '${ifaceName}' ✅`);
         }
 
         // v7.2: vTable 정적 주소 할당
@@ -1946,6 +1988,26 @@ export class PCInterpreter {
         return null;
       }
 
+      // v7.3: InterfaceDeclaration 처리
+      case 'InterfaceDeclaration': {
+        const interfaceName = (node as any).name;
+        const methods = (node as any).methods;
+        const methodNames = methods.map((m: any) => m.name);
+        const methodSlots = new Map<string, number>();
+
+        for (let i = 0; i < methodNames.length; i++) {
+          methodSlots.set(methodNames[i], i);
+          this.log(`[INTERFACE SLOT] ${interfaceName}.${methodNames[i]} → [${i}]`);
+        }
+
+        this.interfaceTable.set(interfaceName, {
+          __methods: methodNames,
+          __slots: methodSlots
+        });
+        this.log(`[INTERFACE DEF] '${interfaceName}' 계약 등록 (${methodNames.length}개 메서드)`);
+        return null;
+      }
+
       // v7.0: ClassDeclaration 처리 (eval 메서드)
       case 'ClassDeclaration': {
         const className = (node as any).name;
@@ -2006,6 +2068,21 @@ export class PCInterpreter {
             vTableIndex.set(method.name, idx);
             this.log(`[vTABLE ADD] [${idx}] ${method.name} → ${fullName}`);
           }
+        }
+
+        // v7.3: 인터페이스 계약 검증 (implements)
+        const interfaces = (node as any).interfaces ?? [];
+        for (const ifaceName of interfaces) {
+          const iface = this.interfaceTable.get(ifaceName);
+          if (!iface) throw new Error(`[CONTRACT ERROR] 인터페이스 '${ifaceName}' 미정의`);
+
+          // 각 인터페이스 메서드가 구현되었는지 검증
+          for (const requiredMethod of iface.__methods) {
+            if (!methodMap.has(requiredMethod)) {
+              throw new Error(`[CONTRACT VIOLATION] 클래스 '${className}'는 인터페이스 '${ifaceName}'의 메서드 '${requiredMethod}'을(를) 구현해야 함`);
+            }
+          }
+          this.log(`[CONTRACT CHECK] '${className}' implements '${ifaceName}' ✅`);
         }
 
         // v7.2: vTable 정적 주소 할당

@@ -96,6 +96,11 @@ export class SimpleLangParser {
       return this.parseClassDeclaration();
     }
 
+    // v7.3: interface 인터페이스 정의
+    if (this.matchType(TokenType.INTERFACE)) {
+      return this.parseInterfaceDeclaration();
+    }
+
     // v5.7: struct 구조체 정의
     if (this.matchType(TokenType.STRUCT)) {
       return this.parseStructDeclaration();
@@ -351,6 +356,17 @@ export class SimpleLangParser {
       this.advance();
     }
 
+    // v7.3: implements 인터페이스 구현
+    const interfaces: string[] = [];
+    if (this.matchType(TokenType.IMPLEMENTS)) {
+      interfaces.push(this.current().value);
+      this.advance();
+      while (this.matchType(TokenType.COMMA)) {
+        interfaces.push(this.current().value);
+        this.advance();
+      }
+    }
+
     if (!this.matchType(TokenType.LBRACE)) {
       throw new Error("'{' 필요");
     }
@@ -384,7 +400,7 @@ export class SimpleLangParser {
     if (!this.matchType(TokenType.RBRACE)) {
       throw new Error("'}' 필요");
     }
-    return { type: 'ClassDeclaration', name, superClass, fields, methods };
+    return { type: 'ClassDeclaration', name, superClass, interfaces, fields, methods };
   }
 
   /**
@@ -411,6 +427,52 @@ export class SimpleLangParser {
 
     const body = this.parseBlock();
     return { type: 'MethodDeclaration', name, params, body };
+  }
+
+  /**
+   * v7.3: 인터페이스 선언
+   * interface Shape { method GetArea() }
+   */
+  private parseInterfaceDeclaration(): ASTNode {
+    const name = this.current().value;
+    this.advance();  // 인터페이스 이름 소비
+
+    if (!this.matchType(TokenType.LBRACE)) {
+      throw new Error("'{' 필요");
+    }
+
+    const methods: any[] = [];
+
+    while (!this.checkType(TokenType.RBRACE) && !this.isAtEnd()) {
+      if (this.matchType(TokenType.METHOD)) {
+        // v7.3: interface method는 구현체 없음 (abstract)
+        const methodName = this.current().value;
+        this.advance();
+
+        if (!this.matchType(TokenType.LPAREN)) {
+          throw new Error("'(' 필요");
+        }
+        const params: string[] = [];
+        while (!this.checkType(TokenType.RPAREN) && !this.isAtEnd()) {
+          params.push(this.current().value);
+          this.advance();
+          if (!this.matchType(TokenType.COMMA)) break;
+        }
+        if (!this.matchType(TokenType.RPAREN)) {
+          throw new Error("')' 필요");
+        }
+
+        // 인터페이스 메서드는 구현체 없음
+        methods.push({ name: methodName, params, body: null });
+      } else {
+        this.advance(); // 예상치 못한 토큰 스킵
+      }
+    }
+
+    if (!this.matchType(TokenType.RBRACE)) {
+      throw new Error("'}' 필요");
+    }
+    return { type: 'InterfaceDeclaration', name, methods };
   }
 
   /**
