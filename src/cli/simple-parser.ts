@@ -91,6 +91,11 @@ export class SimpleLangParser {
       return this.parseWhileStatement();
     }
 
+    // v7.0: class 클래스 정의
+    if (this.matchType(TokenType.CLASS)) {
+      return this.parseClassDeclaration();
+    }
+
     // v5.7: struct 구조체 정의
     if (this.matchType(TokenType.STRUCT)) {
       return this.parseStructDeclaration();
@@ -329,6 +334,75 @@ export class SimpleLangParser {
     }
 
     return { type: 'StructDeclaration', name, fields };
+  }
+
+  /**
+   * v7.0: class 클래스 정의
+   * 문법: class ClassName { fields... method name(params) { body } }
+   */
+  private parseClassDeclaration(): ASTNode {
+    const name = this.current().value;
+    this.advance();  // 클래스 이름 소비
+    if (!this.matchType(TokenType.LBRACE)) {
+      throw new Error("'{' 필요");
+    }
+
+    const fields: any[] = [];
+    const methods: any[] = [];
+
+    while (!this.checkType(TokenType.RBRACE) && !this.isAtEnd()) {
+      if (this.matchType(TokenType.METHOD)) {
+        // method name(params) { body }
+        methods.push(this.parseMethodDeclaration());
+      } else if (this.checkType(TokenType.IDENT)) {
+        // 필드: fieldName (TypeName) 형식 (struct와 동일)
+        const fieldName = this.current().value;
+        this.advance();
+        let typeName = 'Integer';
+        if (this.matchType(TokenType.LPAREN)) {
+          typeName = this.current().value;
+          this.advance();
+          if (!this.matchType(TokenType.RPAREN)) {
+            throw new Error("')' 필요");
+          }
+        }
+        if (this.matchType(TokenType.COMMA)) {} // optional comma
+        fields.push({ name: fieldName, typeName });
+      } else {
+        this.advance(); // 예상치 못한 토큰 스킵
+      }
+    }
+
+    if (!this.matchType(TokenType.RBRACE)) {
+      throw new Error("'}' 필요");
+    }
+    return { type: 'ClassDeclaration', name, fields, methods };
+  }
+
+  /**
+   * v7.0: 메서드 선언
+   * 문법: method name(params) { body }
+   */
+  private parseMethodDeclaration(): ASTNode {
+    const name = this.current().value;
+    this.advance();  // 메서드 이름 소비
+
+    // 파라미터 (fn과 동일)
+    if (!this.matchType(TokenType.LPAREN)) {
+      throw new Error("'(' 필요");
+    }
+    const params: string[] = [];
+    while (!this.checkType(TokenType.RPAREN) && !this.isAtEnd()) {
+      params.push(this.current().value);
+      this.advance();
+      if (!this.matchType(TokenType.COMMA)) break;
+    }
+    if (!this.matchType(TokenType.RPAREN)) {
+      throw new Error("')' 필요");
+    }
+
+    const body = this.parseBlock();
+    return { type: 'MethodDeclaration', name, params, body };
   }
 
   /**
@@ -601,6 +675,32 @@ export class SimpleLangParser {
       return {
         type: 'BooleanLiteral',
         value: false
+      };
+    }
+
+    // v7.0: NEW 표현식 (new ClassName())
+    if (this.matchType(TokenType.NEW)) {
+      const className = this.current().value;
+      this.advance();  // 클래스 이름 소비
+      if (!this.matchType(TokenType.LPAREN)) {
+        throw new Error("'(' 필요");
+      }
+      const args = this.parseArguments();
+      if (!this.matchType(TokenType.RPAREN)) {
+        throw new Error("')' 필요");
+      }
+      return {
+        type: 'NewExpression',
+        className,
+        arguments: args
+      };
+    }
+
+    // v7.0: self 키워드
+    if (this.matchType(TokenType.SELF)) {
+      return {
+        type: 'Identifier',
+        name: 'self'
       };
     }
 

@@ -39,6 +39,11 @@ export enum TokenType {
   SUPER = 'SUPER',
   IMPL = 'IMPL',
 
+  // v7.0: Class & Method (3개 추가)
+  CLASS = 'CLASS',       // class ClassName { ... }
+  METHOD = 'METHOD',     // method name(params) { ... }
+  NEW = 'NEW',           // new ClassName()
+
   // Phase 5 minimal .free 포맷 토큰 (3개 추가)
   INPUT = 'INPUT',       // input: 타입 정의
   OUTPUT = 'OUTPUT',     // output: 타입 정의
@@ -162,6 +167,11 @@ export const KEYWORDS: Record<string, TokenType> = {
   'self': TokenType.SELF,
   'super': TokenType.SUPER,
   'impl': TokenType.IMPL,
+
+  // v7.0: Class & Method
+  'class': TokenType.CLASS,
+  'method': TokenType.METHOD,
+  'new': TokenType.NEW,
 
   // Phase 5 minimal .free 포맷 토큰 (3개)
   'input': TokenType.INPUT,

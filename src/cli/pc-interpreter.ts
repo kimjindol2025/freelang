@@ -843,6 +843,14 @@ export class PCInterpreter {
   private tcoCallArgs: any[] = [];
   // ────────────────────────────────────────────────────────────────────────
 
+  // ── v7.0: Class Table (struct + methods) ─────────────────────────────────
+  private classTable: Map<string, {
+    fields: { name: string; typeName: string; size: number; offset: number; padding: number }[];
+    totalSize: number;
+    methods: Map<string, { params: string[]; body: ASTNode }>;
+  }> = new Map();
+  // ────────────────────────────────────────────────────────────────────────
+
   // ── v4.6: VM Dispatch Optimization ───────────────────────────────────────
   // Call Site Cache: 동일 AST 호출 노드 → 함수 정의 직접 참조 (Map.get 반복 생략)
   private callSiteCache: WeakMap<ASTNode, { params: string[]; body: ASTNode }> = new WeakMap();
@@ -1248,6 +1256,10 @@ export class PCInterpreter {
         });
         this.log(`[FORWARD DECL] '${stmt.name}' 사전 등록 (params: ${stmt.params.length}개)`);
       }
+      // v7.0: ClassDeclaration도 Forward Declaration 처리
+      else if (stmt && stmt.type === 'ClassDeclaration') {
+        this.eval(stmt);  // ClassDeclaration 처리 (structTable + methodTable 등록)
+      }
     }
     // ────────────────────────────────────────────────────────────────────────
 
@@ -1327,6 +1339,18 @@ export class PCInterpreter {
         return undefined;
       }
 
+      // v7.0: 클래스 정의
+      case 'ClassDeclaration': {
+        if (!this.classTable.has(stmt.name)) {
+          // 동적 클래스 정의 (Forward Declaration에서 건너뜀)
+          this.eval(stmt);
+          this.log(`[CLASS DEF] '${stmt.name}' 등록됨`);
+        } else {
+          this.log(`[CLASS DEF] '${stmt.name}' 이미 등록됨 (Forward Declaration)`);
+        }
+        return undefined;
+      }
+
       // v5.7: 구조체 정의
       case 'StructDeclaration': {
         const fieldsWithLayout: any[] = [];
@@ -1350,6 +1374,42 @@ export class PCInterpreter {
         }
         this.structTable.set(stmt.name, { fields: fieldsWithLayout, totalSize });
         this.log(`[STRUCT DEF] ${stmt.name}: ${fieldsWithLayout.length}개 필드, ${totalSize} bytes total (tail padding included)`);
+        return undefined;
+      }
+
+      // v7.0: ClassDeclaration 처리 (struct + methods)
+      case 'ClassDeclaration': {
+        // 필드 레이아웃 계산 (struct와 동일)
+        const fieldsWithLayout: any[] = [];
+        let currentOffset = 0;
+        let maxAlignment = 1;
+        for (const f of (stmt as any).fields) {
+          const size = this.getTypeSize(f.typeName);
+          const alignment = size;
+          maxAlignment = Math.max(maxAlignment, alignment);
+          const padding = (alignment - currentOffset % alignment) % alignment;
+          const offset = currentOffset + padding;
+          fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
+          currentOffset = offset + size;
+        }
+        const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
+        const totalSize = currentOffset + tailPadding;
+
+        // structTable에도 등록 (MemberExpression/MemberAssignment 재사용)
+        this.structTable.set((stmt as any).name, { fields: fieldsWithLayout, totalSize });
+
+        // 메서드를 functionTable에 'ClassName::methodName' 키로 등록
+        const methodMap = new Map<string, { params: string[]; body: ASTNode }>();
+        for (const method of (stmt as any).methods) {
+          const fullName = `${(stmt as any).name}::${method.name}`;
+          const params = ['self', ...method.params];  // self 자동 주입
+          this.functionTable.set(fullName, { params, body: method.body });
+          methodMap.set(method.name, { params, body: method.body });
+          this.log(`[METHOD REG] '${fullName}' 등록 (params: [${params.join(', ')}])`);
+        }
+
+        this.classTable.set((stmt as any).name, { fields: fieldsWithLayout, totalSize, methods: methodMap });
+        this.log(`[CLASS DEF] '${(stmt as any).name}' 등록 (${fieldsWithLayout.length}필드, ${(stmt as any).methods.length}메서드, ${totalSize}bytes)`);
         return undefined;
       }
 
@@ -1584,6 +1644,33 @@ export class PCInterpreter {
   private eval(node: ASTNode): any {
     if (!node) return null;
 
+    // v7.0: Program 타입 처리 (Forward Declaration Pass 포함)
+    if (node.type === 'Program') {
+      const statements = (node as any).statements || [];
+      // Pass 1: Forward Declaration (함수 & 클래스 미리 등록)
+      for (const stmt of statements) {
+        if (stmt && stmt.type === 'FunctionDeclaration') {
+          this.functionTable.set(stmt.name, { params: stmt.params, body: stmt.body });
+          this.typeSignatureTable.set(stmt.name, {
+            paramCount: stmt.params.length,
+            returnType: null,
+            callCount: 0,
+            is_analyzing: false,
+            typeCheckCount: 0
+          });
+          this.log(`[FORWARD DECL] '${stmt.name}' 사전 등록 (params: ${stmt.params.length}개)`);
+        } else if (stmt && stmt.type === 'ClassDeclaration') {
+          this.eval(stmt);
+        }
+      }
+      // Pass 2: 실제 실행
+      let result: any = null;
+      for (const stmt of statements) {
+        result = this.eval(stmt);
+      }
+      return result;
+    }
+
     switch (node.type) {
       case 'NumberLiteral':
         return node.value;
@@ -1664,6 +1751,25 @@ export class PCInterpreter {
       case 'CallExpression':
         return this.evalCall(node);
 
+      // v7.0: NEW 표현식 (new ClassName())
+      case 'NewExpression': {
+        const newExpr = node as any;
+        const className = newExpr.className;
+        const classDef = this.classTable.get(className);
+        if (!classDef) throw new Error(`[CLASS ERROR] 클래스 '${className}' 미정의`);
+
+        const instance: any = { __type: 'object', __class: className, __typeName: className };
+        for (const field of classDef.fields) {
+          instance[field.name] = 0;  // 필드 0 초기화
+        }
+        // 0x6000 영역: 클래스 인스턴스 전용 (struct 0x2000, struct배열 0x4000과 구분)
+        const allocIdx = this.variables.size;
+        const baseAddr = `0x${(0x6000 + allocIdx * 0x10).toString(16).padStart(4, '0')}`;
+        instance.__baseAddr = baseAddr;
+        this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr} (${classDef.totalSize} bytes)`);
+        return instance;
+      }
+
       case 'IndexExpression': {
         // v5.0: 인덱스 읽기 — Bounds Check + 주소 계산
         const obj = this.eval(node.object);
@@ -1723,9 +1829,9 @@ export class PCInterpreter {
           }
         }
 
-        // v5.7: p1.field 형태 (단일 구조체)
+        // v5.7: p1.field 형태 (단일 구조체 또는 v7.0 object)
         const obj = this.eval(node.object);
-        if (!obj || obj.__type !== 'struct') throw new Error(`[MEMBER ERROR] 구조체가 아님`);
+        if (!obj || (obj.__type !== 'struct' && obj.__type !== 'object')) throw new Error(`[MEMBER ERROR] 구조체나 객체가 아님`);
         const structDef = this.structTable.get(obj.__typeName);
         const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
         if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
@@ -1772,7 +1878,7 @@ export class PCInterpreter {
         // v5.7: p1.field = value 형태 (단일 구조체)
         const objName = node.object.name ?? node.object.object?.name;
         const obj = this.variables.get(objName);
-        if (!obj || obj.__type !== 'struct') throw new Error(`[MEMBER ERROR] ${objName}은 구조체가 아님`);
+        if (!obj || (obj.__type !== 'struct' && obj.__type !== 'object')) throw new Error(`[MEMBER ERROR] ${objName}은 구조체나 객체가 아님`);
         const structDef = this.structTable.get(obj.__typeName);
         const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
         if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
@@ -1787,6 +1893,42 @@ export class PCInterpreter {
         // v4.0: eval() 내에서 함수 정의 만나면 등록만 (실행 안 함)
         this.functionTable.set(node.name, { params: node.params, body: node.body });
         this.log(`[FUNC DEF] '${node.name}' 등록 (params: [${node.params.join(', ')}])`);
+        return null;
+      }
+
+      // v7.0: ClassDeclaration 처리 (eval 메서드)
+      case 'ClassDeclaration': {
+        // 필드 레이아웃 계산 (struct와 동일)
+        const fieldsWithLayout: any[] = [];
+        let currentOffset = 0;
+        let maxAlignment = 1;
+        for (const f of (node as any).fields) {
+          const size = this.getTypeSize(f.typeName);
+          const alignment = size;
+          maxAlignment = Math.max(maxAlignment, alignment);
+          const padding = (alignment - currentOffset % alignment) % alignment;
+          const offset = currentOffset + padding;
+          fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
+          currentOffset = offset + size;
+        }
+        const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
+        const totalSize = currentOffset + tailPadding;
+
+        // structTable에도 등록 (MemberExpression/MemberAssignment 재사용)
+        this.structTable.set((node as any).name, { fields: fieldsWithLayout, totalSize });
+
+        // 메서드를 functionTable에 'ClassName::methodName' 키로 등록
+        const methodMap = new Map<string, { params: string[]; body: ASTNode }>();
+        for (const method of (node as any).methods) {
+          const fullName = `${(node as any).name}::${method.name}`;
+          const params = ['self', ...method.params];  // self 자동 주입
+          this.functionTable.set(fullName, { params, body: method.body });
+          methodMap.set(method.name, { params, body: method.body });
+          this.log(`[METHOD REG] '${fullName}' 등록 (params: [${params.join(', ')}])`);
+        }
+
+        this.classTable.set((node as any).name, { fields: fieldsWithLayout, totalSize, methods: methodMap });
+        this.log(`[CLASS DEF] '${(node as any).name}' 등록 (${fieldsWithLayout.length}필드, ${(node as any).methods.length}메서드, ${totalSize}bytes)`);
         return null;
       }
 
@@ -2088,6 +2230,21 @@ export class PCInterpreter {
    */
   private evalCall(node: ASTNode): any {
     let calleeName: string;
+
+    // v7.0: 메서드 호출 감지 (callee가 MemberExpression)
+    if (node.callee.type === 'MemberExpression') {
+      const obj = this.eval(node.callee.object);
+      if (obj && (obj.__type === 'object' || obj.__type === 'struct')) {
+        const className = obj.__class || obj.__typeName;
+        const methodName = node.callee.field;
+        const fullName = `${className}::${methodName}`;
+        if (this.functionTable.has(fullName)) {
+          const argValues = node.arguments.map((a: ASTNode) => this.eval(a));
+          this.log(`[METHOD CALL] ${className}.${methodName}(${argValues.join(', ')}) → ${fullName}(self, ${argValues.join(', ')})`);
+          return this.callUserFunction(fullName, [obj, ...argValues]);
+        }
+      }
+    }
 
     if (node.callee.type === 'Identifier') {
       calleeName = node.callee.name;
