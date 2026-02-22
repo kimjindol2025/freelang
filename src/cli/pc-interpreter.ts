@@ -17,8 +17,9 @@ export interface ASTNode {
 }
 
 /**
- * v5.9: HeapAllocator — 동적 메모리 할당 관리자
- * First-Fit 알고리즘 + Coalescing으로 메모리 단편화 방지
+ * v5.9.4: HeapAllocator — 동적 메모리 할당 관리자
+ * Best-Fit 알고리즘 + Coalescing으로 메모리 단편화 최소화
+ * Smart Placement, Fragmentation Monitor, Block Splitting 포함
  */
 class HeapAllocator {
   private freeBlocks: Map<number, number> = new Map();  // address → size (가용 블록)
@@ -26,27 +27,51 @@ class HeapAllocator {
   private heapMemory: Map<number, any> = new Map();  // 절대 주소 → 값
   private nextFreeAddress: number = 0x8000;  // 힙 시작 주소
   private log: (msg: string) => void;  // 로깅 콜백
+  private readonly MIN_BLOCK_SIZE: number = 4;  // v5.9.4: 최소 블록 크기
+  private readonly FRAGMENTATION_THRESHOLD: number = 0.3;  // v5.9.4: 30% 이상 시 경고
 
   constructor(logCallback: (msg: string) => void) {
     this.log = logCallback;
   }
 
   /**
-   * First-Fit 할당 알고리즘
+   * v5.9.4: Best-Fit 할당 알고리즘
+   * 요청한 크기와 가장 유사한 빈 공간을 선택 (First-Fit 개선)
    */
   allocate(size: number): number {
     if (size <= 0) throw new Error('[ALLOC ERROR] 크기는 양수여야 합니다');
 
-    // 1. freeBlocks에서 충분한 크기의 첫 번째 블록 찾기
+    // 1. Best-Fit: 요청한 크기와 가장 가까운 빈 블록 찾기
+    let bestAddr: number | null = null;
+    let bestSize: number = Infinity;
+    let bestWaste: number = Infinity;  // 낭비량 최소화
+
     for (const [addr, blockSize] of this.freeBlocks) {
       if (blockSize >= size) {
-        // 이 블록을 할당함
-        this.freeBlocks.delete(addr);
-        this.allocatedBlocks.set(addr, size);
-        this.log(`[ALLOC] size=${size}, found_block @ 0x${addr.toString(16)}, block_size=${blockSize}`);
-        this.log(`[ALLOC] address=0x${addr.toString(16)}, size=${size}`);
-        return addr;
+        const waste = blockSize - size;
+        // 더 작은 블록이거나, 같은 크기면 주소가 작은 것 선택
+        if (waste < bestWaste || (waste === bestWaste && addr < bestAddr!)) {
+          bestAddr = addr;
+          bestSize = blockSize;
+          bestWaste = waste;
+        }
       }
+    }
+
+    if (bestAddr !== null) {
+      const remainder = bestSize - size;
+      this.freeBlocks.delete(bestAddr);
+      this.allocatedBlocks.set(bestAddr, size);
+
+      // v5.9.4: Block Splitting - 나머지가 최소 크기보다 크면 자유 블록으로 복구
+      if (remainder > this.MIN_BLOCK_SIZE) {
+        this.freeBlocks.set(bestAddr + size, remainder);
+        this.log(`[SPLIT] 블록 분할: 0x${bestAddr.toString(16)}(${bestSize}) → 할당=${size}, 여유=${remainder}`);
+      }
+
+      this.log(`[ALLOC] Best-Fit size=${size}, found_block @ 0x${bestAddr.toString(16)}, block_size=${bestSize}, waste=${bestWaste}`);
+      this.log(`[ALLOC] address=0x${bestAddr.toString(16)}, size=${size}`);
+      return bestAddr;
     }
 
     // 2. 없으면 새로 할당
@@ -154,6 +179,72 @@ class HeapAllocator {
    */
   getAllocatedBlocks(): Array<{ address: number; size: number }> {
     return Array.from(this.allocatedBlocks.entries()).map(([addr, size]) => ({ address: addr, size }));
+  }
+
+  /**
+   * v5.9.4: 단편화 비율 계산 (0~1, 0=완벽, 1=최악)
+   * 자유 블록의 개수와 크기 분포를 고려하여 계산
+   */
+  getFragmentationRatio(): number {
+    if (this.freeBlocks.size === 0) return 0;  // 자유 블록 없음 = 단편화 없음
+
+    let totalFreeSize = 0;
+    const blockSizes: number[] = [];
+
+    for (const size of this.freeBlocks.values()) {
+      totalFreeSize += size;
+      blockSizes.push(size);
+    }
+
+    if (totalFreeSize === 0) return 0;
+
+    // 단편화 지수 = (블록 개수 - 1) * 블록당 평균 낭비도
+    // 작은 블록이 많을수록 단편화 높음
+    blockSizes.sort((a, b) => a - b);
+    let fragmentationScore = 0;
+
+    for (let i = 0; i < blockSizes.length - 1; i++) {
+      // 인접하지 않은 블록은 단편화로 계산
+      fragmentationScore += 1.0 / blockSizes[i];
+    }
+
+    const fragmentation = Math.min(1.0, fragmentationScore / (totalFreeSize / 10));
+    return fragmentation;
+  }
+
+  /**
+   * v5.9.4: 힙 통계 반환
+   */
+  getHeapStats(): {
+    allocatedSize: number;
+    freeSize: number;
+    freeBlockCount: number;
+    fragmentation: number;
+    heapHealth: number;
+  } {
+    let allocatedSize = 0;
+    for (const size of this.allocatedBlocks.values()) {
+      allocatedSize += size;
+    }
+
+    let freeSize = 0;
+    for (const size of this.freeBlocks.values()) {
+      freeSize += size;
+    }
+
+    const fragmentation = this.getFragmentationRatio();
+    const totalHeapSize = allocatedSize + freeSize;
+    const heapHealth = totalHeapSize > 0 ? (100 * (1 - fragmentation)) : 100;
+
+    this.log(`[HEAP STATS] allocated=${allocatedSize}, free=${freeSize}, blocks=${this.freeBlocks.size}, fragmentation=${fragmentation.toFixed(3)}, health=${heapHealth.toFixed(1)}%`);
+
+    return {
+      allocatedSize,
+      freeSize,
+      freeBlockCount: this.freeBlocks.size,
+      fragmentation,
+      heapHealth,
+    };
   }
 }
 
