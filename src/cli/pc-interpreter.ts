@@ -384,6 +384,20 @@ export class PCInterpreter {
     this.variables.set('set_at', (address: number, offset: number, value: any) => {
       this.heapAllocator.write(address, offset, value);
     });
+
+    // ── v5.9.2: 데이터 정렬(Data Alignment) ──────────────────────────────────
+    // sizeof(structName) → 패딩 포함된 실제 구조체 크기
+    this.variables.set('sizeof', (structName: string) => {
+      if (!this.structTable.has(structName)) {
+        throw new Error(`[SIZE ERROR] '${structName}' 구조체 미정의`);
+      }
+
+      const structDef = this.structTable.get(structName)!;
+      const totalSize = structDef.totalSize;  // 패딩 포함됨
+
+      this.log(`[SIZEOF] ${structName} = ${totalSize} bytes (padding included)`);
+      return totalSize;
+    });
   }
 
   /**
@@ -502,18 +516,25 @@ export class PCInterpreter {
       case 'StructDeclaration': {
         const fieldsWithLayout: any[] = [];
         let currentOffset = 0;
+        let maxAlignment = 1;  // 구조체 전체 정렬 단위 추적
         for (const f of stmt.fields) {
           const size = this.getTypeSize(f.typeName);
           const alignment = size;
+          maxAlignment = Math.max(maxAlignment, alignment);  // 최대 정렬값 갱신
           const padding = (alignment - currentOffset % alignment) % alignment;
           const offset = currentOffset + padding;
           fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding });
           this.log(`[FIELD LAYOUT] ${f.name}(${f.typeName}, ${size} bytes): offset=${offset}, padding=${padding}`);
           currentOffset = offset + size;
         }
-        const totalSize = currentOffset;
+        // v5.9.3: Tail Padding 계산 (배열 연속성을 위한 정렬)
+        const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
+        const totalSize = currentOffset + tailPadding;
+        if (tailPadding > 0) {
+          this.log(`[TAIL PADDING] 추가 ${tailPadding} bytes (다음 구조체 정렬을 위해)`);
+        }
         this.structTable.set(stmt.name, { fields: fieldsWithLayout, totalSize });
-        this.log(`[STRUCT DEF] ${stmt.name}: ${fieldsWithLayout.length}개 필드, ${totalSize} bytes total`);
+        this.log(`[STRUCT DEF] ${stmt.name}: ${fieldsWithLayout.length}개 필드, ${totalSize} bytes total (tail padding included)`);
         return undefined;
       }
 
@@ -1259,6 +1280,23 @@ export class PCInterpreter {
       const func = this.variables.get('arr_struct_new');
       if (typeof func === 'function') {
         return func(count, structTypeName);
+      }
+    }
+
+    // v5.9.2: sizeof(StructType) — 구조체 이름을 문자열로 처리
+    if (calleeName === 'sizeof') {
+      if (node.arguments.length < 1) {
+        throw new Error('[SIZE ERROR] sizeof는 최소 1개 인자 필요');
+      }
+      let structTypeName: string;
+      if (node.arguments[0].type === 'Identifier') {
+        structTypeName = node.arguments[0].name;
+      } else {
+        structTypeName = this.eval(node.arguments[0]);
+      }
+      const func = this.variables.get('sizeof');
+      if (typeof func === 'function') {
+        return func(structTypeName);
       }
     }
 
