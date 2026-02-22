@@ -883,6 +883,18 @@ export class PCInterpreter {
   private currentClassContext: string | null = null;  // 현재 실행 중인 클래스 (메서드 내부 추적)
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v7.5: 객체 생명주기 관리 (OOP Integrity & GC Readiness) ──────────────────
+  private instanceTracker: Map<string, {
+    className: string;
+    refCount: number;
+    address: string;
+    createdAt: number;  // 생성 시 깊이
+    size: number;
+  }> = new Map();
+
+  private objectIdCounter: number = 0;  // 객체 고유 ID
+  // ──────────────────────────────────────────────────────────────────────────
+
   constructor() {
     // v5.9: HeapAllocator 초기화
     this.heapAllocator = new HeapAllocator((msg: string) => this.log(msg));
@@ -1767,12 +1779,22 @@ export class PCInterpreter {
       case 'BooleanLiteral':
         return node.value;
 
+      case 'NullLiteral':
+        return null;
+
       case 'Identifier':
         return this.variables.get(node.name);
 
       case 'VariableDeclaration': {
         const val = this.eval(node.value);
-        this.variables.set(node.name, val);
+        const varName = node.name;
+
+        // v7.5 Phase 2: 초기값이 객체면 RefCount 추적 (Acquire)
+        // 주의: NewExpression이 이미 refCount=1로 초기화하므로,
+        // 변수 선언 시점에서는 refCount를 더 증가시키지 않음
+        // (객체의 첫 소유권을 얻는 것이므로)
+
+        this.variables.set(varName, val);
         // v4.2: DELIVERY 추적 — 함수 호출 결과가 변수에 안착하는 순간
         if (node.value?.type === 'CallExpression') {
           const callee = node.value.callee?.name ?? '?';
@@ -1783,7 +1805,33 @@ export class PCInterpreter {
 
       case 'Assignment': {
         const val = this.eval(node.value);
-        this.variables.set(node.name, val);
+        const varName = node.name;
+
+        // v7.5 Phase 2: Reference Acquire/Release
+        // Step 1: 이전 값이 객체면 Release (refCount--)
+        const oldValue = this.variables.get(varName);
+        if (oldValue && typeof oldValue === 'object' && oldValue.__refCount !== undefined) {
+          oldValue.__refCount--;
+          this.log(`[REFCOUNT RELEASE] ${oldValue.__class} @ ${oldValue.__objectId}, RefCount: ${oldValue.__refCount + 1} → ${oldValue.__refCount}`);
+
+          // 자동 소멸 (refCount == 0일 때)
+          if (oldValue.__refCount === 0) {
+            this.callDestructor(oldValue);
+            const objectKey = `${oldValue.__class}@${oldValue.__baseAddr}`;
+            this.instanceTracker.delete(objectKey);
+            this.log(`[MEMORY FREE] ${oldValue.__class} @ ${oldValue.__objectId} 자동 해제됨`);
+          }
+        }
+
+        // Step 2: 새로운 값이 객체면 Acquire (refCount++)
+        if (val && typeof val === 'object' && val.__refCount !== undefined) {
+          val.__refCount++;
+          this.log(`[REFCOUNT ACQUIRE] ${val.__class} @ ${val.__objectId}, RefCount: ${val.__refCount - 1} → ${val.__refCount}`);
+        }
+
+        // Step 3: 변수에 새 값 할당
+        this.variables.set(varName, val);
+
         // v4.2: DELIVERY 추적
         if (node.value?.type === 'CallExpression') {
           const callee = node.value.callee?.name ?? '?';
@@ -1844,7 +1892,14 @@ export class PCInterpreter {
         const classDef = this.classTable.get(className);
         if (!classDef) throw new Error(`[CLASS ERROR] 클래스 '${className}' 미정의`);
 
-        const instance: any = { __type: 'object', __class: className, __typeName: className };
+        // v7.5: RefCount 필드 추가 (객체 메모리 구조 확장)
+        const instance: any = {
+          __type: 'object',
+          __class: className,
+          __typeName: className,
+          __refCount: 1,  // v7.5: Reference Count (초기값 1)
+          __objectId: ++this.objectIdCounter  // v7.5: 고유 ID
+        };
         for (const field of classDef.fields) {
           instance[field.name] = 0;  // 필드 0 초기화
         }
@@ -1857,12 +1912,24 @@ export class PCInterpreter {
         const vTable = this.vTableRegistry.get(className);
         instance.__vPtr = vTable ?? null;
 
+        // v7.5: Instance Tracker에 등록 (모든 살아있는 객체 추적)
+        const objectKey = `${className}@${baseAddr}`;
+        this.instanceTracker.set(objectKey, {
+          className,
+          refCount: 1,
+          address: baseAddr,
+          createdAt: this.callStack.length,
+          size: classDef.totalSize
+        });
+
         // v7.2: 물리적 메모리처럼 명시
         const vTableAddr = vTable?.__staticAddress ?? 'null';
         this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr}`);
         this.log(`  → HEAP[${baseAddr}+0] = ${vTableAddr}  // vPtr 족보 기입 (메서드 테이블 주소)`);
-        this.log(`  → FIELDS: ${classDef.fields.map((f: any) => `${f.name}@[${baseAddr}+${f.offset}]`).join(', ')}`);
-        this.log(`  → TOTAL SIZE: ${classDef.totalSize} bytes`);
+        this.log(`  → HEAP[${baseAddr}+4] = ${instance.__refCount}  // v7.5: RefCount (객체 참조 카운트)`);
+        this.log(`  → FIELDS: ${classDef.fields.map((f: any) => `${f.name}@[${baseAddr}+${f.offset + 8}]`).join(', ')}`);
+        this.log(`  → TOTAL SIZE: ${classDef.totalSize + 8} bytes (vPtr+RefCount+fields)`);
+        this.log(`[REFCOUNT] ${className}#${instance.__objectId} RefCount=1 (신규 생성)`);
 
         return instance;
       }
@@ -2755,6 +2822,13 @@ export class PCInterpreter {
         this.log(`[HANDOVER] [${i}] 호출자 args[${i}]=${argVal} → 로컬 '${paramName}'`);
       }
 
+      // v7.5: globalScope에서 override된 함수들을 localScope에 복사
+      // (println, check 등이 globalScope에서 override되었을 수 있음)
+      const globalPrintln = this.variables.get('println');
+      if (typeof globalPrintln === 'function') {
+        localScope.set('println', globalPrintln);
+      }
+
       this.variables = localScope;
       this.indentLevel++;
 
@@ -2899,9 +2973,45 @@ export class PCInterpreter {
   }
 
   /**
+   * v7.5 Phase 2: Destructor 호출
+   * refCount == 0이 되었을 때 자동으로 호출되어 정리 작업 수행
+   */
+  private callDestructor(obj: any): void {
+    const className = obj.__class;
+    const destructorName = `${className}::Finalize`;  // method Finalize() 형식
+    const destructorName2 = `${className}::~${className}`;  // method ~ClassName() 형식
+
+    // Destructor가 정의되어 있으면 호출
+    if (this.functionTable.has(destructorName)) {
+      this.log(`[FINALIZE] ${className}::Finalize() 호출 시작`);
+      try {
+        const prevContext = this.currentClassContext;
+        this.currentClassContext = className;
+        this.callUserFunction(destructorName, [obj]);
+        this.currentClassContext = prevContext;
+        this.log(`[FINALIZE] ${className}::Finalize() 호출 완료`);
+      } catch (e) {
+        this.log(`[FINALIZE ERROR] ${className}::Finalize() 실행 중 오류: ${e}`);
+      }
+    } else if (this.functionTable.has(destructorName2)) {
+      this.log(`[FINALIZE] ${className}::~${className}() 호출 시작`);
+      try {
+        const prevContext = this.currentClassContext;
+        this.currentClassContext = className;
+        this.callUserFunction(destructorName2, [obj]);
+        this.currentClassContext = prevContext;
+        this.log(`[FINALIZE] ${className}::~${className}() 호출 완료`);
+      } catch (e) {
+        this.log(`[FINALIZE ERROR] ${className}::~${className}() 실행 중 오류: ${e}`);
+      }
+    }
+  }
+
+  /**
    * v5.9: 메모리 누수 감지 (프로그램 종료 시 호출)
    */
   public checkMemoryLeaks(): void {
+    // v5.9: Heap 메모리 누수 검사
     const leakedBlocks = this.heapAllocator.getAllocatedBlocks();
     if (leakedBlocks.length > 0) {
       this.log(`[LEAK WARNING] ${leakedBlocks.length}개 블록이 해제되지 않음`);
@@ -2912,7 +3022,24 @@ export class PCInterpreter {
       }
       this.log(`[LEAK TOTAL] ${totalLeaked} bytes 미해제`);
     } else {
-      this.log(`[MEMORY OK] 메모리 누수 없음 ✅`);
+      this.log(`[MEMORY OK] Heap 메모리 누수 없음 ✅`);
+    }
+
+    // v7.5: Instance Tracker 검사 (객체 생명주기 무결성)
+    if (this.instanceTracker.size > 0) {
+      this.log(`[INSTANCE LEAK] ${this.instanceTracker.size}개 객체가 해제되지 않음 (RefCount > 0)`);
+      for (const [key, info] of this.instanceTracker) {
+        this.log(`  - ${key}: RefCount=${info.refCount}, Size=${info.size} bytes`);
+      }
+    } else {
+      this.log(`[INSTANCE OK] 모든 객체 정리됨 ✅`);
+    }
+
+    // v7.5: 종합 평가
+    const heapOK = leakedBlocks.length === 0;
+    const instanceOK = this.instanceTracker.size === 0;
+    if (heapOK && instanceOK) {
+      this.log(`[OOP INTEGRITY] v7.5 객체 생명주기 완결성 검증 SUCCESS ✅`);
     }
   }
 

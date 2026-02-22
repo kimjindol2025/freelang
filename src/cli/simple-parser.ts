@@ -768,6 +768,14 @@ export class SimpleLangParser {
       };
     }
 
+    // v7.5: null 리터럴
+    if (this.matchType(TokenType.NULL)) {
+      return {
+        type: 'NullLiteral',
+        value: null
+      };
+    }
+
     // v7.0: NEW 표현식 (new ClassName())
     if (this.matchType(TokenType.NEW)) {
       const className = this.current().value;
