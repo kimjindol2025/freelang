@@ -3030,39 +3030,63 @@ export class PCInterpreter {
   }
 
   /**
-   * v5.9: 메모리 누수 감지 (프로그램 종료 시 호출)
+   * v7.5 Phase 4: 메모리 누수 감지 (고급)
+   * 프로그램 종료 시 호출되어 누수 여부 및 상세 정보 출력
    */
   public checkMemoryLeaks(): void {
-    // v5.9: Heap 메모리 누수 검사
+    this.log(`\n${'='.repeat(70)}`);
+    this.log(`[MEMORY AUDIT] v7.5 Phase 4: Memory Leak Detection`);
+    this.log(`${'='.repeat(70)}`);
+
+    // 1. Heap 메모리 누수 검사
     const leakedBlocks = this.heapAllocator.getAllocatedBlocks();
+    let heapLeaked = 0;
     if (leakedBlocks.length > 0) {
-      this.log(`[LEAK WARNING] ${leakedBlocks.length}개 블록이 해제되지 않음`);
-      let totalLeaked = 0;
+      this.log(`\n[HEAP LEAK] ${leakedBlocks.length}개 블록이 해제되지 않음:`);
       for (const block of leakedBlocks) {
-        this.log(`  - 0x${block.address.toString(16)}: ${block.size} bytes`);
-        totalLeaked += block.size;
+        const addr = `0x${block.address.toString(16).padStart(4, '0')}`;
+        this.log(`  ❌ ${addr}: ${block.size.toString().padStart(4)} bytes`);
+        heapLeaked += block.size;
       }
-      this.log(`[LEAK TOTAL] ${totalLeaked} bytes 미해제`);
+      this.log(`[HEAP TOTAL] ${heapLeaked} bytes 미해제`);
     } else {
-      this.log(`[MEMORY OK] Heap 메모리 누수 없음 ✅`);
+      this.log(`\n[HEAP OK] Heap 메모리 누수 없음 ✅`);
     }
 
-    // v7.5: Instance Tracker 검사 (객체 생명주기 무결성)
+    // 2. Instance Tracker 검사 (v7.5 객체 생명주기)
+    let instanceLeaked = 0;
+    let totalRefCount = 0;
     if (this.instanceTracker.size > 0) {
-      this.log(`[INSTANCE LEAK] ${this.instanceTracker.size}개 객체가 해제되지 않음 (RefCount > 0)`);
+      this.log(`\n[INSTANCE LEAK] ${this.instanceTracker.size}개 객체가 해제되지 않음:`);
       for (const [key, info] of this.instanceTracker) {
-        this.log(`  - ${key}: RefCount=${info.refCount}, Size=${info.size} bytes`);
+        this.log(`  ❌ ${key}`);
+        this.log(`     RefCount=${info.refCount}, Size=${info.size} bytes, CreatedAt=depth${info.createdAt}`);
+        instanceLeaked += info.size;
+        totalRefCount += info.refCount;
       }
+      this.log(`[INSTANCE TOTAL] ${instanceLeaked} bytes (RefCount 합계: ${totalRefCount})`);
     } else {
-      this.log(`[INSTANCE OK] 모든 객체 정리됨 ✅`);
+      this.log(`\n[INSTANCE OK] 모든 객체 정리됨 ✅`);
     }
 
-    // v7.5: 종합 평가
+    // 3. 종합 평가
+    this.log(`\n${'─'.repeat(70)}`);
     const heapOK = leakedBlocks.length === 0;
     const instanceOK = this.instanceTracker.size === 0;
+
     if (heapOK && instanceOK) {
-      this.log(`[OOP INTEGRITY] v7.5 객체 생명주기 완결성 검증 SUCCESS ✅`);
+      this.log(`[OOP INTEGRITY] ✅ v7.5 객체 생명주기 완결성 검증 SUCCESS`);
+      this.log(`               모든 객체가 안전하게 해제됨 (Destructor 체인 완료)`);
+    } else {
+      this.log(`[OOP INTEGRITY] ❌ 메모리 누수 감지`);
+      if (!heapOK) {
+        this.log(`  - Heap: ${heapLeaked} bytes 미해제`);
+      }
+      if (!instanceOK) {
+        this.log(`  - Objects: ${this.instanceTracker.size}개 미소멸`);
+      }
     }
+    this.log(`${'='.repeat(70)}\n`);
   }
 
   /**
