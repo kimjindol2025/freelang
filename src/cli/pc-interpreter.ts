@@ -1669,9 +1669,29 @@ export class PCInterpreter {
       }
 
       case 'ThrowStatement': {
+        // ── v8.3: Non-local Jump (PC 강제 변경) ──────────────────────────
+        // THROW 실행 시 다음:
+        // 1. 핸들러 스택 확인
+        // 2. PC를 핸들러 PC로 변경 (현재 코드 건너뜀)
+        // 3. exception 기록 후 throw (외부 catch로 명령어 완전 중단)
+
+        if (this.handlerStack.length === 0) {
+          let message = 'Exception';
+          if (stmt.expression && stmt.expression.type === 'CallExpression') {
+            if (stmt.expression.arguments && stmt.expression.arguments.length > 0) {
+              message = this.eval(stmt.expression.arguments[0]);
+            }
+          }
+          this.log(`[PANIC_NO_HANDLER] throw 실행 중 활성 핸들러 없음 (message: "${message}")`);
+          throw new Error(`[PANIC] No active handler for throw: ${message}`);
+        }
+
+        // 핸들러에서 복구 PC 읽기
+        const handler = this.handlerStack[this.handlerStack.length - 1];
+        const jumpPC = handler.snapshot?.savedPC;
+
         // new Exception(message) 형식 처리
         let message = 'Exception';
-
         if (stmt.expression && stmt.expression.type === 'CallExpression') {
           const constructorName = stmt.expression.callee?.name || 'Exception';
           if (stmt.expression.arguments && stmt.expression.arguments.length > 0) {
@@ -1680,7 +1700,11 @@ export class PCInterpreter {
           this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
         }
 
-        throw new Error(message);
+        // PC 강제 변경 (현재 PC를 건너뛰고 CATCH 블록으로 점프)
+        this.log(`[PC_REDIRECT] PC 변경: ${this.pc} → ${jumpPC} (핸들러로 점프)`);
+        this.pc = jumpPC!; // ← 핵심! PC를 저장된 주소로 변경
+
+        throw new Error(message); // ← 이 예외는 외부 try-catch에서 처리 (eval 중단)
       }
       // ────────────────────────────────────────────────────────────────
 
@@ -2046,7 +2070,10 @@ export class PCInterpreter {
         this.log(`[ARRAY ALLOC] 리터럴 크기 ${elems.length} → [${elems.join(', ')}]`);
         // v5.3: Metadata Header
         this.log(`[HEADER WRITE] Base-1: size=${elems.length} 기록 완료 (Metadata Header 영역)`);
-        return elems;
+        // v8.3: 배열에 __type 메타데이터 추가 (메서드 호출 지원)
+        const arrObj = elems as any;
+        arrObj.__type = 'array';
+        return arrObj;
       }
 
       case 'BinaryOp':
@@ -2168,6 +2195,14 @@ export class PCInterpreter {
 
         // v5.7: p1.field 형태 (단일 구조체 또는 v7.0 object)
         const obj = this.eval(node.object);
+
+        // v8.3: 배열 속성 접근 (length, etc)
+        if (obj && obj.__type === 'array') {
+          const value = obj[node.field];
+          this.log(`[ARRAY PROPERTY] ${node.object.name}.${node.field} → ${value}`);
+          return value;
+        }
+
         if (!obj || (obj.__type !== 'struct' && obj.__type !== 'object')) throw new Error(`[MEMBER ERROR] 구조체나 객체가 아님`);
         const structDef = this.structTable.get(obj.__typeName);
         const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
@@ -2572,9 +2607,24 @@ export class PCInterpreter {
       }
 
       case 'ThrowStatement': {
+        // ── v8.3: Non-local Jump (PC 강제 변경) ──────────────────────────
+        if (this.handlerStack.length === 0) {
+          let message = 'Exception';
+          if ((node as any).expression && (node as any).expression.type === 'CallExpression') {
+            if ((node as any).expression.arguments && (node as any).expression.arguments.length > 0) {
+              message = this.eval((node as any).expression.arguments[0]);
+            }
+          }
+          this.log(`[PANIC_NO_HANDLER] throw 실행 중 활성 핸들러 없음 (message: "${message}")`);
+          throw new Error(`[PANIC] No active handler for throw: ${message}`);
+        }
+
+        // 핸들러에서 복구 PC 읽기
+        const handler = this.handlerStack[this.handlerStack.length - 1];
+        const jumpPC = handler.snapshot?.savedPC;
+
         // new Exception(message) 형식 처리
         let message = 'Exception';
-
         if ((node as any).expression && (node as any).expression.type === 'CallExpression') {
           const constructorName = (node as any).expression.callee?.name || 'Exception';
           if ((node as any).expression.arguments && (node as any).expression.arguments.length > 0) {
@@ -2583,7 +2633,11 @@ export class PCInterpreter {
           this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
         }
 
-        throw new Error(message);
+        // PC 강제 변경 (현재 PC를 건너뛰고 CATCH 블록으로 점프)
+        this.log(`[PC_REDIRECT] PC 변경: ${this.pc} → ${jumpPC} (핸들러로 점프)`);
+        this.pc = jumpPC!; // ← 핵심! PC를 저장된 주소로 변경
+
+        throw new Error(message); // ← 이 예외는 외부 try-catch에서 처리 (eval 중단)
       }
       // ────────────────────────────────────────────────────────────────────────
 
@@ -2830,8 +2884,34 @@ export class PCInterpreter {
     // v7.2: 메서드 호출 감지 (callee가 MemberExpression) + 간접 호출 공식
     if (node.callee.type === 'MemberExpression') {
       const obj = this.eval(node.callee.object);
+      const methodName = node.callee.field;
+
+      // v8.3: 배열 메서드 지원 (push, pop, shift, unshift 등)
+      if (obj && obj.__type === 'array') {
+        const argValues = node.arguments.map((a: ASTNode) => this.eval(a));
+
+        if (methodName === 'push') {
+          obj.push(...argValues);
+          this.log(`[ARRAY METHOD] push(${argValues.join(', ')}) - 배열에 요소 추가`);
+          return obj[obj.length - 1];
+        } else if (methodName === 'pop') {
+          const val = obj.pop();
+          this.log(`[ARRAY METHOD] pop() - 반환: ${val}`);
+          return val;
+        } else if (methodName === 'shift') {
+          const val = obj.shift();
+          this.log(`[ARRAY METHOD] shift() - 반환: ${val}`);
+          return val;
+        } else if (methodName === 'unshift') {
+          obj.unshift(...argValues);
+          this.log(`[ARRAY METHOD] unshift(${argValues.join(', ')}) - 배열 앞에 요소 추가`);
+          return obj.length;
+        } else if (methodName === 'length') {
+          return obj.length;
+        }
+      }
+
       if (obj && (obj.__type === 'object' || obj.__type === 'struct')) {
-        const methodName = node.callee.field;
         const vTable = obj.__vPtr;
 
         // v7.2: 간접 호출 공식 (*(*(obj+0) + MethodIndex × 4))
