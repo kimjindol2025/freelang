@@ -1700,6 +1700,11 @@ export class PCInterpreter {
           this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
         }
 
+        // v8.4: 스택 언와인딩 (Stack Unwinding)
+        // PC를 변경하기 전에 중간에 쌓인 프레임들을 모두 파괴
+        const targetSP = handler.snapshot?.savedSP ?? 0;
+        this.unwindStack(targetSP);
+
         // PC 강제 변경 (현재 PC를 건너뛰고 CATCH 블록으로 점프)
         this.log(`[PC_REDIRECT] PC 변경: ${this.pc} → ${jumpPC} (핸들러로 점프)`);
         this.pc = jumpPC!; // ← 핵심! PC를 저장된 주소로 변경
@@ -2633,6 +2638,11 @@ export class PCInterpreter {
           this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
         }
 
+        // v8.4: 스택 언와인딩 (Stack Unwinding)
+        // PC를 변경하기 전에 중간에 쌓인 프레임들을 모두 파괴
+        const targetSP = handler.snapshot?.savedSP ?? 0;
+        this.unwindStack(targetSP);
+
         // PC 강제 변경 (현재 PC를 건너뛰고 CATCH 블록으로 점프)
         this.log(`[PC_REDIRECT] PC 변경: ${this.pc} → ${jumpPC} (핸들러로 점프)`);
         this.pc = jumpPC!; // ← 핵심! PC를 저장된 주소로 변경
@@ -3280,6 +3290,52 @@ export class PCInterpreter {
     // ──────────────────────────────────────────────────────────────────────
 
     return retVal;
+  }
+
+  /**
+   * v8.4: 스택 언와인딩 (Stack Unwinding)
+   * THROW 시점과 CATCH 도착점 사이의 스택 프레임을 역순으로 파괴하면서
+   * 각 프레임의 savedScope로 변수를 복원한다 (Scope Restoration)
+   */
+  private unwindStack(targetSP: number): void {
+    const initialDepth = this.callStack.length;
+    const gap = initialDepth - targetSP;
+
+    if (gap <= 0) {
+      this.log(`[UNWIND STACK] SP는 이미 목표 상태 (현재: ${initialDepth}, 목표: ${targetSP})`);
+      return;
+    }
+
+    this.log(`[UNWIND STACK] 스택 언와인딩 시작`);
+    this.log(`  → 현재 깊이: ${initialDepth}, 목표: ${targetSP}`);
+    this.log(`  → 파괴할 프레임: ${gap}개`);
+
+    // Phase 1: 프레임 역순 파괴
+    for (let i = 0; i < gap; i++) {
+      const frame = this.callStack.pop();
+      if (!frame) break;
+
+      this.log(`[FRAME POPPED] [${initialDepth - i}] ${frame.functionName}`);
+
+      // Phase 2: 변수 범위 복원 (Scope Restoration)
+      // 이 프레임 진입 전의 상태(savedScope)로 변수들을 되돌린다
+      // 이는 함수 호출에서 정상 복귀하는 것과 동일한 효과
+      if (frame.savedScope) {
+        frame.savedScope.forEach((value: any, varName: string) => {
+          // savedScope에 있던 변수는 그 값으로 복원
+          this.variables.set(varName, value);
+          this.log(`  [VARIABLE RESTORE] '${varName}' ← ${value} (프레임 진입 전 상태로 복구)`);
+        });
+      }
+    }
+
+    const finalDepth = this.callStack.length;
+    this.log(`[UNWIND COMPLETE] SP: ${initialDepth} → ${finalDepth} (${gap}개 프레임 파괴 및 범위 복구)`);
+
+    // Phase 3: SP 최종 검증
+    if (finalDepth !== targetSP) {
+      this.log(`[UNWIND WARNING] 최종 깊이 불일치: ${finalDepth} ≠ ${targetSP}`);
+    }
   }
 
   /**
