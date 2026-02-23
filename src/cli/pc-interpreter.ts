@@ -784,13 +784,14 @@ interface ContextSnapshot {
 }
 
 interface HandlerFrame {
-  returnAddress: number;    // PC: CATCH 블록 시작 주소
-  stackPointer: number;     // SP: TRY 진입 시점의 데이터 스택 깊이
-  framePointer: number;     // FP: 현재 함수의 지역 변수 시작 지점
-  catchBlockPC: number;     // CATCH 블록의 bytecode PC
-  tryStartPC?: number;      // TRY 블록 시작 PC (로깅용)
-  exceptionVarName?: string; // 예외 변수명 (선택사항)
+  returnAddress: number;      // PC: CATCH 블록 시작 주소
+  stackPointer: number;       // SP: TRY 진입 시점의 데이터 스택 깊이
+  framePointer: number;       // FP: 현재 함수의 지역 변수 시작 지점
+  catchBlockPC: number;       // CATCH 블록의 bytecode PC
+  tryStartPC?: number;        // TRY 블록 시작 PC (로깅용)
+  exceptionVarName?: string;  // 예외 변수명 (선택사항)
   snapshot?: ContextSnapshot; // v8.2: 컨텍스트 스냅샷 (레지스터 상태)
+  exceptionObject?: any;      // v8.5: 던져진 Exception 객체 (또는 기타 값)
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1262,6 +1263,55 @@ export class PCInterpreter {
       this.log(`[SIZEOF] ${typeName} = ${totalSize} bytes (padding included)`);
       return totalSize;
     });
+
+    // v8.5: 내장 Exception 클래스 등록
+    this.initializeBuiltinExceptionClass();
+  }
+
+  /**
+   * v8.5: 내장 Exception 클래스 초기화
+   * 엔진 시작 시 자동으로 Exception 클래스를 등록
+   */
+  private initializeBuiltinExceptionClass(): void {
+    const exceptionClassName = 'Exception';
+
+    // Exception 클래스 필드 정의
+    const exceptionFields = [
+      { name: 'Message', typeName: 'String', size: 4, offset: 0, padding: 0 },
+      { name: 'Code', typeName: 'Integer', size: 4, offset: 4, padding: 0 },
+      { name: 'Timestamp', typeName: 'String', size: 4, offset: 8, padding: 0 },
+      { name: 'Location', typeName: 'String', size: 4, offset: 12, padding: 0 }
+    ];
+
+    const totalSize = 16; // 4 필드 × 4바이트
+
+    // 1. classTable에 Exception 등록
+    this.classTable.set(exceptionClassName, {
+      fields: exceptionFields,
+      totalSize: totalSize,
+      methods: new Map()  // 기본 메서드 없음 (GetTrace() 등은 나중에)
+    });
+
+    // 2. structTable에도 등록 (Exception 객체의 메모리 레이아웃을 위해)
+    this.structTable.set(exceptionClassName, {
+      fields: exceptionFields,
+      totalSize: totalSize
+    });
+
+    // 3. vTableRegistry에 등록
+    const vTableAddress = `0xVT${this.vTableAddressCounter.toString(16).padStart(3, '0')}`;
+    this.vTableAddressCounter++;
+
+    this.vTableRegistry.set(exceptionClassName, {
+      __staticAddress: vTableAddress,
+      methods: [],
+      index: new Map(),
+      superClass: null
+    });
+
+    this.log(`[BUILTIN CLASS] Exception 클래스 등록 완료`);
+    this.log(`  → 필드: Message(4B), Code(4B), Timestamp(4B), Location(4B)`);
+    this.log(`  → 총 크기: ${totalSize}B`);
   }
 
   /**
@@ -1647,13 +1697,23 @@ export class PCInterpreter {
 
           this.log(`[EXCEPTION CAUGHT] 스택 언와인드 (SP: ${this.callStack.length + (this.callStack.pop() ? 1 : 0)} → ${savedStackPointer})`);
 
+          // v8.5: 예외 객체 또는 메시지 바인딩
+          let exceptionValue: any = { __type: 'exception', message: e.message || String(e) };
+
+          // 핸들러에 저장된 Exception 객체가 있으면 그것을 사용
+          if (handler && handler.exceptionObject) {
+            exceptionValue = handler.exceptionObject;
+            this.log(`[BIND EXCEPTION] ${stmt.exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
+          } else {
+            this.log(`[BIND EXCEPTION] ${stmt.exceptionVar} = "${e.message || String(e)}" (메시지)`);
+          }
+
           // 핸들러 팝
           this.handlerStack.pop();
 
           // CATCH 블록에 예외 변수 바인딩
           if (stmt.exceptionVar) {
-            this.variables.set(stmt.exceptionVar, { __type: 'exception', message: e.message || String(e) });
-            this.log(`[BIND EXCEPTION] ${stmt.exceptionVar} = "${e.message || String(e)}"`);
+            this.variables.set(stmt.exceptionVar, exceptionValue);
           }
 
           // CATCH 블록 실행
@@ -1690,15 +1750,33 @@ export class PCInterpreter {
         const handler = this.handlerStack[this.handlerStack.length - 1];
         const jumpPC = handler.snapshot?.savedPC;
 
-        // new Exception(message) 형식 처리
+        // v8.5: 예외 객체 처리
+        // THROW는 Exception 객체를 인자로 받음
+        let exceptionObject: any = null;
         let message = 'Exception';
-        if (stmt.expression && stmt.expression.type === 'CallExpression') {
-          const constructorName = stmt.expression.callee?.name || 'Exception';
-          if (stmt.expression.arguments && stmt.expression.arguments.length > 0) {
-            message = this.eval(stmt.expression.arguments[0]);
+
+        if (stmt.expression) {
+          // 표현식 평가 (Exception 객체 또는 문자열)
+          exceptionObject = this.eval(stmt.expression);
+
+          // 객체인지 문자열인지 확인
+          if (exceptionObject && typeof exceptionObject === 'object' && exceptionObject.__type === 'object') {
+            // Exception 객체 (v8.5)
+            message = exceptionObject.Message || 'Exception';
+            this.log(`[THROW] 예외 발생: ${exceptionObject.__class}(Message="${message}", Code=${exceptionObject.Code})`);
+          } else if (typeof exceptionObject === 'string') {
+            // 문자열 메시지 (v8.3 호환)
+            message = exceptionObject;
+            this.log(`[THROW] 예외 발생: "${message}"`);
+          } else {
+            // 기타 (숫자 등)
+            message = String(exceptionObject);
+            this.log(`[THROW] 예외 발생: ${message}`);
           }
-          this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
         }
+
+        // v8.5: 예외 객체를 핸들러에 저장 (CATCH 블록에서 접근 가능하게)
+        handler.exceptionObject = exceptionObject;
 
         // v8.4: 스택 언와인딩 (Stack Unwinding)
         // PC를 변경하기 전에 중간에 쌓인 프레임들을 모두 파괴
@@ -2209,6 +2287,14 @@ export class PCInterpreter {
         }
 
         if (!obj || (obj.__type !== 'struct' && obj.__type !== 'object')) throw new Error(`[MEMBER ERROR] 구조체나 객체가 아님`);
+
+        // v8.5: 메타 필드 먼저 확인 (__class, __type, __typeName, __baseAddr, __vPtr 등)
+        if (node.field in obj) {
+          const value = obj[node.field];
+          this.log(`[MEMBER ACCESS] ${node.object.name}.${node.field} → ${value}`);
+          return value;
+        }
+
         const structDef = this.structTable.get(obj.__typeName);
         const fieldDef = structDef?.fields.find((f: any) => f.name === node.field);
         if (!fieldDef) throw new Error(`[MEMBER ERROR] '${obj.__typeName}'에 '${node.field}' 필드 없음`);
@@ -2590,13 +2676,23 @@ export class PCInterpreter {
 
           this.log(`[EXCEPTION CAUGHT] 스택 언와인드 (SP: ${this.callStack.length + (this.callStack.pop() ? 1 : 0)} → ${savedStackPointer})`);
 
+          // v8.5: 예외 객체 또는 메시지 바인딩
+          let exceptionValue: any = { __type: 'exception', message: e.message || String(e) };
+
+          // 핸들러에 저장된 Exception 객체가 있으면 그것을 사용
+          if (currentHandler && currentHandler.exceptionObject) {
+            exceptionValue = currentHandler.exceptionObject;
+            this.log(`[BIND EXCEPTION] ${(node as any).exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
+          } else {
+            this.log(`[BIND EXCEPTION] ${(node as any).exceptionVar} = "${e.message || String(e)}" (메시지)`);
+          }
+
           // 핸들러 팝
           this.handlerStack.pop();
 
           // CATCH 블록에 예외 변수 바인딩
           if ((node as any).exceptionVar) {
-            this.variables.set((node as any).exceptionVar, { __type: 'exception', message: e.message || String(e) });
-            this.log(`[BIND EXCEPTION] ${(node as any).exceptionVar} = "${e.message || String(e)}"`);
+            this.variables.set((node as any).exceptionVar, exceptionValue);
           }
 
           // CATCH 블록 실행
@@ -2628,15 +2724,33 @@ export class PCInterpreter {
         const handler = this.handlerStack[this.handlerStack.length - 1];
         const jumpPC = handler.snapshot?.savedPC;
 
-        // new Exception(message) 형식 처리
+        // v8.5: 예외 객체 처리
+        // THROW는 Exception 객체를 인자로 받음
+        let exceptionObject: any = null;
         let message = 'Exception';
-        if ((node as any).expression && (node as any).expression.type === 'CallExpression') {
-          const constructorName = (node as any).expression.callee?.name || 'Exception';
-          if ((node as any).expression.arguments && (node as any).expression.arguments.length > 0) {
-            message = this.eval((node as any).expression.arguments[0]);
+
+        if ((node as any).expression) {
+          // 표현식 평가 (Exception 객체 또는 문자열)
+          exceptionObject = this.eval((node as any).expression);
+
+          // 객체인지 문자열인지 확인
+          if (exceptionObject && typeof exceptionObject === 'object' && exceptionObject.__type === 'object') {
+            // Exception 객체 (v8.5)
+            message = exceptionObject.Message || 'Exception';
+            this.log(`[THROW] 예외 발생: ${exceptionObject.__class}(Message="${message}", Code=${exceptionObject.Code})`);
+          } else if (typeof exceptionObject === 'string') {
+            // 문자열 메시지 (v8.3 호환)
+            message = exceptionObject;
+            this.log(`[THROW] 예외 발생: "${message}"`);
+          } else {
+            // 기타 (숫자 등)
+            message = String(exceptionObject);
+            this.log(`[THROW] 예외 발생: ${message}`);
           }
-          this.log(`[THROW] 예외 발생: ${constructorName}("${message}")`);
         }
+
+        // v8.5: 예외 객체를 핸들러에 저장 (CATCH 블록에서 접근 가능하게)
+        handler.exceptionObject = exceptionObject;
 
         // v8.4: 스택 언와인딩 (Stack Unwinding)
         // PC를 변경하기 전에 중간에 쌓인 프레임들을 모두 파괴
