@@ -1801,6 +1801,11 @@ export class PCInterpreter {
     // v10.1: Hot-Spot 분류 초기화
     this.hotSpotFunctions.clear();
     this.globalLoopExecutionCount = 0;
+    // v10.2: Inline Cache 초기화 (Call Site별 캐시 슬롯 및 Shape 레지스트리)
+    this.inlineCacheSlots.clear();
+    this.shapeRegistry.clear();
+    this.shapeCounter = 0;
+    this.inlineCacheStats = { totalHits: 0, totalMisses: 0, cacheSize: 0 };
 
     // ── v6.1: Forward Declaration (Pass 1) ────────────────────────────────────
     // 실행 전에 모든 함수 정의를 먼저 등록하여 호출 순서와 무관하게 동작
@@ -3817,6 +3822,50 @@ export class PCInterpreter {
           const fullName = vTable.methods[methodIndex];
           const argValues = node.arguments.map((a: ASTNode) => this.eval(a));
 
+          // ─ v10.2: Inline Caching & Polymorphic Dispatch ─────────────────────
+          // Call Site별 캐시 슬롯 생성/조회
+          const callSiteId = `${node.callee.object.type}:${methodName}:${node.loc?.line ?? 'unknown'}`;
+          const objShape = `${obj.__class}:${Object.keys(obj).filter(k => !k.startsWith('__')).sort().join(':')}`;
+
+          let cacheSlot = this.inlineCacheSlots.get(callSiteId);
+          if (!cacheSlot) {
+            cacheSlot = {
+              lastShape: objShape,
+              methodAddress: fullName,
+              hitCount: 0,
+              missCount: 0,
+              polymorphicEntries: new Map()
+            };
+            this.inlineCacheSlots.set(callSiteId, cacheSlot);
+            this.inlineCacheStats.cacheSize++;
+            this.log(`[IC_NEW_SLOT] Call Site: ${callSiteId} → Shape: ${objShape} → Method: ${fullName}`);
+          }
+
+          // 캐시 적중 여부 판단
+          let cachedFullName = fullName;
+          if (cacheSlot.lastShape === objShape) {
+            // 캐시 적중! (Monomorphic)
+            cacheSlot.hitCount++;
+            this.inlineCacheStats.totalHits++;
+            this.log(`[IC_HIT] 적중 #${cacheSlot.hitCount}: ${callSiteId} (Shape일치) → 직접 점프`);
+            cachedFullName = cacheSlot.methodAddress;
+          } else {
+            // 캐시 미스 또는 다형성 (Polymorphic)
+            cacheSlot.missCount++;
+            this.inlineCacheStats.totalMisses++;
+
+            // 다형성 엔트리 확인
+            if (cacheSlot.polymorphicEntries.has(objShape)) {
+              cachedFullName = cacheSlot.polymorphicEntries.get(objShape)!;
+              this.log(`[IC_POLYMORPHIC] 다형 적중: ${objShape} → ${cachedFullName}`);
+            } else {
+              // 새로운 Shape 추가
+              cacheSlot.polymorphicEntries.set(objShape, fullName);
+              this.log(`[IC_POLYMORPHIC_NEW] 신규 Shape 등록: ${objShape} → ${fullName} (미스 #${cacheSlot.missCount})`);
+              cachedFullName = fullName;
+            }
+          }
+
           // v7.2: 간접 참조 공식 단계별 로깅
           const objAddr = obj.__baseAddr;
           const vTableAddr = vTable.__staticAddress;
@@ -3824,11 +3873,11 @@ export class PCInterpreter {
 
           this.log(`[INDIRECT CALL] ${obj.__class}.${methodName}() - 간접 호출 공식 분해:`);
           this.log(`  STEP 1: vPtr = *(${objAddr}+0) = ${vTableAddr}`);
-          this.log(`  STEP 2: methodAddr = *(${vTableAddr}+${methodOffset}) = &${fullName}`);
+          this.log(`  STEP 2: methodAddr = *(${vTableAddr}+${methodOffset}) = &${cachedFullName}`);
           this.log(`  STEP 3: methodIndex[${methodName}] = ${methodIndex}`);
-          this.log(`  TARGET: CALL &${fullName}(${obj.__class} self, args)`);
+          this.log(`  TARGET: CALL &${cachedFullName}(${obj.__class} self, args)`);
 
-          return this.callUserFunction(fullName, [obj, ...argValues]);
+          return this.callUserFunction(cachedFullName, [obj, ...argValues]);
         }
 
         // Fallback: vTable 미구성 케이스 (구조체 등)
