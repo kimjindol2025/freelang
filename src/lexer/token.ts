@@ -30,10 +30,11 @@ export enum TokenType {
   FALSE = 'FALSE',
   NULL = 'NULL',
 
-  // v8.1: Exception Handling (3개 추가)
+  // v8.1: Exception Handling (4개 추가)
   TRY = 'TRY',            // try { ... }
   CATCH = 'CATCH',        // catch (e) { ... }
   THROW = 'THROW',        // throw new Exception(...)
+  FINALLY = 'FINALLY',    // finally { ... } (v8.7)
 
   IN = 'IN',
   OF = 'OF',  // Phase 2: for...of loop support
@@ -182,6 +183,7 @@ export const KEYWORDS: Record<string, TokenType> = {
   'try': TokenType.TRY,
   'catch': TokenType.CATCH,
   'throw': TokenType.THROW,
+  'finally': TokenType.FINALLY,
 
   'in': TokenType.IN,
   'of': TokenType.OF,  // Phase 2: for...of loop support

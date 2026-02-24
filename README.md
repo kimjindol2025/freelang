@@ -176,6 +176,126 @@ freelang --server --tui
 
 ---
 
+## 🎓 v8: Advanced Exception Handling System
+
+FreeLang v8은 **"기록이 증명이다"** 원칙 하에 예외 처리를 **6단계**로 진화시킵니다.
+
+### v8 진화 경로
+
+| 버전 | 기능 | 핵심 개념 | 상태 |
+|------|------|----------|------|
+| **v8.1** | Handler Stack Infrastructure | 위치 기록 (핸들러 등록) | ✅ 완료 |
+| **v8.2** | Context Snapshots (SP/FP/PC) | 상태 기록 (레지스터 저장) | ✅ 완료 |
+| **v8.3** | Non-local Jump (THROW & PC) | 행동 기록 (제어 흐름 변경) | ✅ 완료 |
+| **v8.4** | Stack Unwinding & Cleanup | 파괴 기록 (프레임 정리) | ✅ 완료 |
+| **v8.5** | Exception Objectification | 내용 기록 (객체 속성) | ✅ 완료 |
+| **v8.6** | Polymorphic Catch & Types | 정체 판별 (상속 기반) | 🚧 준비중 |
+
+### 핵심 기능
+
+#### v8.1-v8.2: 기반 구축
+```freeLang
+try {
+  // 핸들러 등록 (v8.1) + SP/FP/PC 저장 (v8.2)
+  println("TRY 블록")
+}
+catch (e) {
+  println("CATCH 블록")
+}
+```
+
+#### v8.3: 제어 흐름 변경
+```freeLang
+try {
+  println("Before exception")
+  throw new Exception("Error!")
+  println("Never executed")  // 이 줄은 건너뜀 (PC 점프)
+}
+catch (e) {
+  println("Caught: " + e.Message)
+}
+```
+
+#### v8.4: 스택 정리
+```freeLang
+fn outer() {
+  try {
+    fn inner() {
+      throw new Exception("Deep error")  // 깊이 2의 프레임
+    }
+    inner()
+  }
+  catch (e) {
+    // inner() 프레임이 자동으로 파괴됨 (unwindStack)
+    println("Inner frame cleaned up!")
+  }
+}
+```
+
+#### v8.5: 예외 객체화
+```freeLang
+try {
+  let err = new Exception()
+  err.Message = "Database connection failed"
+  err.Code = 500
+  throw err
+}
+catch (e) {
+  println("Error " + e.Code + ": " + e.Message)
+  println("Class: " + e.__class)  // "Exception"
+}
+```
+
+#### v8.6: 타입 기반 처리 (준비중)
+```freeLang
+class NetworkError extends Exception {}
+class ValidationError extends Exception {}
+
+try {
+  throw new NetworkError("Connection timeout")
+}
+catch (e: ValidationError) {
+  // 타입 불일치 → 스킵
+}
+catch (e: NetworkError) {
+  // 정확한 타입 매칭 → 처리
+  println("Network issue: " + e.Message)
+}
+catch (e: Exception) {
+  // 폴백: 모든 예외 수용
+}
+```
+
+### 설계 원칙: "기록이 증명이다"
+
+```
+v8.1: 위치 기록 → "이 위치에 핸들러가 있다"
+v8.2: 상태 기록 → "이 위치에서 SP=100, FP=50, PC=0"
+v8.3: 행동 기록 → "PC가 0에서 200으로 점프했다"
+v8.4: 파괴 기록 → "프레임 A, B, C가 역순으로 파괴되었다"
+v8.5: 내용 기록 → "예외 객체는 Message='...', Code=500"
+v8.6: 정체 기록 → "이 예외는 NetworkError (Exception의 자식)"
+```
+
+### 검증 현황
+
+#### 완료된 단계
+- ✅ **v8.1-v8.5**: 15개 테스트 완전 통과
+  - Handler Stack Infrastructure (3 tests)
+  - Context Snapshots (3 tests)
+  - Non-local Jump (3 tests)
+  - Stack Unwinding (3 tests)
+  - Exception Objectification (3 tests)
+
+#### 준비중인 단계
+- 🚧 **v8.6**: Polymorphic Catch (4 tests 설계중)
+  - Exact Match (정확한 타입 일치)
+  - Parent Match (부모 타입 상속 관계)
+  - Unmatched Skip (타입 불일치 시 다음 CATCH)
+  - v8.5 Compatibility (타입 없는 CATCH)
+
+---
+
 ## 📊 벤치마크 결과
 
 ### 처리량 (Throughput)

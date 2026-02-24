@@ -1375,6 +1375,55 @@ export class PCInterpreter {
   }
 
   /**
+   * v8.6: 상속 계층을 고려한 타입 검사
+   * - exceptionObject.__class와 expectedType을 비교
+   * - 상속 계층을 따라 올라가며 일치 여부 확인
+   */
+  private isInstanceOf(exceptionObject: any, expectedType: string): boolean {
+    if (!exceptionObject || !expectedType) return false;
+
+    const exceptionClass = exceptionObject.__class;
+    if (!exceptionClass) return false;
+
+    // 1. 정확한 타입 일치
+    if (exceptionClass === expectedType) {
+      this.log(`[TYPE MATCH] ${exceptionClass} == ${expectedType}`);
+      return true;
+    }
+
+    // 2. 상속 계층 탐색 (부모 클래스 확인)
+    let currentClass = exceptionClass;
+    const visited = new Set<string>();
+
+    while (currentClass && !visited.has(currentClass)) {
+      visited.add(currentClass);
+
+      const classDef = this.classTable.get(currentClass);
+      if (!classDef) {
+        // 클래스 정의를 찾을 수 없으면 Exception 기본 클래스 확인
+        if (currentClass === 'Exception' && expectedType === 'Exception') {
+          return true;
+        }
+        break;
+      }
+
+      // 현재 클래스에서 foundMatch 플래그 확인
+      if (currentClass === expectedType) {
+        this.log(`[TYPE MATCH] 상속 계층: ${exceptionClass} → ${currentClass} == ${expectedType}`);
+        return true;
+      }
+
+      // 부모 클래스로 이동 (vTableRegistry에서 superClass 정보 조회)
+      const vTable = this.vTableRegistry.get(currentClass);
+      currentClass = vTable?.superClass ?? null;
+    }
+
+    // 일치하지 않음
+    this.log(`[TYPE MISMATCH] ${exceptionClass} does not match ${expectedType}`);
+    return false;
+  }
+
+  /**
    * 프로그램 실행 (PC 기반)
    */
   public execute(ast: ASTNode): any {
@@ -1637,8 +1686,10 @@ export class PCInterpreter {
 
       // ── v8.1: Exception Handling ────────────────────────────────────────
       case 'TryStatement': {
+        // v8.6: catchBlocks 배열 또는 catchBlock 호환성 처리
+        const hasCatchBlock = (stmt as any).catchBlocks || (stmt as any).catchBlock;
         const handler: HandlerFrame = {
-          returnAddress: stmt.catchBlock.statements ? 0 : -1,
+          returnAddress: hasCatchBlock ? 0 : -1,
           stackPointer: this.callStack.length,
           framePointer: 0,
           catchBlockPC: 0,
@@ -1703,26 +1754,55 @@ export class PCInterpreter {
           // 핸들러에 저장된 Exception 객체가 있으면 그것을 사용
           if (handler && handler.exceptionObject) {
             exceptionValue = handler.exceptionObject;
-            this.log(`[BIND EXCEPTION] ${stmt.exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
+            this.log(`[BIND EXCEPTION] 예외 객체 = Exception(${exceptionValue.__class || 'Unknown'})`);
           } else {
-            this.log(`[BIND EXCEPTION] ${stmt.exceptionVar} = "${e.message || String(e)}" (메시지)`);
+            this.log(`[BIND EXCEPTION] 예외 = "${e.message || String(e)}" (메시지)`);
           }
 
           // 핸들러 팝
           this.handlerStack.pop();
 
-          // CATCH 블록에 예외 변수 바인딩
-          if (stmt.exceptionVar) {
-            this.variables.set(stmt.exceptionVar, exceptionValue);
+          // v8.6: 다형 CATCH - catchBlocks 배열 순회
+          const catchBlocks = stmt.catchBlocks || [stmt.catchBlock]; // 하위호환성
+          let catchExecuted = false;
+
+          for (const catchBlock of catchBlocks) {
+            const exceptionType = (catchBlock as any).exceptionType;
+            const exceptionVar = (catchBlock as any).exceptionVar || stmt.exceptionVar;
+            const body = (catchBlock as any).body;
+
+            // 타입 필터링: exceptionType이 지정되었으면 isInstanceOf 체크
+            if (exceptionType) {
+              if (!this.isInstanceOf(exceptionValue, exceptionType)) {
+                this.log(`[CATCH SKIP] 타입 불일치: ${exceptionValue.__class || 'Unknown'} ≠ ${exceptionType}`);
+                continue; // 다음 CATCH 블록으로
+              }
+              this.log(`[CATCH MATCH] 타입 일치: ${exceptionValue.__class || 'Unknown'} = ${exceptionType}`);
+            } else {
+              this.log(`[CATCH MATCH] 타입 필터 없음 (모든 예외 처리)`);
+            }
+
+            // 예외 변수 바인딩
+            if (exceptionVar) {
+              this.variables.set(exceptionVar, exceptionValue);
+              this.log(`[BIND EXCEPTION] ${exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
+            }
+
+            // 매칭된 CATCH 블록 실행
+            for (const catchStmt of body.statements) {
+              this.eval(catchStmt);
+            }
+
+            this.log(`[CATCH COMPLETE] 예외 처리 완료 (${exceptionType || 'default'})`);
+            catchExecuted = true;
+            break; // 첫 번째 일치 블록만 실행
           }
 
-          // CATCH 블록 실행
-          for (const catchStmt of stmt.catchBlock.statements) {
-            this.eval(catchStmt);
+          // 일치하는 CATCH 블록이 없으면 예외 재던지기
+          if (!catchExecuted) {
+            this.log(`[CATCH UNMATCHED] 일치하는 CATCH 블록 없음 → 예외 재전파`);
+            throw e;
           }
-
-          // CATCH 완료
-          this.log(`[CATCH COMPLETE] 예외 처리 완료`);
         }
 
         return undefined;
@@ -2616,8 +2696,10 @@ export class PCInterpreter {
 
       // ── v8.1: Exception Handling (eval용) ────────────────────────────────────
       case 'TryStatement': {
+        // v8.6: catchBlocks 배열 또는 catchBlock 호환성 처리
+        const hasCatchBlock = (node as any).catchBlocks || (node as any).catchBlock;
         const handler: HandlerFrame = {
-          returnAddress: (node as any).catchBlock.statements ? 0 : -1,
+          returnAddress: hasCatchBlock ? 0 : -1,
           stackPointer: this.callStack.length,
           framePointer: 0,
           catchBlockPC: 0,
@@ -2682,26 +2764,55 @@ export class PCInterpreter {
           // 핸들러에 저장된 Exception 객체가 있으면 그것을 사용
           if (currentHandler && currentHandler.exceptionObject) {
             exceptionValue = currentHandler.exceptionObject;
-            this.log(`[BIND EXCEPTION] ${(node as any).exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
+            this.log(`[BIND EXCEPTION] 예외 객체 = Exception(${exceptionValue.__class || 'Unknown'})`);
           } else {
-            this.log(`[BIND EXCEPTION] ${(node as any).exceptionVar} = "${e.message || String(e)}" (메시지)`);
+            this.log(`[BIND EXCEPTION] 예외 = "${e.message || String(e)}" (메시지)`);
           }
 
           // 핸들러 팝
           this.handlerStack.pop();
 
-          // CATCH 블록에 예외 변수 바인딩
-          if ((node as any).exceptionVar) {
-            this.variables.set((node as any).exceptionVar, exceptionValue);
+          // v8.6: 다형 CATCH - catchBlocks 배열 순회
+          const catchBlocks = (node as any).catchBlocks || [(node as any).catchBlock]; // 하위호환성
+          let catchExecuted = false;
+
+          for (const catchBlock of catchBlocks) {
+            const exceptionType = (catchBlock as any).exceptionType;
+            const exceptionVar = (catchBlock as any).exceptionVar || (node as any).exceptionVar;
+            const body = (catchBlock as any).body;
+
+            // 타입 필터링: exceptionType이 지정되었으면 isInstanceOf 체크
+            if (exceptionType) {
+              if (!this.isInstanceOf(exceptionValue, exceptionType)) {
+                this.log(`[CATCH SKIP] 타입 불일치: ${exceptionValue.__class || 'Unknown'} ≠ ${exceptionType}`);
+                continue; // 다음 CATCH 블록으로
+              }
+              this.log(`[CATCH MATCH] 타입 일치: ${exceptionValue.__class || 'Unknown'} = ${exceptionType}`);
+            } else {
+              this.log(`[CATCH MATCH] 타입 필터 없음 (모든 예외 처리)`);
+            }
+
+            // 예외 변수 바인딩
+            if (exceptionVar) {
+              this.variables.set(exceptionVar, exceptionValue);
+              this.log(`[BIND EXCEPTION] ${exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
+            }
+
+            // 매칭된 CATCH 블록 실행
+            for (const catchStmt of body.statements) {
+              this.eval(catchStmt);
+            }
+
+            this.log(`[CATCH COMPLETE] 예외 처리 완료 (${exceptionType || 'default'})`);
+            catchExecuted = true;
+            break; // 첫 번째 일치 블록만 실행
           }
 
-          // CATCH 블록 실행
-          for (const catchStmt of (node as any).catchBlock.statements) {
-            this.eval(catchStmt);
+          // 일치하는 CATCH 블록이 없으면 예외 재던지기
+          if (!catchExecuted) {
+            this.log(`[CATCH UNMATCHED] 일치하는 CATCH 블록 없음 → 예외 재전파`);
+            throw e;
           }
-
-          // CATCH 완료
-          this.log(`[CATCH COMPLETE] 예외 처리 완료`);
         }
 
         return undefined;

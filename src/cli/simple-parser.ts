@@ -288,33 +288,66 @@ export class SimpleLangParser {
     // try 블록
     const tryBlock = this.parseBlock();
 
-    // catch 블록
-    if (!this.matchType(TokenType.CATCH)) {
-      throw new Error('catch 필요');
+    // v8.6: 여러 catch 블록 파싱
+    const catchBlocks: any[] = [];
+
+    while (this.checkType(TokenType.CATCH)) {
+      this.advance(); // CATCH 스킵
+
+      if (!this.matchType(TokenType.LPAREN)) {
+        throw new Error('( 필요');
+      }
+
+      const exceptionVarToken = this.current();
+      if (!exceptionVarToken || exceptionVarToken.type !== TokenType.IDENT) {
+        throw new Error('예외 변수명 필요');
+      }
+      const exceptionVar = exceptionVarToken.value;
+      this.advance();
+
+      // v8.6: (e: Type) 형식 파싱 (타입 필터)
+      let exceptionType: string | undefined = undefined;
+      if (this.checkType(TokenType.COLON)) {
+        this.advance(); // : 스킵
+        const typeToken = this.current();
+        if (!typeToken || typeToken.type !== TokenType.IDENT) {
+          throw new Error('타입명 필요');
+        }
+        exceptionType = typeToken.value;
+        this.advance();
+      }
+
+      if (!this.matchType(TokenType.RPAREN)) {
+        throw new Error(') 필요');
+      }
+
+      const body = this.parseBlock();
+
+      catchBlocks.push({
+        type: 'CatchBlock',
+        exceptionType,
+        exceptionVar,
+        body
+      });
     }
 
-    if (!this.matchType(TokenType.LPAREN)) {
-      throw new Error('( 필요');
+    // catch 블록 최소 1개 필수
+    if (catchBlocks.length === 0) {
+      throw new Error('catch 블록 필요');
     }
 
-    const exceptionVarToken = this.current();
-    if (!exceptionVarToken || exceptionVarToken.type !== TokenType.IDENT) {
-      throw new Error('예외 변수명 필요');
+    // v8.7 준비: finally 블록 (선택사항)
+    let finallyBlock: ASTNode | undefined = undefined;
+    if (this.checkType(TokenType.FINALLY)) {
+      this.advance(); // FINALLY 스킵
+      finallyBlock = this.parseBlock();
     }
-    const exceptionVar = exceptionVarToken.value;
-    this.advance();
-
-    if (!this.matchType(TokenType.RPAREN)) {
-      throw new Error(') 필요');
-    }
-
-    const catchBlock = this.parseBlock();
 
     return {
       type: 'TryStatement',
       tryBlock,
-      catchBlock,
-      exceptionVar
+      catchBlocks,
+      finallyBlock
     };
   }
 
