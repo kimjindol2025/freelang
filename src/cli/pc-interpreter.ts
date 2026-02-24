@@ -832,6 +832,7 @@ export class PCInterpreter {
   private structTable: Map<string, {
     fields: { name: string; typeName: string; size: number; offset: number; padding: number }[];
     totalSize: number;
+    referenceFields?: { name: string; offset: number; typeName: string }[]; // v9.4: Member ownership tracking
   }> = new Map();
 
   // ── v5.9: 동적 메모리 할당 시스템 ─────────────────────────────────────────────
@@ -1738,8 +1739,24 @@ export class PCInterpreter {
         if (tailPadding > 0) {
           this.log(`[TAIL PADDING] 추가 ${tailPadding} bytes (다음 구조체 정렬을 위해)`);
         }
-        this.structTable.set(stmt.name, { fields: fieldsWithLayout, totalSize });
-        this.log(`[STRUCT DEF] ${stmt.name}: ${fieldsWithLayout.length}개 필드, ${totalSize} bytes total (tail padding included)`);
+
+        // v9.4: 참조 타입 필드 추출 (Member Ownership Tracking)
+        const primitiveTypes = new Set(['Integer', 'Float', 'String', 'Boolean', 'Ref']);
+        const referenceFields: { name: string; offset: number; typeName: string }[] = [];
+        for (const field of fieldsWithLayout) {
+          if (!primitiveTypes.has(field.typeName)) {
+            // 참조 타입인 필드: struct나 class
+            referenceFields.push({
+              name: field.name,
+              offset: field.offset,
+              typeName: field.typeName
+            });
+            this.log(`[V9.4 REFERENCE FIELD] '${stmt.name}.${field.name}': offset=${field.offset}, type=${field.typeName}`);
+          }
+        }
+
+        this.structTable.set(stmt.name, { fields: fieldsWithLayout, totalSize, referenceFields });
+        this.log(`[STRUCT DEF] ${stmt.name}: ${fieldsWithLayout.length}개 필드, ${totalSize} bytes total (${referenceFields.length} reference fields)`);
         return undefined;
       }
 
@@ -1797,7 +1814,22 @@ export class PCInterpreter {
 
         const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
         const totalSize = currentOffset + tailPadding;
-        this.structTable.set(className, { fields: fieldsWithLayout, totalSize });
+
+        // v9.4: 참조 타입 필드 추출 (Member Ownership Tracking)
+        const primitiveTypes = new Set(['Integer', 'Float', 'String', 'Boolean', 'Ref']);
+        const referenceFields: { name: string; offset: number; typeName: string }[] = [];
+        for (const field of fieldsWithLayout) {
+          if (!primitiveTypes.has(field.typeName)) {
+            referenceFields.push({
+              name: field.name,
+              offset: field.offset,
+              typeName: field.typeName
+            });
+            this.log(`[V9.4 REFERENCE FIELD] '${className}.${field.name}': offset=${field.offset}, type=${field.typeName}`);
+          }
+        }
+
+        this.structTable.set(className, { fields: fieldsWithLayout, totalSize, referenceFields });
 
         // v7.1: vTable 구성 (부모 vTable 복사 후 자식 메서드로 교체)
         const parentVTable = superClass ? this.vTableRegistry.get(superClass) : null;
@@ -2767,7 +2799,22 @@ export class PCInterpreter {
 
         const tailPadding = (maxAlignment - currentOffset % maxAlignment) % maxAlignment;
         const totalSize = currentOffset + tailPadding;
-        this.structTable.set(className, { fields: fieldsWithLayout, totalSize });
+
+        // v9.4: 참조 타입 필드 추출 (Member Ownership Tracking)
+        const primitiveTypes = new Set(['Integer', 'Float', 'String', 'Boolean', 'Ref']);
+        const referenceFields: { name: string; offset: number; typeName: string }[] = [];
+        for (const field of fieldsWithLayout) {
+          if (!primitiveTypes.has(field.typeName)) {
+            referenceFields.push({
+              name: field.name,
+              offset: field.offset,
+              typeName: field.typeName
+            });
+            this.log(`[V9.4 REFERENCE FIELD] '${className}.${field.name}': offset=${field.offset}, type=${field.typeName}`);
+          }
+        }
+
+        this.structTable.set(className, { fields: fieldsWithLayout, totalSize, referenceFields });
 
         // v7.1: vTable 구성 (부모 vTable 복사 후 자식 메서드로 교체)
         const parentVTable = superClass ? this.vTableRegistry.get(superClass) : null;
@@ -3833,7 +3880,31 @@ export class PCInterpreter {
         // RC가 0이 되면 destructor 호출
         if (varValue.__refCount === 0) {
           this.log(`[REFCOUNT ZERO] '${varName}' RC reached 0, calling destructor for ${varValue.__class}`);
-          // v10에서 destructor chain 구현 예정
+
+          // ── v9.4 DEEP RELEASE: 멤버 객체들의 RC도 감소 ────────────────────────────
+          if (varValue.__typeName && this.structTable.has(varValue.__typeName)) {
+            const structDef = this.structTable.get(varValue.__typeName)!;
+            if (structDef.referenceFields && structDef.referenceFields.length > 0) {
+              this.log(`[DEEP CLEANUP] '${varName}' destructor releasing ${structDef.referenceFields.length} members`);
+
+              for (const refField of structDef.referenceFields) {
+                // 구조체 멤버 객체 가져오기 (JavaScript 객체 속성)
+                const memberValue = varValue[refField.name];
+
+                if (memberValue && typeof memberValue === 'object' && memberValue.__refCount !== undefined) {
+                  const oldMemberRC = memberValue.__refCount;
+                  memberValue.__refCount--;
+                  this.log(`[MEMBER RELEASE] '${varName}.${refField.name}': RC ${oldMemberRC} → ${memberValue.__refCount}`);
+
+                  // 멤버의 RC도 0이 되면 재귀적으로 정리 (그 멤버의 멤버들까지)
+                  if (memberValue.__refCount === 0) {
+                    this.log(`[REFCOUNT ZERO] member '${varName}.${refField.name}' RC reached 0 (recursive cleanup pending)`);
+                  }
+                }
+              }
+            }
+          }
+          // ──────────────────────────────────────────────────────────────────────────
         }
       }
     }
