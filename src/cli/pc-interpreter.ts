@@ -1353,6 +1353,41 @@ export class PCInterpreter {
       return obj.__refCount;
     });
 
+    // v9.9: __ATOMIC_INC_RC 내장 함수 (원자적 RC 증가)
+    // 향후 멀티스레드 환경에서 Atomics API 사용 예정
+    // 현재는 단일 스레드이므로 일반 증가와 동일
+    this.variables.set('__ATOMIC_INC_RC', (obj: any) => {
+      if (!obj || typeof obj !== 'object') return 0;
+      if (obj.__refCount === undefined) obj.__refCount = 1;
+      obj.__refCount++;
+      this.log(`[ATOMIC_INC] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: RC ${obj.__refCount - 1} → ${obj.__refCount}`);
+      return obj.__refCount;
+    });
+
+    // v9.9: __ATOMIC_DEC_RC 내장 함수 (원자적 RC 감소)
+    // 향후 멀티스레드 환경에서 Atomics API 사용 예정
+    // 현재는 단일 스레드이므로 일반 감소와 동일
+    this.variables.set('__ATOMIC_DEC_RC', (obj: any) => {
+      if (!obj || typeof obj !== 'object') return 0;
+      if (obj.__refCount === undefined) return 0;
+      obj.__refCount--;
+      this.log(`[ATOMIC_DEC] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: RC ${obj.__refCount + 1} → ${obj.__refCount}`);
+
+      // v9.9: RC == 0 시 자동 소멸
+      if (obj.__refCount === 0) {
+        this.log(`[ATOMIC_DESTROY] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: RC가 0이 되어 소멸 시작`);
+        this.callDestructor(obj);
+      }
+      return obj.__refCount;
+    });
+
+    // v9.9: __ATOMIC_GET_RC 내장 함수 (원자적 RC 조회)
+    this.variables.set('__ATOMIC_GET_RC', (obj: any) => {
+      if (!obj || typeof obj !== 'object' || obj.__refCount === undefined) return 0;
+      this.log(`[ATOMIC_GET] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: RC ${obj.__refCount}`);
+      return obj.__refCount;
+    });
+
     // v9.2: __GET_HEAP_USAGE 내장 함수 (현재 힙 메모리 사용량 바이트 반환)
     this.variables.set('__GET_HEAP_USAGE', () => {
       let totalBytes = 0;
@@ -4102,6 +4137,45 @@ export class PCInterpreter {
     // ──────────────────────────────────────────────────────────────────────
 
     return retVal;
+  }
+
+  /**
+   * v9.9: 원자적 RC 증가 (엔진 내부 사용)
+   * 향후 SharedArrayBuffer 기반 구현 예정
+   * 현재는 단일 스레드이므로 일반 증가와 동일
+   */
+  private atomicIncRefCount(obj: any): void {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj.__refCount === undefined) obj.__refCount = 1;
+    obj.__refCount++;
+    this.log(`[ATOMIC_INC_RC] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: ${obj.__refCount - 1} → ${obj.__refCount}`);
+  }
+
+  /**
+   * v9.9: 원자적 RC 감소 (엔진 내부 사용)
+   * 향후 SharedArrayBuffer 기반 구현 예정
+   * RC == 0이면 자동으로 Destructor 호출
+   */
+  private atomicDecRefCount(obj: any, reason: string = 'manual'): void {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj.__refCount === undefined || obj.__refCount <= 0) return;
+
+    obj.__refCount--;
+    this.log(`[ATOMIC_DEC_RC] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: ${obj.__refCount + 1} → ${obj.__refCount} (${reason})`);
+
+    if (obj.__refCount === 0) {
+      this.log(`[ATOMIC_RC_ZERO] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: RC==0 → Destructor 호출`);
+      this.callDestructor(obj);
+    }
+  }
+
+  /**
+   * v9.9: 원자적 RC 조회 (엔진 내부 사용)
+   */
+  private atomicGetRefCount(obj: any): number {
+    if (!obj || typeof obj !== 'object' || obj.__refCount === undefined) return 0;
+    this.log(`[ATOMIC_GET_RC] ${obj.__class || 'Object'}#${obj.__objectId || '?'}: RC ${obj.__refCount}`);
+    return obj.__refCount;
   }
 
   /**
