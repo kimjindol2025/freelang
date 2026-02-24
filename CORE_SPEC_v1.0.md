@@ -1,11 +1,12 @@
-# FreeLang Core Specification v1.0 - FREEZE
+# FreeLang Core Specification v1.1 - FREEZE & FUTURE ROADMAP
 
-**상태**: 🔴 **FROZEN** (2026-02-25)
-**버전**: v10.3 기반
+**상태**: 🔴 **FROZEN** (2026-02-25) | 🟡 **FUTURE ROADMAP** (v11.0+)
+**버전**: v10.3 기반 + v11.0 Hybrid GC 계획
 **유효기간**: v11.0 ~ v19.99 (v20 이전 모든 버전)
 
-이 문서는 FreeLang의 핵심 아키텍처를 고정합니다.
-**변경 불가. 위반 시 아키텍처 붕괴 위험.**
+이 문서는 FreeLang의 핵심 아키텍처를 고정하고, v11.0 Hybrid GC 로드맵을 제시합니다.
+**핵심 변경 불가. 위반 시 아키텍처 붕괴 위험.**
+**v11.0 Hybrid는 명시된 범위 내에서만 확장 가능.**
 
 ---
 
@@ -137,6 +138,27 @@ Weak References (v9.6):
 Instance Tracker:
   - 모든 객체 생명주기 추적
   - checkMemoryLeaks() 최종 감사
+```
+
+#### 2.2.3 v11.0 Hybrid GC 확장 (Future - Cycle Collector 수준)
+
+```
+v11-v19 범위 내에서 추가 가능:
+  - Cycle Detector: 순환 참조 자동 감지
+  - Mark-Sweep: RC 실패한 순환 구조 정리
+  - Incremental Collection: Stop-the-World 최소화
+
+제약:
+  ✅ RC 기반 유지 (RC는 즉시 반응, 99% 커버)
+  ✅ Cycle detection만 추가 (순환은 배경에서 정리)
+  ✅ ISA 변경 금지 (기존 바이트코드 호환)
+  ❌ Generational GC 불가 (메모리 레이아웃 변경 필요 → v20)
+  ❌ Mark-Compact 불가 (포인터 재배치 → v20)
+
+v11.0 설계 원칙:
+  1. Immediate RC: 즉시 refcount 0 객체 정리
+  2. Background Cycle: 주기적 순환 참조 정리
+  3. Zero Surprise: 응답 시간 예측 가능
 ```
 
 ### 2.3 스택 관리
@@ -511,21 +533,78 @@ v19.x: Final enhancement before breaking change
 
 ---
 
+## 1️⃣1️⃣ v11.0 Hybrid GC 로드맵 (Future)
+
+### 11.1 설계 원칙 (Cycle Collector 수준)
+
+```
+【목표】
+  v9.x RC: 99% 커버 (즉시 반응)
+  v11.0 Cycle Collector: 나머지 1% (순환 참조)
+  → Combined: 100% 안정성 + 빠른 응답
+
+【제약】
+  ✅ ISA 변경 금지 (v1.0 고정)
+  ✅ 메모리 레이아웃 변경 금지
+  ✅ 바이트코드 호환성 100%
+  ✅ RC 메커니즘 유지 (추가만 가능)
+```
+
+### 11.2 구현 범위
+
+```
+【Phase 1: Cycle Detection】
+  - Graph builder: 객체 참조 그래프 구성
+  - Cycle detector: DFS/BFS로 순환 감지
+  - Mark-and-sweep: 순환 구조만 정리
+  - Background: 메인 스레드 블로킹 없음
+
+【Phase 2: Incremental Collection】
+  - Tri-color marking: White/Gray/Black 추적
+  - Incremental mark: 스텝 단위 마킹
+  - Lazy sweep: 필요시만 정리
+  - Pause < 10ms
+
+【Phase 3: Profiling】
+  - Cycle statistics: 발생 빈도, 크기
+  - Performance impact: GC overhead 측정
+  - Tuning: 주기 및 threshold 최적화
+```
+
+### 11.3 v1.0과의 호환성 보장
+
+```
+Breaking change: NONE
+  ✅ 기존 RC 코드 100% 작동
+  ✅ 기존 바이트코드 100% 호환
+  ✅ 기존 API 100% 유지
+  ✅ 성능 regression 없음
+
+추가 기능: Cycle collection만
+  - 선택사항 (기본 RC로도 충분)
+  - 개발자가 필요시만 활성화
+  - 투명한 배경 실행
+```
+
+---
+
 ## 승인
 
-| 항목 | 상태 | 서명 | 일시 |
-|------|------|------|------|
-| Spec Freeze | ✅ 승인 | Claude (v10.3) | 2026-02-25 |
-| 타입 시스템 | ✅ 확정 | - | - |
-| 메모리 모델 | ✅ RC Only | - | - |
-| ISA 고정 | ✅ v1.0 | - | - |
-| Exception 계층 | ✅ 3개 | - | - |
+| 항목 | 상태 | 버전 | 서명 | 일시 |
+|------|------|------|------|------|
+| Core Spec Freeze | ✅ 승인 | v1.0 | Claude (v10.3) | 2026-02-25 |
+| Hybrid GC 로드맵 | ✅ 추가 | v1.1 | Claude | 2026-02-25 |
+| 타입 시스템 | ✅ 확정 | v1.0 | - | - |
+| 메모리 모델 | ✅ RC+Cycle | v1.1 | - | - |
+| ISA 고정 | ✅ v1.0 | v1.0 | - | - |
+| Exception 계층 | ✅ 3+Hybrid | v1.1 | - | - |
 
 ---
 
 **이 문서는 v11.0부터 v19.99까지 유효합니다.**
-**v20에서만 새로운 스펙이 허용됩니다.**
+**v20에서 Breaking Change 허용 (새 ISA v2.0).**
 
-**변경 금지. 위반 시 아키텍처 붕괴.**
+**v1.0: 핵심 고정 (변경 금지)**
+**v1.1: v11.0 Hybrid GC 로드맵 (확장 명시)**
 
-🔴 **FROZEN** 🔴
+🔴 **FROZEN** 🔴 | 🟡 **ROADMAP** 🟡
