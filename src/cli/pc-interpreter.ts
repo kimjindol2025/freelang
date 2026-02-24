@@ -802,6 +802,7 @@ interface HandlerFrame {
 
 export class PCInterpreter {
   private variables: Map<string, any> = new Map();
+  private globalFunctions: Map<string, any> = new Map(); // v9.1: 내장 함수 저장소 (localScope 복사용)
   private output: string[] = [];
   private pc: number = 0; // Program Counter
   private loopStack: number[] = []; // WHILE 시작 위치 스택 (v3.3)
@@ -1275,6 +1276,9 @@ export class PCInterpreter {
 
     // v8.5: 내장 Exception 클래스 등록
     this.initializeBuiltinExceptionClass();
+
+    // v9.1: globalFunctions 백업 (callUserFunction에서 localScope 복사용)
+    this.globalFunctions = new Map(this.variables);
   }
 
   /**
@@ -1334,6 +1338,12 @@ export class PCInterpreter {
     this.variables.set('get_trace', (exceptionObj: any) => {
       if (!exceptionObj || exceptionObj.__type !== 'object') return [];
       return exceptionObj.Trace ?? [];
+    });
+
+    // v9.1: __GET_RC 내장 함수 (객체의 참조 카운트 조회 - 디버그용)
+    this.variables.set('__GET_RC', (obj: any) => {
+      if (!obj || typeof obj !== 'object' || obj.__refCount === undefined) return 0;
+      return obj.__refCount;
     });
 
     // v8.9: 시스템 예외 서브클래스 등록 (Exception 상속)
@@ -1653,11 +1663,36 @@ export class PCInterpreter {
 
       case 'Assignment': {
         const val = this.eval(stmt.value);
-        this.variables.set(stmt.name, val);
+        const varName = stmt.name;
+
+        // v9.2: Strong Reference Assignment (RC Transfer)
+        // 자기 대입 보호를 위해 Retain을 Release보다 먼저 수행
+        // Step 1: 새로운 값이 객체면 먼저 Retain (refCount++)
+        if (val && typeof val === 'object' && val.__refCount !== undefined) {
+          val.__refCount++;
+          this.log(`[REFCOUNT RETAIN] ${val.__class}#${val.__objectId}: ${val.__refCount - 1} → ${val.__refCount} (assignment target)`);
+        }
+
+        // Step 2: 이전 값이 객체면 Release (refCount--)
+        const oldValue = this.variables.get(varName);
+        if (oldValue && typeof oldValue === 'object' && oldValue.__refCount !== undefined) {
+          oldValue.__refCount--;
+          this.log(`[REFCOUNT RELEASE] ${oldValue.__class}#${oldValue.__objectId}: ${oldValue.__refCount + 1} → ${oldValue.__refCount} (overwritten)`);
+
+          // 자동 소멸 (refCount == 0일 때) - v9.3에서 본격 구현
+          if (oldValue.__refCount === 0) {
+            this.log(`[REFCOUNT ZERO] ${oldValue.__class}#${oldValue.__objectId} 더 이상 소유자 없음 (v9.3에서 파괴 예정)`);
+          }
+        }
+
+        // Step 3: 변수에 새 값 할당 (Address Copy)
+        this.variables.set(varName, val);
+        this.log(`[V9.2 ASSIGNMENT] '${varName}' = ... (RC Transfer Complete)`);
+
         // v4.2: DELIVERY 추적 (최상위 문에서도)
         if (stmt.value?.type === 'CallExpression') {
           const callee = stmt.value.callee?.name ?? '?';
-          this.log(`[DELIVERY] '${callee}()' 반환값 ${val} → '${stmt.name}'`);
+          this.log(`[DELIVERY] '${callee}()' 반환값 ${val} → '${varName}'`);
         }
         return undefined;
       }
@@ -1942,6 +1977,20 @@ export class PCInterpreter {
 
             // 예외 변수 바인딩
             if (exceptionVar) {
+              // v9.2: 예외 변수 할당도 RC 증감 처리
+              // Step 1: 새로운 예외 객체가 할당되므로 Retain (RC++)
+              if (exceptionValue && typeof exceptionValue === 'object' && exceptionValue.__refCount !== undefined) {
+                exceptionValue.__refCount++;
+                this.log(`[REFCOUNT RETAIN] ${exceptionValue.__class}#${exceptionValue.__objectId}: ${exceptionValue.__refCount - 1} → ${exceptionValue.__refCount} (exception binding)`);
+              }
+
+              // Step 2: 이전 값이 있으면 Release (RC--)
+              const oldExceptionValue = this.variables.get(exceptionVar);
+              if (oldExceptionValue && typeof oldExceptionValue === 'object' && oldExceptionValue.__refCount !== undefined) {
+                oldExceptionValue.__refCount--;
+                this.log(`[REFCOUNT RELEASE] ${oldExceptionValue.__class}#${oldExceptionValue.__objectId}: ${oldExceptionValue.__refCount + 1} → ${oldExceptionValue.__refCount} (exception rebind)`);
+              }
+
               this.variables.set(exceptionVar, exceptionValue);
               this.log(`[BIND EXCEPTION] ${exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
             }
@@ -2356,26 +2405,29 @@ export class PCInterpreter {
         const val = this.eval(node.value);
         const varName = node.name;
 
-        // v7.5 Phase 2: Reference Acquire/Release
-        // Step 1: 이전 값이 객체면 Release (refCount--)
+        // v9.2: Strong Reference Assignment (Self-Assignment Safe)
+        // 자기 대입(SET a = a) 시 a.__refCount++, a.__refCount--로 인해 0이 되는 것을 방지
+        // 따라서 Retain(증가)을 Release(감소)보다 먼저 수행!
+
+        // Step 1: 새로운 값이 객체면 먼저 Retain (refCount++) ← v9.2 자기 대입 보호!
+        if (val && typeof val === 'object' && val.__refCount !== undefined) {
+          val.__refCount++;
+          this.log(`[V9.2 REFCOUNT RETAIN] ${val.__class}#${val.__objectId}: ${val.__refCount - 1} → ${val.__refCount} (assignment target)`);
+        }
+
+        // Step 2: 이전 값이 객체면 Release (refCount--)
         const oldValue = this.variables.get(varName);
         if (oldValue && typeof oldValue === 'object' && oldValue.__refCount !== undefined) {
           oldValue.__refCount--;
-          this.log(`[REFCOUNT RELEASE] ${oldValue.__class} @ ${oldValue.__objectId}, RefCount: ${oldValue.__refCount + 1} → ${oldValue.__refCount}`);
+          this.log(`[V9.2 REFCOUNT RELEASE] ${oldValue.__class}#${oldValue.__objectId}: ${oldValue.__refCount + 1} → ${oldValue.__refCount} (overwritten)`);
 
-          // 자동 소멸 (refCount == 0일 때)
+          // 자동 소멸 (refCount == 0일 때) - v9.3에서 본격 구현
           if (oldValue.__refCount === 0) {
-            this.callDestructor(oldValue);
-            const objectKey = `${oldValue.__class}@${oldValue.__baseAddr}`;
-            this.instanceTracker.delete(objectKey);
-            this.log(`[MEMORY FREE] ${oldValue.__class} @ ${oldValue.__objectId} 자동 해제됨`);
+            this.log(`[REFCOUNT ZERO] ${oldValue.__class}#${oldValue.__objectId} 더 이상 소유자 없음 (v9.3 파괴 예정)`);
+            // 향후 v9.3에서:
+            // this.callDestructor(oldValue);
+            // this.instanceTracker.delete(objectKey);
           }
-        }
-
-        // Step 2: 새로운 값이 객체면 Acquire (refCount++)
-        if (val && typeof val === 'object' && val.__refCount !== undefined) {
-          val.__refCount++;
-          this.log(`[REFCOUNT ACQUIRE] ${val.__class} @ ${val.__objectId}, RefCount: ${val.__refCount - 1} → ${val.__refCount}`);
         }
 
         // Step 3: 변수에 새 값 할당
@@ -2484,11 +2536,11 @@ export class PCInterpreter {
         // v7.2: 물리적 메모리처럼 명시
         const vTableAddr = vTable?.__staticAddress ?? 'null';
         this.log(`[CLASS ALLOC] new ${className}() @ ${baseAddr}`);
-        this.log(`  → HEAP[${baseAddr}+0] = ${vTableAddr}  // vPtr 족보 기입 (메서드 테이블 주소)`);
-        this.log(`  → HEAP[${baseAddr}+4] = ${instance.__refCount}  // v7.5: RefCount (객체 참조 카운트)`);
+        // v9.1: HEAP 메모리 헤더 레이아웃 (한 줄에 vPtr + RC 정보 표시)
+        this.log(`  → HEAP[${baseAddr}] Layout: HEAP[+0]=vPtr(${vTableAddr}), HEAP[+4]=RC(${instance.__refCount})`);
         this.log(`  → FIELDS: ${classDef.fields.map((f: any) => `${f.name}@[${baseAddr}+${f.offset + 8}]`).join(', ')}`);
         this.log(`  → TOTAL SIZE: ${classDef.totalSize + 8} bytes (vPtr+RefCount+fields)`);
-        this.log(`[REFCOUNT] ${className}#${instance.__objectId} RefCount=1 (신규 생성)`);
+        this.log(`[V9.1 BIRTH] ${className}#${instance.__objectId} 객체 생성 완료 - 초기 RefCount=1 (객체 소유 시작)`);
 
         return instance;
       }
@@ -3024,6 +3076,20 @@ export class PCInterpreter {
 
             // 예외 변수 바인딩
             if (exceptionVar) {
+              // v9.2: 예외 변수 할당도 RC 증감 처리
+              // Step 1: 새로운 예외 객체가 할당되므로 Retain (RC++)
+              if (exceptionValue && typeof exceptionValue === 'object' && exceptionValue.__refCount !== undefined) {
+                exceptionValue.__refCount++;
+                this.log(`[REFCOUNT RETAIN] ${exceptionValue.__class}#${exceptionValue.__objectId}: ${exceptionValue.__refCount - 1} → ${exceptionValue.__refCount} (exception binding)`);
+              }
+
+              // Step 2: 이전 값이 있으면 Release (RC--)
+              const oldExceptionValue = this.variables.get(exceptionVar);
+              if (oldExceptionValue && typeof oldExceptionValue === 'object' && oldExceptionValue.__refCount !== undefined) {
+                oldExceptionValue.__refCount--;
+                this.log(`[REFCOUNT RELEASE] ${oldExceptionValue.__class}#${oldExceptionValue.__objectId}: ${oldExceptionValue.__refCount + 1} → ${oldExceptionValue.__refCount} (exception rebind)`);
+              }
+
               this.variables.set(exceptionVar, exceptionValue);
               this.log(`[BIND EXCEPTION] ${exceptionVar} = Exception(${exceptionValue.__class || 'Unknown'})`);
             }
@@ -3691,6 +3757,15 @@ export class PCInterpreter {
         localScope.set('println', globalPrintln);
       }
 
+      // v9.1: __GET_RC 및 기타 내장 함수들 복사
+      const builtinFuncs = ['__GET_RC', 'get_cause', 'get_trace', '__GET_HANDLER_COUNT', '__GET_HANDLER_SP', '__GET_HANDLER_FP', '__GET_FP'];
+      for (const funcName of builtinFuncs) {
+        const globalFunc = this.variables.get(funcName);
+        if (typeof globalFunc === 'function') {
+          localScope.set(funcName, globalFunc);
+        }
+      }
+
       this.variables = localScope;
       this.indentLevel++;
 
@@ -3725,6 +3800,45 @@ export class PCInterpreter {
       break;
     }
     // ────────────────────────────────────────────────────────────────────────
+
+    // ── v9.3 EPILOGUE: Scope-based Auto-Release (The Reaper) ─────────────────────
+    // 반환값 보호: RC를 감소시키지 않을 변수 표시
+    let returnProtected = false;
+    if (retVal && typeof retVal === 'object' && retVal.__refCount !== undefined) {
+      returnProtected = true;
+      this.log(`[RETURN PROTECTED] '${name}' return value protected (RC not decremented)`);
+    }
+
+    // 지역 변수들을 역순으로 순회하며 RC 감소 (LIFO 순서)
+    const builtinNames = ['println', '__GET_RC', 'get_cause', 'get_trace', '__GET_HANDLER_COUNT', '__GET_HANDLER_SP', '__GET_HANDLER_FP', '__GET_FP'];
+    const localVarsToClean = [...this.variables.keys()]
+      .filter(k => !builtinNames.includes(k))
+      .reverse(); // 역순으로 정렬 (LIFO)
+
+    for (const varName of localVarsToClean) {
+      const varValue = this.variables.get(varName);
+
+      // 반환값과 같은 객체는 보호 (epilogue에서 감소하지 않음)
+      if (returnProtected && varValue === retVal) {
+        this.log(`[RETURN PROTECTED] '${varName}' is return value, skipping epilogue`);
+        continue;
+      }
+
+      // RC 필드가 있는 객체만 처리
+      if (varValue && typeof varValue === 'object' && varValue.__refCount !== undefined) {
+        const oldRC = varValue.__refCount;
+        varValue.__refCount--;
+        this.log(`[EPILOGUE] '${name}' local var '${varName}': RC ${oldRC} → ${varValue.__refCount}`);
+
+        // RC가 0이 되면 destructor 호출
+        if (varValue.__refCount === 0) {
+          this.log(`[REFCOUNT ZERO] '${varName}' RC reached 0, calling destructor for ${varValue.__class}`);
+          // v10에서 destructor chain 구현 예정
+        }
+      }
+    }
+    this.log(`[EPILOGUE COMPLETE] '${name}' scope cleanup done (${localVarsToClean.length} vars processed)`);
+    // ───────────────────────────────────────────────────────────────────────────────
 
     // ── 4. v4.2 LOCAL ISOLATION: 소멸할 로컬 변수 목록 기록 ──────────────
     const localVarNames = [...this.variables.keys()]
