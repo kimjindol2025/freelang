@@ -819,6 +819,9 @@ export class PCInterpreter {
   private globalIterationCount: number = 0; // v3.7: 전체 프로그램 반복 횟수
   private jumpOffsetCache: Map<number, number> = new Map(); // v3.9: Jump Table - 루프 점프 목적지 캐시
 
+  // ── v8.8: Exception Chaining & Handler Re-entrancy ──────────────────────────
+  private currentlyHandlingException: any = null;  // v8.8: 현재 처리 중인 예외 추적
+
   // ── v4.0: 함수 시스템 ─────────────────────────────────────────────────────
   private functionTable: Map<string, { params: string[]; body: ASTNode }> = new Map();
   //   함수 이름 → { 매개변수 목록, 바디 블록 }
@@ -1285,10 +1288,11 @@ export class PCInterpreter {
       { name: 'Message', typeName: 'String', size: 4, offset: 0, padding: 0 },
       { name: 'Code', typeName: 'Integer', size: 4, offset: 4, padding: 0 },
       { name: 'Timestamp', typeName: 'String', size: 4, offset: 8, padding: 0 },
-      { name: 'Location', typeName: 'String', size: 4, offset: 12, padding: 0 }
+      { name: 'Location', typeName: 'String', size: 4, offset: 12, padding: 0 },
+      { name: 'Cause', typeName: 'Object', size: 4, offset: 16, padding: 0 }  // v8.8: Exception Chaining
     ];
 
-    const totalSize = 16; // 4 필드 × 4바이트
+    const totalSize = 20; // 5 필드 × 4바이트 (v8.8: Cause 필드 추가)
 
     // 1. classTable에 Exception 등록
     this.classTable.set(exceptionClassName, {
@@ -1315,8 +1319,14 @@ export class PCInterpreter {
     });
 
     this.log(`[BUILTIN CLASS] Exception 클래스 등록 완료`);
-    this.log(`  → 필드: Message(4B), Code(4B), Timestamp(4B), Location(4B)`);
+    this.log(`  → 필드: Message(4B), Code(4B), Timestamp(4B), Location(4B), Cause(4B)`);
     this.log(`  → 총 크기: ${totalSize}B`);
+
+    // v8.8: get_cause 내장 함수
+    this.variables.set('get_cause', (exceptionObj: any) => {
+      if (!exceptionObj || exceptionObj.__type !== 'object') return 0;
+      return exceptionObj.Cause ?? 0;
+    });
   }
 
   /**
@@ -1738,10 +1748,16 @@ export class PCInterpreter {
           // v8.7: FINALLY 실행 (정상 경로)
           if ((stmt as any).finallyBlock) {
             this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (정상 종료 경로)`);
-            for (const finallyStmt of (stmt as any).finallyBlock.statements) {
-              this.eval(finallyStmt);
+            // v8.8: FINALLY 예외를 우선 전파
+            try {
+              for (const finallyStmt of (stmt as any).finallyBlock.statements) {
+                this.eval(finallyStmt);
+              }
+              this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+            } catch (finallyErr: any) {
+              this.log(`[FINALLY EXCEPTION] FINALLY에서 새 예외 발생 → 우선 전파`);
+              throw finallyErr;
             }
-            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
           }
 
         } catch (e: any) {
@@ -1798,6 +1814,11 @@ export class PCInterpreter {
               this.log(`[CATCH MATCH] 타입 필터 없음 (모든 예외 처리)`);
             }
 
+            // v8.8: Exception Chaining - 현재 처리 중인 예외 등록
+            const prevHandlingException = this.currentlyHandlingException;
+            this.currentlyHandlingException = exceptionValue;
+            this.log(`[ENTER_CATCH] 현재 처리 중 예외 등록 (체인 추적 시작)`);
+
             // 예외 변수 바인딩
             if (exceptionVar) {
               this.variables.set(exceptionVar, exceptionValue);
@@ -1809,6 +1830,10 @@ export class PCInterpreter {
               this.eval(catchStmt);
             }
 
+            // v8.8: 이전 예외 상태 복구
+            this.currentlyHandlingException = prevHandlingException;
+            this.log(`[EXIT_CATCH] 예외 상태 복구 (체인 추적 종료)`);
+
             this.log(`[CATCH COMPLETE] 예외 처리 완료 (${exceptionType || 'default'})`);
             catchExecuted = true;
             break; // 첫 번째 일치 블록만 실행
@@ -1817,10 +1842,16 @@ export class PCInterpreter {
           // v8.7: FINALLY 실행 (예외 처리 경로 - 재전파 전) - executeStatement 버전
           if ((stmt as any).finallyBlock) {
             this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (예외 처리 경로)`);
-            for (const finallyStmt of (stmt as any).finallyBlock.statements) {
-              this.eval(finallyStmt);
+            // v8.8: FINALLY 예외를 우선 전파
+            try {
+              for (const finallyStmt of (stmt as any).finallyBlock.statements) {
+                this.eval(finallyStmt);
+              }
+              this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+            } catch (finallyErr: any) {
+              this.log(`[FINALLY EXCEPTION] FINALLY에서 새 예외 발생 → 우선 전파`);
+              throw finallyErr;
             }
-            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
           }
 
           // 일치하는 CATCH 블록이 없으면 예외 재던지기 (FINALLY 후)
@@ -1878,6 +1909,13 @@ export class PCInterpreter {
             message = String(exceptionObject);
             this.log(`[THROW] 예외 발생: ${message}`);
           }
+        }
+
+        // v8.8: Exception Chaining - 현재 처리 중인 예외가 있으면 Cause로 연결
+        if (exceptionObject && exceptionObject.__type === 'object' && this.currentlyHandlingException) {
+          exceptionObject.Cause = this.currentlyHandlingException;
+          const causeMsg = this.currentlyHandlingException.Message || '(unknown)';
+          this.log(`[EXCEPTION CHAIN] SET_CAUSE: "${exceptionObject.Message}" ← "${causeMsg}"`);
         }
 
         // v8.5: 예외 객체를 핸들러에 저장 (CATCH 블록에서 접근 가능하게)
@@ -2768,10 +2806,16 @@ export class PCInterpreter {
           // v8.7: FINALLY 실행 (정상 경로)
           if ((node as any).finallyBlock) {
             this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (정상 종료 경로)`);
-            for (const finallyStmt of (node as any).finallyBlock.statements) {
-              this.eval(finallyStmt);
+            // v8.8: FINALLY 예외를 우선 전파
+            try {
+              for (const finallyStmt of (node as any).finallyBlock.statements) {
+                this.eval(finallyStmt);
+              }
+              this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+            } catch (finallyErr: any) {
+              this.log(`[FINALLY EXCEPTION] FINALLY에서 새 예외 발생 → 우선 전파`);
+              throw finallyErr;
             }
-            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
           }
 
         } catch (e: any) {
@@ -2828,6 +2872,11 @@ export class PCInterpreter {
               this.log(`[CATCH MATCH] 타입 필터 없음 (모든 예외 처리)`);
             }
 
+            // v8.8: Exception Chaining - 현재 처리 중인 예외 등록
+            const prevHandlingException = this.currentlyHandlingException;
+            this.currentlyHandlingException = exceptionValue;
+            this.log(`[ENTER_CATCH] 현재 처리 중 예외 등록 (체인 추적 시작)`);
+
             // 예외 변수 바인딩
             if (exceptionVar) {
               this.variables.set(exceptionVar, exceptionValue);
@@ -2839,6 +2888,10 @@ export class PCInterpreter {
               this.eval(catchStmt);
             }
 
+            // v8.8: 이전 예외 상태 복구
+            this.currentlyHandlingException = prevHandlingException;
+            this.log(`[EXIT_CATCH] 예외 상태 복구 (체인 추적 종료)`);
+
             this.log(`[CATCH COMPLETE] 예외 처리 완료 (${exceptionType || 'default'})`);
             catchExecuted = true;
             break; // 첫 번째 일치 블록만 실행
@@ -2847,10 +2900,16 @@ export class PCInterpreter {
           // v8.7: FINALLY 실행 (예외 처리 경로 - 재전파 전) - eval 버전
           if ((node as any).finallyBlock) {
             this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (예외 처리 경로)`);
-            for (const finallyStmt of (node as any).finallyBlock.statements) {
-              this.eval(finallyStmt);
+            // v8.8: FINALLY 예외를 우선 전파
+            try {
+              for (const finallyStmt of (node as any).finallyBlock.statements) {
+                this.eval(finallyStmt);
+              }
+              this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+            } catch (finallyErr: any) {
+              this.log(`[FINALLY EXCEPTION] FINALLY에서 새 예외 발생 → 우선 전파`);
+              throw finallyErr;
             }
-            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
           }
 
           // 일치하는 CATCH 블록이 없으면 예외 재던지기 (FINALLY 후)
@@ -2903,6 +2962,13 @@ export class PCInterpreter {
             message = String(exceptionObject);
             this.log(`[THROW] 예외 발생: ${message}`);
           }
+        }
+
+        // v8.8: Exception Chaining - 현재 처리 중인 예외가 있으면 Cause로 연결
+        if (exceptionObject && exceptionObject.__type === 'object' && this.currentlyHandlingException) {
+          exceptionObject.Cause = this.currentlyHandlingException;
+          const causeMsg = this.currentlyHandlingException.Message || '(unknown)';
+          this.log(`[EXCEPTION CHAIN] SET_CAUSE: "${exceptionObject.Message}" ← "${causeMsg}"`);
         }
 
         // v8.5: 예외 객체를 핸들러에 저장 (CATCH 블록에서 접근 가능하게)
