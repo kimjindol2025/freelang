@@ -919,6 +919,35 @@ export class PCInterpreter {
   private globalLoopExecutionCount: number = 0;
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v10.2: Inline Caching & Polymorphic Dispatch ────────────────────────
+  // Shape: 객체의 멤버 구조를 표현 (className:fieldName1:fieldName2...)
+  private shapeRegistry: Map<string, {
+    className: string;
+    fieldNames: string[];
+    shapeId: string;
+  }> = new Map();
+  private shapeCounter: number = 0;
+
+  // Inline Cache: Call Site별 메서드 접근 캐시
+  private inlineCacheSlots: Map<string, {
+    lastShape: string;           // 마지막 접근한 객체의 Shape
+    methodAddress: any;          // 메서드 함수 직접 참조
+    hitCount: number;            // 캐시 적중 횟수
+    missCount: number;           // 캐시 미스 횟수
+    polymorphicEntries: Map<string, any>;  // 다형성: 여러 Shape 지원
+  }> = new Map();
+
+  // 성능 메트릭
+  private inlineCacheStats: {
+    totalHits: number;
+    totalMisses: number;
+    cacheSize: number;
+  } = { totalHits: 0, totalMisses: 0, cacheSize: 0 };
+
+  // 타이머: 나노초 정밀도 측정
+  private performanceMarkMap: Map<string, number> = new Map();
+  // ──────────────────────────────────────────────────────────────────────────
+
   // ── v7.4: 접근 제어 (Access Control) ──────────────────────────────────────
   private currentClassContext: string | null = null;  // 현재 실행 중인 클래스 (메서드 내부 추적)
   // ──────────────────────────────────────────────────────────────────────────
@@ -1029,6 +1058,55 @@ export class PCInterpreter {
       const count = this.globalLoopExecutionCount;
       this.log(`[LOOP_EXEC_COUNT] 전체 루프 실행 횟수: ${count}회`);
       return count;
+    });
+
+    // v10.2: __GET_TICK_PRECISE() — 나노초 정밀도 타이머 (성능 측정용)
+    this.variables.set('__GET_TICK_PRECISE', () => {
+      // JavaScript의 performance.now()를 마이크로초 단위로 반환
+      const now = performance.now() * 1000;  // ms → μs (1000배)
+      this.log(`[TICK_PRECISE] 현재 시간: ${now.toFixed(0)} μs`);
+      return now;
+    });
+
+    // v10.2: __GET_INLINE_CACHE_STATS() — 인라인 캐시 성능 통계
+    this.variables.set('__GET_INLINE_CACHE_STATS', () => {
+      const hitRate = this.inlineCacheStats.totalHits + this.inlineCacheStats.totalMisses > 0
+        ? (this.inlineCacheStats.totalHits / (this.inlineCacheStats.totalHits + this.inlineCacheStats.totalMisses) * 100).toFixed(2)
+        : '0.00';
+      const stats = {
+        hits: this.inlineCacheStats.totalHits,
+        misses: this.inlineCacheStats.totalMisses,
+        hitRate: parseFloat(hitRate),
+        cacheSize: this.inlineCacheStats.cacheSize
+      };
+      this.log(`[IC_STATS] 캐시 적중: ${stats.hits}, 미스: ${stats.misses}, 적중률: ${stats.hitRate}%, 슬롯: ${stats.cacheSize}`);
+      return stats;
+    });
+
+    // v10.2: __CACHE_SHAPE(object) — 객체의 Shape를 등록 및 반환
+    this.variables.set('__CACHE_SHAPE', (obj: any) => {
+      if (!obj || typeof obj !== 'object') {
+        throw new Error('[SHAPE ERROR] 객체만 Shape 캐싱 가능');
+      }
+
+      const className = obj.__class || 'Unknown';
+      const fieldNames = obj.__type === 'object' || obj.__type === 'struct'
+        ? Object.keys(obj).filter(k => !k.startsWith('__')).sort()
+        : [];
+
+      const shapeId = `${className}:${fieldNames.join(':')}`;
+      if (!this.shapeRegistry.has(shapeId)) {
+        const newShapeId = `Shape_${this.shapeCounter++}`;
+        this.shapeRegistry.set(shapeId, {
+          className,
+          fieldNames,
+          shapeId: newShapeId
+        });
+        this.log(`[SHAPE_REGISTER] 신규 Shape 등록: ${newShapeId} (${className}, 멤버: ${fieldNames.length})`);
+      }
+
+      const shape = this.shapeRegistry.get(shapeId)!;
+      return shape.shapeId;
     });
 
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
