@@ -931,6 +931,12 @@ export class PCInterpreter {
   private objectIdCounter: number = 0;  // 객체 고유 ID
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── v9.6: Weak Reference System (Breaking the Cycle) ─────────────────────
+  // weakRefTable: Map<objectAddress, Set<{varName, scope}>>
+  // 객체가 파괴될 때, 이 객체를 가리키는 모든 weak 참조들을 NULL로 만듦
+  private weakRefTable: Map<string, Set<string>> = new Map();  // objAddr -> Set of weak var names
+  // ──────────────────────────────────────────────────────────────────────────
+
   // ── v8.1: Handler Stack & Exception Handling Foundation ──────────────────
   private handlerStack: HandlerFrame[] = [];  // TRY/CATCH 핸들러 스택
   private readonly MAX_HANDLER_DEPTH: number = 100;  // 최대 중첩 깊이
@@ -1423,6 +1429,34 @@ export class PCInterpreter {
 
     this.log(`[STACK TRACE] 생성 완료 (${trace.length}개 프레임)`);
     return trace;
+  }
+
+  /**
+   * v9.6: 약한 참조 등록
+   * 약한 참조 변수가 특정 객체를 가리킬 때 호출됨
+   * RC는 증가하지 않으며, 객체 소멸 시 자동으로 NULL이 됨
+   */
+  private registerWeakRef(weakVarName: string, targetObjAddr: string): void {
+    if (!this.weakRefTable.has(targetObjAddr)) {
+      this.weakRefTable.set(targetObjAddr, new Set());
+    }
+    this.weakRefTable.get(targetObjAddr)!.add(weakVarName);
+    this.log(`[WEAK REF] 약한 참조 등록: ${weakVarName} → ${targetObjAddr}`);
+  }
+
+  /**
+   * v9.6: 약한 참조 자동 널링
+   * 객체가 소멸할 때, 이 객체를 가리키는 모든 weak 참조들을 NULL로 변경
+   */
+  private nullifyWeakRefs(objAddr: string): void {
+    const weakVars = this.weakRefTable.get(objAddr);
+    if (weakVars && weakVars.size > 0) {
+      for (const varName of weakVars) {
+        this.variables.set(varName, null);
+        this.log(`[WEAK REF] 자동 널링: ${varName} = null (객체 ${objAddr} 소멸)`);
+      }
+      this.weakRefTable.delete(objAddr);
+    }
   }
 
   /**
@@ -2758,9 +2792,32 @@ export class PCInterpreter {
         this.validateMemberAccess(fieldAccess, definedInClass, node.field);
 
         const value = this.eval(node.value);
-        obj[node.field] = value;
-        const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
-        this.log(`[MEMBER WRITE] ${objName}.${node.field} = ${value} → offset=${fieldDef.offset} → ${fieldAddr}`);
+
+        // v9.6: 약한 참조 필드 처리 (RC 미증가, weakRefTable 등록)
+        if ((fieldDef as any).isWeak && value && value.__class) {
+          // 약한 참조: RC를 증가시키지 않음
+          obj[node.field] = value;
+          const objAddr = value.__baseAddr;
+          this.registerWeakRef(`${objName}.${node.field}`, objAddr);
+          const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
+          this.log(`[MEMBER WRITE] ${objName}.${node.field} = ${value.__class} (WEAK) → offset=${fieldDef.offset} → ${fieldAddr}`);
+        } else if ((fieldDef as any).isRef && value && value.__class) {
+          // v7.0: 강한 참조: RC를 증가시킴
+          const oldValue = obj[node.field];
+          if (oldValue && oldValue.__refCount !== undefined) {
+            oldValue.__refCount--;
+            this.log(`[RC DECREMENT] 기존 참조 감소: RC=${oldValue.__refCount}`);
+          }
+          obj[node.field] = value;
+          value.__refCount++;
+          this.log(`[RC INCREMENT] 새 참조 증가: RC=${value.__refCount}`);
+          const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
+          this.log(`[MEMBER WRITE] ${objName}.${node.field} = ${value} (REF, RC+1) → offset=${fieldDef.offset} → ${fieldAddr}`);
+        } else {
+          obj[node.field] = value;
+          const fieldAddr = `0x${(parseInt(obj.__baseAddr, 16) + fieldDef.offset).toString(16).padStart(4, '0')}`;
+          this.log(`[MEMBER WRITE] ${objName}.${node.field} = ${value} → offset=${fieldDef.offset} → ${fieldAddr}`);
+        }
         return value;
       }
 
@@ -2821,7 +2878,18 @@ export class PCInterpreter {
           const padding = (alignment - currentOffset % alignment) % alignment;
           const offset = currentOffset + padding;
           // v7.4: access 속성 포함, definedIn 설정 (현재 클래스에서 정의됨)
-          fieldsWithLayout.push({ name: f.name, typeName: f.typeName, size, offset, padding, access: f.access || 'public', definedIn: className });
+          // v9.6: isWeak, isRef 플래그 추가
+          fieldsWithLayout.push({
+            name: f.name,
+            typeName: f.typeName,
+            size,
+            offset,
+            padding,
+            access: f.access || 'public',
+            definedIn: className,
+            isRef: f.isRef || false,      // v7.0+: 참조 필드 플래그
+            isWeak: f.isWeak || false     // v9.6+: 약한 참조 플래그
+          });
           currentOffset = offset + size;
         }
 
@@ -4103,6 +4171,13 @@ export class PCInterpreter {
    * 상속 체인을 따라 자식부터 부모까지 모든 Destructor 호출
    */
   private callDestructor(obj: any): void {
+    // v9.6: 약한 참조 자동 널링 (객체 소멸 전)
+    const objAddr = obj.__baseAddr;
+    if (objAddr) {
+      this.nullifyWeakRefs(objAddr);
+    }
+
+    // v7.5: 소멸자 체인 호출
     this.callDestructorChain(obj);
   }
 

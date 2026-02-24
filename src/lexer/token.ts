@@ -55,6 +55,9 @@ export enum TokenType {
   NEW = 'NEW',           // new ClassName()
   REF = 'REF',           // ref objRef; (v7.0+: Reference field type)
 
+  // v9.6: Weak Reference (1개 추가) (Breaking the Cycle)
+  WEAK = 'WEAK',         // weak ref parentRef; (v9.6+: Non-retaining reference field)
+
   // v7.1: Inheritance (1개 추가)
   EXTENDS = 'EXTENDS',   // class Child extends Parent { ... }
 
@@ -207,6 +210,9 @@ export const KEYWORDS: Record<string, TokenType> = {
   'method': TokenType.METHOD,
   'new': TokenType.NEW,
   'ref': TokenType.REF,
+
+  // v9.6: Weak Reference (Breaking the Cycle)
+  'weak': TokenType.WEAK,
 
   // v7.1: Inheritance
   'extends': TokenType.EXTENDS,

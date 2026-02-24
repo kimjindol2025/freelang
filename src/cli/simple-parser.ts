@@ -242,6 +242,28 @@ export class SimpleLangParser {
     const name = nameToken.value;
     this.advance();
 
+    // v9.6: MemberAssignment 지원 (set obj.field = value)
+    if (this.checkType(TokenType.DOT)) {
+      // obj.field = value 형태
+      this.advance(); // DOT 소비
+      const field = this.current().value;
+      this.advance(); // field 소비
+
+      if (!this.matchType(TokenType.ASSIGN)) {
+        throw new Error('= 필요');
+      }
+
+      const value = this.parseExpression();
+      this.matchType(TokenType.SEMICOLON);
+
+      return {
+        type: 'MemberAssignment',
+        object: { type: 'Identifier', name },
+        field,
+        value
+      };
+    }
+
     if (!this.matchType(TokenType.ASSIGN)) {
       throw new Error('= 필요');
     }
@@ -512,6 +534,20 @@ export class SimpleLangParser {
         const method = this.parseMethodDeclaration();
         (method as any).access = access;  // v7.4: 메서드에 접근 제어자 추가
         methods.push(method);
+      } else if (this.checkType(TokenType.WEAK)) {
+        // v9.6+: 약한 참조 필드 - WEAK REF fieldName
+        this.advance(); // WEAK 토큰 소비
+        if (!this.checkType(TokenType.REF)) {
+          throw new Error("'ref' 필요 (WEAK 다음)");
+        }
+        this.advance(); // REF 토큰 소비
+        if (!this.checkType(TokenType.IDENT)) {
+          throw new Error("필드명 필요 (WEAK REF 다음)");
+        }
+        const fieldName = this.current().value;
+        this.advance();
+        fields.push({ name: fieldName, typeName: 'WeakRef', access, isRef: true, isWeak: true });
+        if (this.matchType(TokenType.COMMA)) {} // optional comma
       } else if (this.checkType(TokenType.REF)) {
         // v7.0+: 참조 필드 - REF fieldName
         this.advance(); // REF 토큰 소비
