@@ -331,16 +331,16 @@ export class SimpleLangParser {
       });
     }
 
-    // catch 블록 최소 1개 필수
-    if (catchBlocks.length === 0) {
-      throw new Error('catch 블록 필요');
-    }
-
-    // v8.7 준비: finally 블록 (선택사항)
+    // v8.7: finally 블록 (선택사항)
     let finallyBlock: ASTNode | undefined = undefined;
     if (this.checkType(TokenType.FINALLY)) {
       this.advance(); // FINALLY 스킵
       finallyBlock = this.parseBlock();
+    }
+
+    // catch 블록과 finally 블록 중 최소 1개 필수
+    if (catchBlocks.length === 0 && !finallyBlock) {
+      throw new Error('catch 또는 finally 블록 필요');
     }
 
     return {

@@ -792,6 +792,11 @@ interface HandlerFrame {
   exceptionVarName?: string;  // 예외 변수명 (선택사항)
   snapshot?: ContextSnapshot; // v8.2: 컨텍스트 스냅샷 (레지스터 상태)
   exceptionObject?: any;      // v8.5: 던져진 Exception 객체 (또는 기타 값)
+  // v8.7: FINALLY 블록 지연 제어 (Deferred Control)
+  finallyBlock?: any;         // FINALLY 블록 (BlockStatement)
+  pendingReturn?: any;        // 보류된 RETURN 값
+  pendingException?: any;     // 보류된 THROW 예외
+  hasPendingControl?: boolean; // 보류된 제어가 있는지 플래그
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1694,7 +1699,9 @@ export class PCInterpreter {
           framePointer: 0,
           catchBlockPC: 0,
           tryStartPC: this.pc,
-          exceptionVarName: stmt.exceptionVar
+          exceptionVarName: stmt.exceptionVar,
+          // v8.7: FINALLY 블록 저장 (Jump Suspension을 위해)
+          finallyBlock: (stmt as any).finallyBlock
         };
 
         // PUSH_HANDLER: 핸들러 스택에 추가
@@ -1727,6 +1734,15 @@ export class PCInterpreter {
           // 정상 종료: POP_HANDLER
           this.handlerStack.pop();
           this.log(`[POP_HANDLER] TRY 정상 종료 (depth=${this.handlerStack.length})`);
+
+          // v8.7: FINALLY 실행 (정상 경로)
+          if ((stmt as any).finallyBlock) {
+            this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (정상 종료 경로)`);
+            for (const finallyStmt of (stmt as any).finallyBlock.statements) {
+              this.eval(finallyStmt);
+            }
+            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+          }
 
         } catch (e: any) {
           // ── v8.2: RESTORE_CONTEXT (컨텍스트 복구) ────────────────────────
@@ -1798,7 +1814,16 @@ export class PCInterpreter {
             break; // 첫 번째 일치 블록만 실행
           }
 
-          // 일치하는 CATCH 블록이 없으면 예외 재던지기
+          // v8.7: FINALLY 실행 (예외 처리 경로 - 재전파 전) - executeStatement 버전
+          if ((stmt as any).finallyBlock) {
+            this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (예외 처리 경로)`);
+            for (const finallyStmt of (stmt as any).finallyBlock.statements) {
+              this.eval(finallyStmt);
+            }
+            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+          }
+
+          // 일치하는 CATCH 블록이 없으면 예외 재던지기 (FINALLY 후)
           if (!catchExecuted) {
             this.log(`[CATCH UNMATCHED] 일치하는 CATCH 블록 없음 → 예외 재전파`);
             throw e;
@@ -2704,7 +2729,9 @@ export class PCInterpreter {
           framePointer: 0,
           catchBlockPC: 0,
           tryStartPC: this.pc,
-          exceptionVarName: (node as any).exceptionVar
+          exceptionVarName: (node as any).exceptionVar,
+          // v8.7: FINALLY 블록 저장 (Jump Suspension을 위해)
+          finallyBlock: (node as any).finallyBlock
         };
 
         // PUSH_HANDLER: 핸들러 스택에 추가
@@ -2737,6 +2764,15 @@ export class PCInterpreter {
           // 정상 종료: POP_HANDLER
           this.handlerStack.pop();
           this.log(`[POP_HANDLER] TRY 정상 종료 (depth=${this.handlerStack.length})`);
+
+          // v8.7: FINALLY 실행 (정상 경로)
+          if ((node as any).finallyBlock) {
+            this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (정상 종료 경로)`);
+            for (const finallyStmt of (node as any).finallyBlock.statements) {
+              this.eval(finallyStmt);
+            }
+            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+          }
 
         } catch (e: any) {
           // ── v8.2: RESTORE_CONTEXT (컨텍스트 복구) ────────────────────────
@@ -2808,7 +2844,16 @@ export class PCInterpreter {
             break; // 첫 번째 일치 블록만 실행
           }
 
-          // 일치하는 CATCH 블록이 없으면 예외 재던지기
+          // v8.7: FINALLY 실행 (예외 처리 경로 - 재전파 전) - eval 버전
+          if ((node as any).finallyBlock) {
+            this.log(`[ENTER_FINALLY] FINALLY 블록 진입 (예외 처리 경로)`);
+            for (const finallyStmt of (node as any).finallyBlock.statements) {
+              this.eval(finallyStmt);
+            }
+            this.log(`[EXIT_FINALLY] FINALLY 블록 완료`);
+          }
+
+          // 일치하는 CATCH 블록이 없으면 예외 재던지기 (FINALLY 후)
           if (!catchExecuted) {
             this.log(`[CATCH UNMATCHED] 일치하는 CATCH 블록 없음 → 예외 재전파`);
             throw e;
