@@ -71,8 +71,18 @@ export class SimpleLangParser {
       return this.parseVariableDeclaration();
     }
 
+    // v9.2: set 변수 할당 (let 별칭)
+    if (this.matchType(TokenType.SET)) {
+      return this.parseVariableDeclaration();
+    }
+
     // v4.0: fn 함수 정의
     if (this.matchType(TokenType.FN)) {
+      return this.parseFunctionDeclaration();
+    }
+
+    // v9.2: function 함수 정의 (fn 별칭)
+    if (this.matchType(TokenType.FUNCTION)) {
       return this.parseFunctionDeclaration();
     }
 
@@ -130,6 +140,23 @@ export class SimpleLangParser {
     // v8.1: throw 문
     if (this.matchType(TokenType.THROW)) {
       return this.parseThrowStatement();
+    }
+
+    // v9.2: print 문 (println() 호출로 변환)
+    if (this.matchType(TokenType.PRINT)) {
+      const arg = this.parseExpression();
+      this.matchType(TokenType.SEMICOLON); // ; 선택사항
+      return {
+        type: 'ExpressionStatement',
+        expression: {
+          type: 'CallExpression',
+          callee: {
+            type: 'Identifier',
+            name: 'println'
+          },
+          arguments: [arg]
+        }
+      };
     }
 
     // 표현식 문장 (println, 함수 호출 등)

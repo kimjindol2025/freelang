@@ -2901,6 +2901,11 @@ export class PCInterpreter {
         return null;
       }
 
+      case 'ExpressionStatement': {
+        // v9.2: 표현식 문장 (PRINT, println 등)
+        return this.eval(node.expression);
+      }
+
       case 'ReturnStatement': {
         // v6.3: TCO - 꼬리 호출 감지 (callExpression이고 현재 함수 자신을 호출)
         if (

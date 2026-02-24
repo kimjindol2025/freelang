@@ -4,9 +4,12 @@
  * v1에서 복사된 기본 토큰 타입들 + minimal .free 포맷용 3개 토큰 추가
  */
 export enum TokenType {
-  // Keywords (30개 - v1 기본 + Phase 4 추가 1개)
+  // Keywords (30개 - v1 기본 + Phase 4 추가 1개 + v9.2 추가 3개)
   FN = 'FN',
+  FUNCTION = 'FUNCTION',  // v9.2+: Alias for 'fn'
   LET = 'LET',
+  SET = 'SET',            // v9.2+: Alias for 'let'
+  PRINT = 'PRINT',        // v9.2+: Shorthand for println()
   CONST = 'CONST',
   IF = 'IF',
   ELSE = 'ELSE',
@@ -155,7 +158,10 @@ export interface Token {
 export const KEYWORDS: Record<string, TokenType> = {
   // v1 기본
   'fn': TokenType.FN,
+  'function': TokenType.FUNCTION,  // v9.2+: Alias for 'fn'
   'let': TokenType.LET,
+  'set': TokenType.SET,            // v9.2+: Alias for 'let'
+  'print': TokenType.PRINT,        // v9.2+: Shorthand for println()
   'const': TokenType.CONST,
   'if': TokenType.IF,
   'else': TokenType.ELSE,
