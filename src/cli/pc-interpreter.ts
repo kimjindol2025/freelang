@@ -1147,7 +1147,7 @@ export class PCInterpreter {
       }
 
       // 함수 정의 조회
-      const funcDef = this.userFunctions.get(functionName);
+      const funcDef = this.functionTable.get(functionName);
       if (!funcDef) {
         this.log(`[JIT_COMPILE ERROR] 함수 '${functionName}' 미발견`);
         throw new Error(`[JIT ERROR] Function '${functionName}' not found`);
