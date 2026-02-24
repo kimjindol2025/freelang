@@ -46,10 +46,11 @@ export enum TokenType {
   SUPER = 'SUPER',
   IMPL = 'IMPL',
 
-  // v7.0: Class & Method (3개 추가)
+  // v7.0: Class & Method (4개 추가)
   CLASS = 'CLASS',       // class ClassName { ... }
   METHOD = 'METHOD',     // method name(params) { ... }
   NEW = 'NEW',           // new ClassName()
+  REF = 'REF',           // ref objRef; (v7.0+: Reference field type)
 
   // v7.1: Inheritance (1개 추가)
   EXTENDS = 'EXTENDS',   // class Child extends Parent { ... }
@@ -199,6 +200,7 @@ export const KEYWORDS: Record<string, TokenType> = {
   'class': TokenType.CLASS,
   'method': TokenType.METHOD,
   'new': TokenType.NEW,
+  'ref': TokenType.REF,
 
   // v7.1: Inheritance
   'extends': TokenType.EXTENDS,
@@ -228,7 +230,9 @@ export function isKeyword(str: string): boolean {
 
 /**
  * Get keyword token type
+ *
+ * v7: CLASS 지원을 위해 toLowerCase() 추가
  */
 export function getKeyword(str: string): TokenType {
-  return KEYWORDS[str] || TokenType.IDENT;
+  return KEYWORDS[str.toLowerCase()] || TokenType.IDENT;
 }

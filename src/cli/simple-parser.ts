@@ -480,11 +480,21 @@ export class SimpleLangParser {
         access = 'public';
       }
 
-      if (this.matchType(TokenType.METHOD)) {
-        // method name(params) { body }
+      if (this.matchType(TokenType.METHOD) || this.matchType(TokenType.FN)) {
+        // v7.0+: method name(params) { body } 또는 FUNCTION name(params) { body }
         const method = this.parseMethodDeclaration();
         (method as any).access = access;  // v7.4: 메서드에 접근 제어자 추가
         methods.push(method);
+      } else if (this.checkType(TokenType.REF)) {
+        // v7.0+: 참조 필드 - REF fieldName
+        this.advance(); // REF 토큰 소비
+        if (!this.checkType(TokenType.IDENT)) {
+          throw new Error("필드명 필요 (REF 다음)");
+        }
+        const fieldName = this.current().value;
+        this.advance();
+        fields.push({ name: fieldName, typeName: 'Ref', access, isRef: true });
+        if (this.matchType(TokenType.COMMA)) {} // optional comma
       } else if (this.checkType(TokenType.IDENT)) {
         // 필드: fieldName (TypeName) 형식 (struct와 동일)
         const fieldName = this.current().value;

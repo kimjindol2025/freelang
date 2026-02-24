@@ -4043,9 +4043,8 @@ export class PCInterpreter {
    */
   public getOutput(): string {
     if (this.output.length === 0) return '';
-    const last = this.output[this.output.length - 1];
-    this.output.pop();
-    return last;
+    // v7.0+: 모든 println 출력을 newline으로 연결해서 반환
+    return this.output.join('\n');
   }
 
   /**
