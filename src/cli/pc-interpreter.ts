@@ -821,6 +821,7 @@ export class PCInterpreter {
 
   // ── v8.8: Exception Chaining & Handler Re-entrancy ──────────────────────────
   private currentlyHandlingException: any = null;  // v8.8: 현재 처리 중인 예외 추적
+  private lastUnhandledException: any = null;      // v8.10: Panic Mode용 마지막 미처리 예외
 
   // ── v4.0: 함수 시스템 ─────────────────────────────────────────────────────
   private functionTable: Map<string, { params: string[]; body: ASTNode }> = new Map();
@@ -1289,10 +1290,11 @@ export class PCInterpreter {
       { name: 'Code', typeName: 'Integer', size: 4, offset: 4, padding: 0 },
       { name: 'Timestamp', typeName: 'String', size: 4, offset: 8, padding: 0 },
       { name: 'Location', typeName: 'String', size: 4, offset: 12, padding: 0 },
-      { name: 'Cause', typeName: 'Object', size: 4, offset: 16, padding: 0 }  // v8.8: Exception Chaining
+      { name: 'Cause', typeName: 'Object', size: 4, offset: 16, padding: 0 },  // v8.8: Exception Chaining
+      { name: 'Trace', typeName: 'Array', size: 4, offset: 20, padding: 0 }    // v8.10: Stack Trace
     ];
 
-    const totalSize = 20; // 5 필드 × 4바이트 (v8.8: Cause 필드 추가)
+    const totalSize = 24; // 6 필드 × 4바이트 (v8.10: Trace 필드 추가)
 
     // 1. classTable에 Exception 등록
     this.classTable.set(exceptionClassName, {
@@ -1319,13 +1321,19 @@ export class PCInterpreter {
     });
 
     this.log(`[BUILTIN CLASS] Exception 클래스 등록 완료`);
-    this.log(`  → 필드: Message(4B), Code(4B), Timestamp(4B), Location(4B), Cause(4B)`);
+    this.log(`  → 필드: Message(4B), Code(4B), Timestamp(4B), Location(4B), Cause(4B), Trace(4B) [v8.10]`);
     this.log(`  → 총 크기: ${totalSize}B`);
 
     // v8.8: get_cause 내장 함수
     this.variables.set('get_cause', (exceptionObj: any) => {
       if (!exceptionObj || exceptionObj.__type !== 'object') return 0;
       return exceptionObj.Cause ?? 0;
+    });
+
+    // v8.10: get_trace 내장 함수 (스택 트레이스 배열 반환)
+    this.variables.set('get_trace', (exceptionObj: any) => {
+      if (!exceptionObj || exceptionObj.__type !== 'object') return [];
+      return exceptionObj.Trace ?? [];
     });
 
     // v8.9: 시스템 예외 서브클래스 등록 (Exception 상속)
@@ -1358,6 +1366,27 @@ export class PCInterpreter {
   }
 
   /**
+   * v8.10: 현재 콜 스택을 기반으로 스택 트레이스 배열 생성
+   */
+  private buildStackTrace(): string[] {
+    const trace: string[] = [];
+
+    // 호출 스택 역순 (최근 호출부터)
+    for (let i = this.callStack.length - 1; i >= 0; i--) {
+      const frame = this.callStack[i];
+      trace.push(`at ${frame.functionName} (depth=${i + 1})`);
+    }
+
+    // 최소 1개 프레임이라도 있어야 함
+    if (trace.length === 0) {
+      trace.push('at <global>');
+    }
+
+    this.log(`[STACK TRACE] 생성 완료 (${trace.length}개 프레임)`);
+    return trace;
+  }
+
+  /**
    * v8.9: 시스템 예외 자동 생성 & 핸들러 전달
    * 엔진이 감지한 위험을 FreeLang Exception 객체로 변환
    */
@@ -1370,6 +1399,9 @@ export class PCInterpreter {
       throw new Error(`[${className}] ${message}`);
     }
 
+    // v8.10: 스택 트레이스 생성
+    const stackTrace = this.buildStackTrace();
+
     // FreeLang Exception 객체 생성 (new Exception()과 동일한 JS 객체 구조)
     const exceptionObj: any = {
       __type: 'object',
@@ -1378,10 +1410,11 @@ export class PCInterpreter {
       Code: -1,             // 시스템 예외는 음수 코드로 사용자 예외와 구분
       Timestamp: String(Date.now()),
       Location: 'engine',   // 발생 위치 = 엔진 내부
-      Cause: 0              // v8.8 체이닝 초기값
+      Cause: 0,             // v8.8 체이닝 초기값
+      Trace: stackTrace     // v8.10: 스택 트레이스 추가
     };
 
-    this.log(`[SYSTEM TRAP] ${className} 객체 생성 완료`);
+    this.log(`[SYSTEM TRAP] ${className} 객체 생성 완료 (Trace: ${stackTrace.length} frames)`);
 
     // 현재 핸들러에 예외 객체 저장 → TryStatement catch 블록이 꺼내 씀
     const handler = this.handlerStack[this.handlerStack.length - 1];
@@ -1506,13 +1539,39 @@ export class PCInterpreter {
   public execute(ast: ASTNode): any {
     if (!ast) return null;
 
-    // Program 노드 처리
-    if (ast.type === 'Program') {
-      return this.executeProgram(ast.statements);
-    }
+    try {
+      // Program 노드 처리
+      if (ast.type === 'Program') {
+        return this.executeProgram(ast.statements);
+      }
 
-    // 단일 statement
-    return this.executeProgram([ast]);
+      // 단일 statement
+      return this.executeProgram([ast]);
+    } catch (err: any) {
+      // v8.10: Panic Mode - 처리되지 않은 예외 시 스택 트레이스 출력
+      if (this.lastUnhandledException) {
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[PANIC MODE] 처리되지 않은 예외 발생');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        const exc = this.lastUnhandledException;
+        console.log(`\n예외 클래스: ${exc.__class}`);
+        console.log(`메시지: ${exc.Message}`);
+        console.log(`코드: ${exc.Code}`);
+        console.log(`타임스탬프: ${exc.Timestamp}`);
+        console.log(`위치: ${exc.Location}`);
+
+        if (exc.Trace && Array.isArray(exc.Trace)) {
+          console.log(`\n스택 트레이스:`);
+          for (const frame of exc.Trace) {
+            console.log(`  ${frame}`);
+          }
+        }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      }
+
+      // 원본 에러 재전파
+      throw err;
+    }
   }
 
   /**
@@ -1919,6 +1978,11 @@ export class PCInterpreter {
           // 일치하는 CATCH 블록이 없으면 예외 재던지기 (FINALLY 후)
           if (!catchExecuted) {
             this.log(`[CATCH UNMATCHED] 일치하는 CATCH 블록 없음 → 예외 재전파`);
+            // v8.10: Panic Mode - 미처리 예외 기록
+            if (exceptionValue && exceptionValue.__type === 'object') {
+              this.lastUnhandledException = exceptionValue;
+              this.log(`[PANIC RECORD] 미처리 예외 기록: ${exceptionValue.__class}`);
+            }
             throw e;
           }
         }
@@ -2389,6 +2453,13 @@ export class PCInterpreter {
           __objectId: ++this.objectIdCounter  // v7.5: 고유 ID
         };
         for (const field of classDef.fields) {
+          // v8.10: Exception의 Trace 필드는 스택 트레이스로 초기화
+          if (className === 'Exception' || this.vTableRegistry.get(className)?.superClass === 'Exception') {
+            if (field.name === 'Trace') {
+              instance[field.name] = this.buildStackTrace();
+              continue;
+            }
+          }
           instance[field.name] = 0;  // 필드 0 초기화
         }
         // 0x6000 영역: 클래스 인스턴스 전용 (struct 0x2000, struct배열 0x4000과 구분)
@@ -2989,6 +3060,11 @@ export class PCInterpreter {
           // 일치하는 CATCH 블록이 없으면 예외 재던지기 (FINALLY 후)
           if (!catchExecuted) {
             this.log(`[CATCH UNMATCHED] 일치하는 CATCH 블록 없음 → 예외 재전파`);
+            // v8.10: Panic Mode - 미처리 예외 기록
+            if (exceptionValue && exceptionValue.__type === 'object') {
+              this.lastUnhandledException = exceptionValue;
+              this.log(`[PANIC RECORD] 미처리 예외 기록: ${exceptionValue.__class}`);
+            }
             throw e;
           }
         }
