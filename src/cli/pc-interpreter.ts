@@ -2190,10 +2190,23 @@ export class PCInterpreter {
         // v8.5: 예외 객체를 핸들러에 저장 (CATCH 블록에서 접근 가능하게)
         handler.exceptionObject = exceptionObject;
 
+        // v9.8: 예외 객체 RC 보호 시작 (언와인딩 중 감소 제외)
+        if (exceptionObject && exceptionObject.__refCount !== undefined) {
+          exceptionObject.__refCount++;  // 임시 보호 RC 증가
+          this.log(`[RC PROTECT] 예외 객체 RC 증가 (보호 시작): ${exceptionObject.__refCount - 1} → ${exceptionObject.__refCount}`);
+        }
+
         // v8.4: 스택 언와인딩 (Stack Unwinding)
+        // v9.8: RC 정리 포함 + 예외 객체 보호
         // PC를 변경하기 전에 중간에 쌓인 프레임들을 모두 파괴
         const targetSP = handler.snapshot?.savedSP ?? 0;
-        this.unwindStack(targetSP);
+        this.unwindStack(targetSP, exceptionObject);  // v9.8: 예외 객체 전달
+
+        // v9.8: 예외 객체 보호 해제 (정상 상태로 복구)
+        if (exceptionObject && exceptionObject.__refCount !== undefined && exceptionObject.__refCount > 0) {
+          exceptionObject.__refCount--;  // 보호 RC 감소
+          this.log(`[RC UNPROTECT] 예외 객체 RC 감소 (보호 끝): ${exceptionObject.__refCount + 1} → ${exceptionObject.__refCount}`);
+        }
 
         // PC 강제 변경 (현재 PC를 건너뛰고 CATCH 블록으로 점프)
         this.log(`[PC_REDIRECT] PC 변경: ${this.pc} → ${jumpPC} (핸들러로 점프)`);
@@ -3338,10 +3351,23 @@ export class PCInterpreter {
         // v8.5: 예외 객체를 핸들러에 저장 (CATCH 블록에서 접근 가능하게)
         handler.exceptionObject = exceptionObject;
 
+        // v9.8: 예외 객체 RC 보호 시작 (언와인딩 중 감소 제외)
+        if (exceptionObject && exceptionObject.__refCount !== undefined) {
+          exceptionObject.__refCount++;  // 임시 보호 RC 증가
+          this.log(`[RC PROTECT] 예외 객체 RC 증가 (보호 시작): ${exceptionObject.__refCount - 1} → ${exceptionObject.__refCount}`);
+        }
+
         // v8.4: 스택 언와인딩 (Stack Unwinding)
+        // v9.8: RC 정리 포함 + 예외 객체 보호
         // PC를 변경하기 전에 중간에 쌓인 프레임들을 모두 파괴
         const targetSP = handler.snapshot?.savedSP ?? 0;
-        this.unwindStack(targetSP);
+        this.unwindStack(targetSP, exceptionObject);  // v9.8: 예외 객체 전달
+
+        // v9.8: 예외 객체 보호 해제 (정상 상태로 복구)
+        if (exceptionObject && exceptionObject.__refCount !== undefined && exceptionObject.__refCount > 0) {
+          exceptionObject.__refCount--;  // 보호 RC 감소
+          this.log(`[RC UNPROTECT] 예외 객체 RC 감소 (보호 끝): ${exceptionObject.__refCount + 1} → ${exceptionObject.__refCount}`);
+        }
 
         // PC 강제 변경 (현재 PC를 건너뛰고 CATCH 블록으로 점프)
         this.log(`[PC_REDIRECT] PC 변경: ${this.pc} → ${jumpPC} (핸들러로 점프)`);
@@ -4080,10 +4106,14 @@ export class PCInterpreter {
 
   /**
    * v8.4: 스택 언와인딩 (Stack Unwinding)
+   * v9.8: RC 동기화 추가
+   *
    * THROW 시점과 CATCH 도착점 사이의 스택 프레임을 역순으로 파괴하면서
    * 각 프레임의 savedScope로 변수를 복원한다 (Scope Restoration)
+   *
+   * v9.8: 각 프레임 pop 시 RC 카운트를 감소시킨다 (예외 객체는 보호)
    */
-  private unwindStack(targetSP: number): void {
+  private unwindStack(targetSP: number, exceptionObject?: any): void {
     const initialDepth = this.callStack.length;
     const gap = initialDepth - targetSP;
 
@@ -4092,35 +4122,67 @@ export class PCInterpreter {
       return;
     }
 
-    this.log(`[UNWIND STACK] 스택 언와인딩 시작`);
+    this.log(`[UNWIND STACK] 스택 언와인딩 시작 (RC 동기화 포함)`);
     this.log(`  → 현재 깊이: ${initialDepth}, 목표: ${targetSP}`);
     this.log(`  → 파괴할 프레임: ${gap}개`);
+    if (exceptionObject) {
+      this.log(`  → 예외 객체 보호: ${exceptionObject.__class || typeof exceptionObject}`);
+    }
 
-    // Phase 1: 프레임 역순 파괴
+    // Phase 1: 프레임 역순 파괴 + RC 정리
     for (let i = 0; i < gap; i++) {
       const frame = this.callStack.pop();
       if (!frame) break;
 
       this.log(`[FRAME POPPED] [${initialDepth - i}] ${frame.functionName}`);
 
-      // Phase 2: 변수 범위 복원 (Scope Restoration)
+      // v9.8 Phase 2a: 현재 프레임의 모든 변수 RC 정리 (예외 객체 제외)
+      // 이 프레임에서 정의된 모든 REF 변수들의 참조 카운트를 감소
+      if (frame.savedScope) {
+        frame.savedScope.forEach((varValue: any, varName: string) => {
+          // v9.8: 변수가 객체이고 예외 객체가 아니면 RC 감소
+          if (varValue && typeof varValue === 'object' && varValue.__type === 'object') {
+            // 예외 객체 보호 확인
+            const isExceptionObject = exceptionObject && varValue === exceptionObject;
+            if (isExceptionObject) {
+              this.log(`  [RC PROTECTED] '${varName}' RC 감소 스킵 (예외 객체 보호)`);
+            } else if (varValue.__refCount !== undefined && varValue.__refCount > 0) {
+              varValue.__refCount--;
+              this.log(`  [RC DECREMENT] '${varName}' (${varValue.__class}#${varValue.__objectId}): ${varValue.__refCount + 1} → ${varValue.__refCount} (언와인딩 정리)`);
+
+              // RC가 0이 되었으면 Destructor 호출
+              if (varValue.__refCount === 0) {
+                this.log(`  [DESTRUCTOR QUEUE] '${varName}' RC == 0 → 소멸 예약`);
+                this.callDestructor(varValue);
+              }
+            }
+          }
+        });
+      }
+
+      // v9.8 Phase 2b: 변수 범위 복원 (Scope Restoration)
       // 이 프레임 진입 전의 상태(savedScope)로 변수들을 되돌린다
       // 이는 함수 호출에서 정상 복귀하는 것과 동일한 효과
       if (frame.savedScope) {
         frame.savedScope.forEach((value: any, varName: string) => {
           // savedScope에 있던 변수는 그 값으로 복원
           this.variables.set(varName, value);
-          this.log(`  [VARIABLE RESTORE] '${varName}' ← ${value} (프레임 진입 전 상태로 복구)`);
+          this.log(`  [VARIABLE RESTORE] '${varName}' ← ${String(value).substring(0, 50)} (프레임 진입 전 상태로 복구)`);
         });
       }
     }
 
     const finalDepth = this.callStack.length;
-    this.log(`[UNWIND COMPLETE] SP: ${initialDepth} → ${finalDepth} (${gap}개 프레임 파괴 및 범위 복구)`);
+    this.log(`[UNWIND COMPLETE] SP: ${initialDepth} → ${finalDepth} (${gap}개 프레임 파괴, RC 정리, 범위 복구)`);
 
     // Phase 3: SP 최종 검증
     if (finalDepth !== targetSP) {
       this.log(`[UNWIND WARNING] 최종 깊이 불일치: ${finalDepth} ≠ ${targetSP}`);
+    }
+
+    // v9.8 Phase 4: 예외 객체 보호 검증
+    if (exceptionObject && exceptionObject.__refCount !== undefined) {
+      this.log(`[RC PROTECTED] 예외 객체 최종 RC: ${exceptionObject.__refCount} (언와인딩 중 변경 안 됨)`);
     }
   }
 
