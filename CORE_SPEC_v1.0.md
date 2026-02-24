@@ -140,25 +140,42 @@ Instance Tracker:
   - checkMemoryLeaks() 최종 감사
 ```
 
-#### 2.2.3 v11.0 Hybrid GC 확장 (Future - Cycle Collector 수준)
+#### 2.2.3 v11.0 Cycle Collector (SAFE MINIMUM SCOPE)
 
 ```
-v11-v19 범위 내에서 추가 가능:
-  - Cycle Detector: 순환 참조 자동 감지
-  - Mark-Sweep: RC 실패한 순환 구조 정리
-  - Incremental Collection: Stop-the-World 최소화
+【v11.0: Cycle Collector ONLY - 최소 안전 범위】
 
-제약:
-  ✅ RC 기반 유지 (RC는 즉시 반응, 99% 커버)
-  ✅ Cycle detection만 추가 (순환은 배경에서 정리)
-  ✅ ISA 변경 금지 (기존 바이트코드 호환)
-  ❌ Generational GC 불가 (메모리 레이아웃 변경 필요 → v20)
-  ❌ Mark-Compact 불가 (포인터 재배치 → v20)
+구현:
+  ✅ Periodic DFS Cycle Scan
+     - 주기적 순환 참조 감지 (DFS/BFS)
+     - 현재 RC 시스템 유지 (100% 호환)
+  ✅ Mark-Sweep (순환 구조만)
+     - RC 0이 되지 않은 순환 고리만 정리
+     - Non-moving (객체 주소 불변)
+  ✅ Stop-the-World (짧게)
+     - Cycle scan 중만 멈춤
+     - 검사 시간 최소 (O(heap size))
+  ✅ Weak References 유지
+     - 기존 v9.6 weak ref 그대로 사용
+     - RC + weak는 최고의 조합
 
-v11.0 설계 원칙:
-  1. Immediate RC: 즉시 refcount 0 객체 정리
-  2. Background Cycle: 주기적 순환 참조 정리
-  3. Zero Surprise: 응답 시간 예측 가능
+보존 (v12 이후로 미룸):
+  ❌ Incremental collection (v12+)
+  ❌ Background operation (v12+)
+  ❌ Generational GC (v20+, 새 ISA)
+  ❌ Compaction (v20+, 메모리 재배치)
+
+이유: "지금 바로 다 넣으면 구조 흔들린다"
+  → v11.0은 최소한의 안전한 범위만
+  → 구조 안정성 최우선
+  → 단계적 확장 (v12, v13, ...)
+
+【v11.0 설계 원칙】
+  1. RC 우선: 즉시 refcount 0 정리 (99% 케이스)
+  2. Cycle 보조: 주기적 DFS (1% 케이스)
+  3. Non-moving: 객체 위치 불변 (포인터 안전)
+  4. Short pause: stop-the-world 최소화
+  5. Zero complexity: 구조 최대한 단순
 ```
 
 ### 2.3 스택 관리
@@ -533,71 +550,165 @@ v19.x: Final enhancement before breaking change
 
 ---
 
-## 1️⃣1️⃣ v11.0 Hybrid GC 로드맵 (Future)
+## 1️⃣1️⃣ v11.0 Cycle Collector (SAFE MINIMUM SCOPE)
 
-### 11.1 설계 원칙 (Cycle Collector 수준)
-
-```
-【목표】
-  v9.x RC: 99% 커버 (즉시 반응)
-  v11.0 Cycle Collector: 나머지 1% (순환 참조)
-  → Combined: 100% 안정성 + 빠른 응답
-
-【제약】
-  ✅ ISA 변경 금지 (v1.0 고정)
-  ✅ 메모리 레이아웃 변경 금지
-  ✅ 바이트코드 호환성 100%
-  ✅ RC 메커니즘 유지 (추가만 가능)
-```
-
-### 11.2 구현 범위
+### 11.1 v11.0 구현 범위 (최소 안전)
 
 ```
-【Phase 1: Cycle Detection】
-  - Graph builder: 객체 참조 그래프 구성
-  - Cycle detector: DFS/BFS로 순환 감지
-  - Mark-and-sweep: 순환 구조만 정리
-  - Background: 메인 스레드 블로킹 없음
+【v11.0: Cycle Collector ONLY】
 
-【Phase 2: Incremental Collection】
-  - Tri-color marking: White/Gray/Black 추적
+✅ 포함:
+  - Periodic DFS Cycle Scan
+    · 주기적 순환 참조 감지 (DFS/BFS)
+    · 현재 RC 시스템 완전 호환
+
+  - Mark-Sweep (순환만)
+    · RC 0이 되지 않은 고리만 정리
+    · Non-moving (객체 주소 불변)
+
+  - Stop-the-World (짧게)
+    · Cycle scan 중만 멈춤
+    · 검사 시간 최소화
+
+  - Weak References 유지
+    · v9.6 weak ref 그대로 유지
+    · RC + weak 최강 조합
+
+❌ 제외 (v12+ 미룸):
+  - Incremental collection
+    → Background marking + lazy sweep
+    → v12 이후에 추가
+
+  - Background operation
+    → Concurrent marking threads
+    → v12 이후에 추가
+
+  - Generational GC
+    → Young/Old generation
+    → v20+ (새 메모리 레이아웃)
+
+  - Compaction
+    → Mark-compact, moving GC
+    → v20+ (ISA v2.0)
+
+철학: "지금 바로 다 넣으면 구조 흔들린다"
+  → v11.0: 최소한의 안전한 범위
+  → 구조 안정성 최우선
+  → 단계적 확장
+```
+
+### 11.2 메모리 특성
+
+```
+【RC + Cycle Collector 조합】
+
+Performance:
+  - RC 99%: 즉시 반응 (O(1))
+  - Cycle 1%: 주기적 정리 (O(heap))
+  - Combined: 100% 안정성
+
+Safety:
+  - Non-moving: 포인터 유효성 100%
+  - Predictable: GC pause 예측 가능
+  - Transparent: RC 사용자는 변화 모름
+
+Compatibility:
+  - ISA: 변경 없음 (v1.0 고정)
+  - Memory layout: 변경 없음
+  - API: 변경 없음
+  - Bytecode: 100% 호환
+```
+
+### 11.3 v12+ 로드맵 (v11 이후)
+
+```
+【v12.0: Incremental Collection】
+  - Tri-color marking (White/Gray/Black)
   - Incremental mark: 스텝 단위 마킹
   - Lazy sweep: 필요시만 정리
   - Pause < 10ms
 
-【Phase 3: Profiling】
-  - Cycle statistics: 발생 빈도, 크기
-  - Performance impact: GC overhead 측정
-  - Tuning: 주기 및 threshold 최적화
+【v13.0+: 추가 최적화】
+  - Background collection threads
+  - Concurrent marking
+  - Write barriers
+  - G1GC 스타일 region-based
+
+【v20.0: Generational + Compacting】
+  - Young/Old generation
+  - Mark-compact moving GC
+  - ISA v2.0 (새 바이트코드)
+  - 완전 리부팅
+
+핵심: v11은 최소, 이후 단계적 확장
 ```
 
-### 11.3 v1.0과의 호환성 보장
+### 11.4 v1.0 호환성 보장
 
 ```
-Breaking change: NONE
+Breaking change: NONE ✅
   ✅ 기존 RC 코드 100% 작동
   ✅ 기존 바이트코드 100% 호환
   ✅ 기존 API 100% 유지
   ✅ 성능 regression 없음
 
-추가 기능: Cycle collection만
-  - 선택사항 (기본 RC로도 충분)
-  - 개발자가 필요시만 활성화
-  - 투명한 배경 실행
+추가 기능: Cycle detection만
+  - 선택사항 (RC 있으면 충분)
+  - 개발자는 인지 불필요
+  - 엔진에서 투명하게 처리
 ```
 
 ---
 
 ## 승인
 
-| 항목 | 상태 | 버전 | 서명 | 일시 |
+| 항목 | 상태 | 범위 | 서명 | 일시 |
 |------|------|------|------|------|
-| Core Spec Freeze | ✅ 승인 | v1.0 | Claude (v10.3) | 2026-02-25 |
-| Hybrid GC 로드맵 | ✅ 추가 | v1.1 | Claude | 2026-02-25 |
-| 타입 시스템 | ✅ 확정 | v1.0 | - | - |
+| Core Spec Freeze | ✅ 확정 | v1.0 | Claude (v10.3) | 2026-02-25 |
+| v11.0 범위 | ✅ 확정 | Cycle Collector Only | User | 2026-02-25 |
+| 타입 시스템 | ✅ 고정 | v1.0 | - | - |
 | 메모리 모델 | ✅ RC+Cycle | v1.1 | - | - |
-| ISA 고정 | ✅ v1.0 | v1.0 | - | - |
-| Exception 계층 | ✅ 3+Hybrid | v1.1 | - | - |
+| ISA | ✅ 고정 | v1.0 (변경 없음) | - | - |
+| Exception 계층 | ✅ 3개 | v1.0 (확장 없음) | - | - |
+
+---
+
+## 【최종 선언】
+
+### v11.0 SAFE MINIMUM SCOPE
+```
+✅ Cycle Collector ONLY
+✅ RC 유지
+✅ Weak reference 유지
+✅ Periodic DFS cycle scan
+✅ Non-moving
+❌ No generational
+❌ No compaction
+✅ Stop-the-world (짧게)
+❌ Incremental/background는 v12+
+```
+
+**철학**: "지금 바로 다 넣으면 구조 흔들린다"
+- v11.0: 최소한의 안전한 범위
+- 구조 안정성 최우선
+- 단계적 확장
+
+### 버전별 유효성
+
+```
+v11.0 ~ v19.99:
+  ✅ Cycle Collector (v11.0)
+  ✅ Incremental (v12.0+)
+  ✅ Background (v12.0+)
+  ✅ 추가 최적화 (v13+)
+  ❌ Generational, Compaction (v20+에서만)
+
+v20.0+:
+  ✅ Breaking Change 허용
+  ✅ Generational GC
+  ✅ Compaction
+  ✅ 새 ISA v2.0
+```
 
 ---
 
@@ -605,6 +716,6 @@ Breaking change: NONE
 **v20에서 Breaking Change 허용 (새 ISA v2.0).**
 
 **v1.0: 핵심 고정 (변경 금지)**
-**v1.1: v11.0 Hybrid GC 로드맵 (확장 명시)**
+**v1.1: v11.0 SAFE MINIMUM (Cycle Collector Only)**
 
-🔴 **FROZEN** 🔴 | 🟡 **ROADMAP** 🟡
+🔴 **FROZEN** 🔴 | 🟡 **ROADMAP (Safe)** 🟡
