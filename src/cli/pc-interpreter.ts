@@ -1327,6 +1327,68 @@ export class PCInterpreter {
       if (!exceptionObj || exceptionObj.__type !== 'object') return 0;
       return exceptionObj.Cause ?? 0;
     });
+
+    // v8.9: 시스템 예외 서브클래스 등록 (Exception 상속)
+    const systemExceptionClasses = [
+      { name: 'ArithmeticException',    desc: '산술 오류 (0 나눗셈 등)' },
+      { name: 'NullReferenceException', desc: 'NULL 포인터 접근' },
+      { name: 'StackOverflowException', desc: '재귀 깊이 초과' },
+    ];
+
+    for (const { name, desc } of systemExceptionClasses) {
+      // classTable, structTable: Exception과 동일한 5개 필드
+      this.classTable.set(name, {
+        fields: exceptionFields,
+        totalSize: totalSize,
+        methods: new Map()
+      });
+      this.structTable.set(name, { fields: exceptionFields, totalSize: totalSize });
+
+      // vTableRegistry: superClass = 'Exception' ← isInstanceOf() 상속 체인 탐색에 필요
+      const vtAddr = `0xVT${this.vTableAddressCounter.toString(16).padStart(3, '0')}`;
+      this.vTableAddressCounter++;
+      this.vTableRegistry.set(name, {
+        __staticAddress: vtAddr,
+        methods: [],
+        index: new Map(),
+        superClass: 'Exception'  // ← 핵심: catch(e: Exception)으로 이 예외들도 포획 가능
+      });
+      this.log(`[BUILTIN CLASS] ${name} 등록 완료 (서브클래스 of Exception): ${desc}`);
+    }
+  }
+
+  /**
+   * v8.9: 시스템 예외 자동 생성 & 핸들러 전달
+   * 엔진이 감지한 위험을 FreeLang Exception 객체로 변환
+   */
+  private throwSystemException(className: string, message: string): never {
+    this.log(`[SYSTEM TRAP] ${className}: "${message}"`);
+
+    // 핸들러가 없으면 JavaScript 에러로 전파 (기존 동작 유지)
+    if (this.handlerStack.length === 0) {
+      this.log(`[SYSTEM TRAP] 활성 핸들러 없음 → 시스템 오류로 전파`);
+      throw new Error(`[${className}] ${message}`);
+    }
+
+    // FreeLang Exception 객체 생성 (new Exception()과 동일한 JS 객체 구조)
+    const exceptionObj: any = {
+      __type: 'object',
+      __class: className,
+      Message: message,
+      Code: -1,             // 시스템 예외는 음수 코드로 사용자 예외와 구분
+      Timestamp: String(Date.now()),
+      Location: 'engine',   // 발생 위치 = 엔진 내부
+      Cause: 0              // v8.8 체이닝 초기값
+    };
+
+    this.log(`[SYSTEM TRAP] ${className} 객체 생성 완료`);
+
+    // 현재 핸들러에 예외 객체 저장 → TryStatement catch 블록이 꺼내 씀
+    const handler = this.handlerStack[this.handlerStack.length - 1];
+    handler.exceptionObject = exceptionObj;
+
+    // JavaScript throw → TryStatement의 catch(e: any)로 흐름 이동
+    throw new Error(message);
   }
 
   /**
@@ -2429,7 +2491,19 @@ export class PCInterpreter {
           return value;
         }
 
-        if (!obj || (obj.__type !== 'struct' && obj.__type !== 'object')) throw new Error(`[MEMBER ERROR] 구조체나 객체가 아님`);
+        // v8.9: Null Pointer Guard
+        if (obj === null || obj === undefined || obj === 0) {
+          this.throwSystemException(
+            'NullReferenceException',
+            `Null Reference: cannot access member '${node.field}' of null`
+          );
+        }
+        if (obj.__type !== 'struct' && obj.__type !== 'object') {
+          this.throwSystemException(
+            'NullReferenceException',
+            `Invalid Reference: member '${node.field}' accessed on non-object (${typeof obj})`
+          );
+        }
 
         // v8.5: 메타 필드 먼저 확인 (__class, __type, __typeName, __baseAddr, __vPtr 등)
         if (node.field in obj) {
@@ -3039,8 +3113,18 @@ export class PCInterpreter {
     }
 
     if (op === '*') return left * right;
-    if (op === '/') return Math.floor(left / right);
-    if (op === '%') return left % right;
+    if (op === '/') {
+      if (right === 0) {
+        this.throwSystemException('ArithmeticException', 'Division by Zero');
+      }
+      return Math.floor(left / right);
+    }
+    if (op === '%') {
+      if (right === 0) {
+        this.throwSystemException('ArithmeticException', 'Modulo by Zero');
+      }
+      return left % right;
+    }
 
     if (op === '==') return left === right ? 1 : 0;
     if (op === '!=') return left !== right ? 1 : 0;
@@ -3466,7 +3550,11 @@ export class PCInterpreter {
     if (this.recursionDepth > this.MAX_RECURSION_DEPTH) {
       this.recursionDepth--;
       this.currentStackDepth--;
-      throw new Error(`[STACK OVERFLOW] 재귀 깊이 ${this.MAX_RECURSION_DEPTH} 초과`);
+      // v8.9: StackOverflowException 자동 발생
+      this.throwSystemException(
+        'StackOverflowException',
+        `Stack Overflow: recursion depth exceeds limit (${this.MAX_RECURSION_DEPTH})`
+      );
     }
     // ──────────────────────────────────────────────────────────────────────
 
