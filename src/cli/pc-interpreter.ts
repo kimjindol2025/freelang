@@ -913,6 +913,10 @@ export class PCInterpreter {
   // 함수별 호출 횟수 (Pipeline 모니터링)
   private callCountMap: Map<string, number> = new Map();
   private static readonly HOT_THRESHOLD = 100;
+  // v10.1: Hot-Spot 분류 (임계값 달성한 함수 목록)
+  private hotSpotFunctions: Set<string> = new Set();
+  // v10.1: 루프 실행 횟수 (루프 기반 Hot-Spot 추적)
+  private globalLoopExecutionCount: number = 0;
   // ──────────────────────────────────────────────────────────────────────────
 
   // ── v7.4: 접근 제어 (Access Control) ──────────────────────────────────────
@@ -1001,6 +1005,30 @@ export class PCInterpreter {
       const fp = 0; // 현재는 전역 FP 사용, 나중에 함수 호출 스택으로 확장 가능
       this.log(`[FP QUERY] 현재 FP: ${fp}`);
       return fp;
+    });
+
+    // v10.1: __GET_CODE_STATUS(functionName) — 함수가 HOT_SPOT인지 조회
+    this.variables.set('__GET_CODE_STATUS', (functionName: string) => {
+      const callCount = this.callCountMap.get(functionName) ?? 0;
+      const isHotSpot = this.hotSpotFunctions.has(functionName);
+      const status = isHotSpot ? 'HOT_SPOT' : 'NORMAL';
+      const message = `[CODE_STATUS] '${functionName}': ${status} (호출 ${callCount}회, 임계값 ${PCInterpreter.HOT_THRESHOLD})`;
+      this.log(message);
+      return status;
+    });
+
+    // v10.1: __GET_HOT_SPOT_COUNT() — 현재까지 분류된 HOT_SPOT 함수 개수
+    this.variables.set('__GET_HOT_SPOT_COUNT', () => {
+      const count = this.hotSpotFunctions.size;
+      this.log(`[HOT_SPOT_COUNT] 분류된 HOT_SPOT 함수: ${count}개`);
+      return count;
+    });
+
+    // v10.1: __GET_LOOP_EXECUTION_COUNT() — 전체 루프 실행 횟수
+    this.variables.set('__GET_LOOP_EXECUTION_COUNT', () => {
+      const count = this.globalLoopExecutionCount;
+      this.log(`[LOOP_EXEC_COUNT] 전체 루프 실행 횟수: ${count}회`);
+      return count;
     });
 
     // v5.0: arr_new(n) — n개 슬롯을 0으로 초기화한 배열 반환
@@ -1692,6 +1720,9 @@ export class PCInterpreter {
     // v4.6: 최적화 캐시 초기화 (재실행 시 오래된 캐시 방지)
     this.inlineCache.clear();
     this.callCountMap.clear();
+    // v10.1: Hot-Spot 분류 초기화
+    this.hotSpotFunctions.clear();
+    this.globalLoopExecutionCount = 0;
 
     // ── v6.1: Forward Declaration (Pass 1) ────────────────────────────────────
     // 실행 전에 모든 함수 정의를 먼저 등록하여 호출 순서와 무관하게 동작
@@ -2311,6 +2342,9 @@ export class PCInterpreter {
           // v3.7: Safety Guard - 반복 횟수 증가 및 체크
           this.loopIterationCounter[currentDepth] = (this.loopIterationCounter[currentDepth] || 0) + 1;
           this.globalIterationCount++;
+
+          // v10.1: 전체 루프 실행 횟수 추적 (Hot-Spot 감지용)
+          this.globalLoopExecutionCount++;
 
           const currentLoopIterations = this.loopIterationCounter[currentDepth];
 
@@ -3120,6 +3154,10 @@ export class PCInterpreter {
 
           this.log(`    [CONDITION] = true [Iteration: ${nestedIterationCount.toLocaleString()}/${MAX_SAFE_ITERATION.toLocaleString()}]`);
           this.continueFlag = false; // v3.6: continue 플래그 초기화
+
+          // v10.1: eval 기반 루프도 전체 루프 실행 횟수 추적 (Hot-Spot 감지용)
+          this.globalLoopExecutionCount++;
+
           result = this.eval(node.body);
           // v3.6: break는 루프 탈출, continue는 다음 회차로
           if (this.breakFlag) {
@@ -3800,6 +3838,9 @@ export class PCInterpreter {
       this.callCountMap.set(calleeName, count);
       if (count === PCInterpreter.HOT_THRESHOLD) {
         this.log(`[PIPELINE] '${calleeName}' HOT 함수 진입 (${count}회) — 최적화 경로 활성화`);
+        // v10.1: Hot-Spot 함수 분류
+        this.hotSpotFunctions.add(calleeName);
+        this.log(`[HOT_SPOT_CLASSIFY] '${calleeName}' → HOT_SPOT으로 분류됨 (실행 ${count}회)`);
       }
 
       // v4.6: Inline Hinting — 단순 함수 Fast Path (스코프 생성 생략)
