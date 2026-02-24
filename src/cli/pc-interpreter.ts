@@ -1347,6 +1347,34 @@ export class PCInterpreter {
       return obj.__refCount;
     });
 
+    // v9.2: __GET_HEAP_USAGE 내장 함수 (현재 힙 메모리 사용량 바이트 반환)
+    this.variables.set('__GET_HEAP_USAGE', () => {
+      let totalBytes = 0;
+      for (const info of this.instanceTracker.values()) {
+        // 각 객체: 8 bytes (vPtr + RC) + 객체 크기
+        totalBytes += 8 + info.size;
+      }
+      return totalBytes;
+    });
+
+    // v9.2: CHECK 내장 함수 (테스트 검증 함수)
+    this.variables.set('CHECK', (condition: any) => {
+      // 숫자(0/1) 또는 불린값 모두 수용 (== 연산자가 0/1을 반환할 수 있음)
+      const isTrue = condition === true || condition === 1;
+      const isFalse = condition === false || condition === 0;
+
+      if (!isTrue && !isFalse) {
+        this.log(`[CHECK ERROR] 불린/숫자 값이 아님: ${typeof condition} (${condition})`);
+        throw new Error(`[CHECK ERROR] condition must be boolean or 0/1`);
+      }
+      if (isFalse) {
+        this.log(`[CHECK FAILED] 검증 실패 (${condition})`);
+        throw new Error(`[CHECK FAILED] test assertion failed`);
+      }
+      this.log(`[CHECK PASSED] 검증 통과`);
+      return true;
+    });
+
     // v8.9: 시스템 예외 서브클래스 등록 (Exception 상속)
     const systemExceptionClasses = [
       { name: 'ArithmeticException',    desc: '산술 오류 (0 나눗셈 등)' },
@@ -3805,7 +3833,7 @@ export class PCInterpreter {
       }
 
       // v9.1: __GET_RC 및 기타 내장 함수들 복사
-      const builtinFuncs = ['__GET_RC', 'get_cause', 'get_trace', '__GET_HANDLER_COUNT', '__GET_HANDLER_SP', '__GET_HANDLER_FP', '__GET_FP'];
+      const builtinFuncs = ['__GET_RC', 'get_cause', 'get_trace', '__GET_HANDLER_COUNT', '__GET_HANDLER_SP', '__GET_HANDLER_FP', '__GET_FP', '__GET_HEAP_USAGE', 'CHECK'];
       for (const funcName of builtinFuncs) {
         const globalFunc = this.variables.get(funcName);
         if (typeof globalFunc === 'function') {
