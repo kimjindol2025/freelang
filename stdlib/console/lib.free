@@ -1,0 +1,57 @@
+// stdlib/console - 콘솔 출력 라이브러리
+
+FUNC log(msg) {
+  PRINT msg
+  RETURN NULL
+}
+
+FUNC info(msg) {
+  PRINT "[INFO] " + msg
+  RETURN NULL
+}
+
+FUNC warn(msg) {
+  PRINT "[WARN] " + msg
+  RETURN NULL
+}
+
+FUNC error(msg) {
+  PRINT "[ERROR] " + msg
+  RETURN NULL
+}
+
+FUNC debug(msg) {
+  PRINT "[DEBUG] " + msg
+  RETURN NULL
+}
+
+FUNC trace(msg) {
+  PRINT "[TRACE] " + msg
+  RETURN NULL
+}
+
+FUNC clear() {
+  RETURN TRUE
+}
+
+FUNC getTime() {
+  RETURN 0
+}
+
+FUNC beep() {
+  RETURN TRUE
+}
+
+FUNC setColor(r, g, b) {
+  RETURN TRUE
+}
+
+FUNC resetColor() {
+  RETURN TRUE
+}
+
+FUNC getSize() {
+  SET obj = {}
+  RETURN obj
+}
+

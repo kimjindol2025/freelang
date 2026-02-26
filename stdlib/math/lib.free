@@ -1,0 +1,63 @@
+// stdlib/math - 수학 함수 라이브러리
+
+FUNC abs(n) {
+  IF n < 0 {
+    RETURN 0 - n
+  }
+  RETURN n
+}
+
+FUNC pow(base, exp) {
+  IF exp == 0 {
+    RETURN 1
+  }
+  SET result = base
+  SET i = 1
+  WHILE i < exp {
+    SET result = result * base
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC sqrt(n) {
+  IF n < 0 {
+    RETURN 0
+  }
+  IF n == 0 {
+    RETURN 0
+  }
+  SET guess = n / 2
+  SET i = 0
+  WHILE i < 10 {
+    SET guess = (guess + n / guess) / 2
+    SET i = i + 1
+  }
+  RETURN guess
+}
+
+FUNC floor(n) {
+  RETURN n
+}
+
+FUNC ceil(n) {
+  RETURN n
+}
+
+FUNC round(n) {
+  RETURN n
+}
+
+FUNC min(a, b) {
+  IF a < b {
+    RETURN a
+  }
+  RETURN b
+}
+
+FUNC max(a, b) {
+  IF a > b {
+    RETURN a
+  }
+  RETURN b
+}

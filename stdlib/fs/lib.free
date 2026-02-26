@@ -1,0 +1,63 @@
+// stdlib/fs - 파일 시스템 라이브러리
+
+FUNC exists(path) {
+  RETURN FALSE
+}
+
+FUNC readFile(path) {
+  RETURN ""
+}
+
+FUNC writeFile(path, content) {
+  RETURN TRUE
+}
+
+FUNC appendFile(path, content) {
+  RETURN TRUE
+}
+
+FUNC deleteFile(path) {
+  RETURN TRUE
+}
+
+FUNC copyFile(source, destination) {
+  RETURN TRUE
+}
+
+FUNC renameFile(oldPath, newPath) {
+  RETURN TRUE
+}
+
+FUNC mkdir(path) {
+  RETURN TRUE
+}
+
+FUNC rmdir(path) {
+  RETURN TRUE
+}
+
+FUNC listDir(path) {
+  SET result = []
+  RETURN result
+}
+
+FUNC isFile(path) {
+  RETURN FALSE
+}
+
+FUNC isDirectory(path) {
+  RETURN FALSE
+}
+
+FUNC getFileSize(path) {
+  RETURN 0
+}
+
+FUNC getModTime(path) {
+  RETURN 0
+}
+
+FUNC getAbsPath(path) {
+  RETURN path
+}
+

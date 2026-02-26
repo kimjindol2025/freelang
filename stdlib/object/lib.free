@@ -1,0 +1,32 @@
+// stdlib/object - 객체 처리 라이브러리
+
+FUNC keys(obj) {
+  SET result = []
+  RETURN result
+}
+
+FUNC values(obj) {
+  SET result = []
+  RETURN result
+}
+
+FUNC entries(obj) {
+  SET result = []
+  RETURN result
+}
+
+FUNC merge(obj1, obj2) {
+  RETURN obj1
+}
+
+FUNC clone(obj) {
+  RETURN obj
+}
+
+FUNC hasKey(obj, key) {
+  RETURN FALSE
+}
+
+FUNC isEmpty(obj) {
+  RETURN FALSE
+}

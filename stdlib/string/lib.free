@@ -1,0 +1,38 @@
+// stdlib/string - 문자열 처리 라이브러리
+
+FUNC upper(str) {
+  RETURN str
+}
+
+FUNC lower(str) {
+  RETURN str
+}
+
+FUNC trim(str) {
+  RETURN str
+}
+
+FUNC length(str) {
+  RETURN 0
+}
+
+FUNC substr(str, start, len) {
+  RETURN str
+}
+
+FUNC split(str, delimiter) {
+  SET result = []
+  RETURN result
+}
+
+FUNC join(arr, delimiter) {
+  RETURN ""
+}
+
+FUNC contains(str, search) {
+  RETURN FALSE
+}
+
+FUNC replace(str, search, replacement) {
+  RETURN str
+}

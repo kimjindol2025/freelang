@@ -1,0 +1,100 @@
+// stdlib/csv - CSV 처리 라이브러리
+
+FUNC parse(csvStr) {
+  SET result = []
+  SET lines = split(csvStr, "\n")
+  SET i = 0
+  WHILE i < len(lines) {
+    SET row = split(lines[i], ",")
+    SET result = push(result, row)
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC parseWithHeader(csvStr) {
+  SET result = []
+  SET lines = split(csvStr, "\n")
+  IF len(lines) > 0 {
+    SET headers = split(lines[0], ",")
+    SET i = 1
+    WHILE i < len(lines) {
+      SET values = split(lines[i], ",")
+      SET row = {}
+      SET j = 0
+      WHILE j < len(headers) {
+        SET row[headers[j]] = values[j]
+        SET j = j + 1
+      }
+      SET result = push(result, row)
+      SET i = i + 1
+    }
+  }
+  RETURN result
+}
+
+FUNC stringify(data) {
+  SET result = ""
+  SET i = 0
+  WHILE i < len(data) {
+    SET row = data[i]
+    SET line = join(row, ",")
+    SET result = result + line
+    IF i < len(data) - 1 {
+      SET result = result + "\n"
+    }
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC escapeField(field) {
+  IF contains(field, ",") {
+    SET field = "\"" + field + "\""
+  }
+  RETURN field
+}
+
+FUNC unescapeField(field) {
+  IF substr(field, 0, 1) == "\"" {
+    SET field = substr(field, 1, len(field) - 2)
+  }
+  RETURN field
+}
+
+FUNC getColumn(data, columnIndex) {
+  SET result = []
+  SET i = 0
+  WHILE i < len(data) {
+    SET result = push(result, data[i][columnIndex])
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC getRow(data, rowIndex) {
+  IF rowIndex < len(data) {
+    RETURN data[rowIndex]
+  }
+  RETURN []
+}
+
+FUNC transpose(data) {
+  SET result = []
+  IF len(data) > 0 {
+    SET cols = len(data[0])
+    SET col = 0
+    WHILE col < cols {
+      SET newRow = []
+      SET row = 0
+      WHILE row < len(data) {
+        SET newRow = push(newRow, data[row][col])
+        SET row = row + 1
+      }
+      SET result = push(result, newRow)
+      SET col = col + 1
+    }
+  }
+  RETURN result
+}
+

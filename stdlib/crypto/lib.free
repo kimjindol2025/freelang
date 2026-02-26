@@ -1,0 +1,90 @@
+// stdlib/crypto - 암호화 라이브러리
+
+FUNC md5(str) {
+  RETURN ""
+}
+
+FUNC sha1(str) {
+  RETURN ""
+}
+
+FUNC sha256(str) {
+  RETURN ""
+}
+
+FUNC sha512(str) {
+  RETURN ""
+}
+
+FUNC hash(algorithm, str) {
+  RETURN ""
+}
+
+FUNC hmac(algorithm, message, key) {
+  RETURN ""
+}
+
+FUNC encrypt(algorithm, plaintext, key) {
+  RETURN ""
+}
+
+FUNC decrypt(algorithm, ciphertext, key) {
+  RETURN ""
+}
+
+FUNC encryptAES(plaintext, key) {
+  RETURN ""
+}
+
+FUNC decryptAES(ciphertext, key) {
+  RETURN ""
+}
+
+FUNC generateKey(length) {
+  RETURN ""
+}
+
+FUNC randomBytes(length) {
+  RETURN ""
+}
+
+FUNC randomString(length) {
+  RETURN ""
+}
+
+FUNC randomInt(min, max) {
+  RETURN 0
+}
+
+FUNC bcryptHash(password, rounds) {
+  RETURN ""
+}
+
+FUNC bcryptCompare(password, hash) {
+  RETURN FALSE
+}
+
+FUNC base64Encode(str) {
+  RETURN ""
+}
+
+FUNC base64Decode(str) {
+  RETURN ""
+}
+
+FUNC hexEncode(str) {
+  RETURN ""
+}
+
+FUNC hexDecode(str) {
+  RETURN ""
+}
+
+FUNC urlEncode(str) {
+  RETURN ""
+}
+
+FUNC urlDecode(str) {
+  RETURN ""
+}
+

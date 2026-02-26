@@ -1,0 +1,100 @@
+// stdlib/logger - 로깅 라이브러리
+
+FUNC createLogger(name) {
+  SET logger = {}
+  RETURN logger
+}
+
+FUNC log(logger, level, message) {
+  PRINT message
+  RETURN TRUE
+}
+
+FUNC debug(logger, message) {
+  PRINT "[DEBUG] " + message
+  RETURN TRUE
+}
+
+FUNC info(logger, message) {
+  PRINT "[INFO] " + message
+  RETURN TRUE
+}
+
+FUNC warn(logger, message) {
+  PRINT "[WARN] " + message
+  RETURN TRUE
+}
+
+FUNC error(logger, message) {
+  PRINT "[ERROR] " + message
+  RETURN TRUE
+}
+
+FUNC fatal(logger, message) {
+  PRINT "[FATAL] " + message
+  RETURN TRUE
+}
+
+FUNC trace(logger, message) {
+  PRINT "[TRACE] " + message
+  RETURN TRUE
+}
+
+FUNC setLevel(logger, level) {
+  RETURN TRUE
+}
+
+FUNC getLevel(logger) {
+  RETURN "INFO"
+}
+
+FUNC addHandler(logger, handler) {
+  RETURN TRUE
+}
+
+FUNC removeHandler(logger, handler) {
+  RETURN TRUE
+}
+
+FUNC setFormatter(logger, format) {
+  RETURN TRUE
+}
+
+FUNC getFormatter(logger) {
+  RETURN ""
+}
+
+FUNC flush(logger) {
+  RETURN TRUE
+}
+
+FUNC close(logger) {
+  RETURN TRUE
+}
+
+FUNC logWithContext(logger, level, message, context) {
+  PRINT message
+  RETURN TRUE
+}
+
+FUNC logException(logger, exception) {
+  PRINT exception
+  RETURN TRUE
+}
+
+FUNC setOutput(logger, outputPath) {
+  RETURN TRUE
+}
+
+FUNC getOutput(logger) {
+  RETURN ""
+}
+
+FUNC setMaxSize(logger, size) {
+  RETURN TRUE
+}
+
+FUNC rotate(logger) {
+  RETURN TRUE
+}
+

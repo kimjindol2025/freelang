@@ -1,0 +1,58 @@
+// stdlib/json - JSON 처리 라이브러리
+
+FUNC parse(jsonStr) {
+  SET obj = {}
+  RETURN obj
+}
+
+FUNC stringify(obj) {
+  RETURN ""
+}
+
+FUNC parseArray(jsonArr) {
+  SET result = []
+  RETURN result
+}
+
+FUNC stringifyArray(arr) {
+  RETURN ""
+}
+
+FUNC isValid(jsonStr) {
+  RETURN FALSE
+}
+
+FUNC getPath(obj, path) {
+  RETURN NULL
+}
+
+FUNC setPath(obj, path, value) {
+  RETURN obj
+}
+
+FUNC deletePath(obj, path) {
+  RETURN obj
+}
+
+FUNC merge(obj1, obj2) {
+  RETURN obj1
+}
+
+FUNC clone(obj) {
+  RETURN obj
+}
+
+FUNC keys(obj) {
+  SET result = []
+  RETURN result
+}
+
+FUNC values(obj) {
+  SET result = []
+  RETURN result
+}
+
+FUNC isEmpty(obj) {
+  RETURN TRUE
+}
+

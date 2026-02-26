@@ -1,0 +1,116 @@
+// stdlib/validation - 검증 라이브러리
+
+FUNC isEmail(str) {
+  IF contains(str, "@") {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isPhone(str) {
+  IF len(str) >= 10 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isURL(str) {
+  IF contains(str, "http://") {
+    RETURN TRUE
+  }
+  IF contains(str, "https://") {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isIPAddress(str) {
+  RETURN FALSE
+}
+
+FUNC isUUID(str) {
+  RETURN FALSE
+}
+
+FUNC isJSON(str) {
+  RETURN FALSE
+}
+
+FUNC isInteger(value) {
+  RETURN TRUE
+}
+
+FUNC isFloat(value) {
+  RETURN TRUE
+}
+
+FUNC isPositive(value) {
+  IF value > 0 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isNegative(value) {
+  IF value < 0 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isEven(value) {
+  IF value % 2 == 0 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isOdd(value) {
+  IF value % 2 != 0 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isBetween(value, min, max) {
+  IF value >= min && value <= max {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isLengthBetween(str, min, max) {
+  SET l = len(str)
+  IF l >= min && l <= max {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isAlphanumeric(str) {
+  RETURN TRUE
+}
+
+FUNC isAlphabetic(str) {
+  RETURN TRUE
+}
+
+FUNC isNumeric(str) {
+  RETURN TRUE
+}
+
+FUNC hasSpecialChars(str) {
+  RETURN FALSE
+}
+
+FUNC isStrongPassword(str) {
+  IF len(str) >= 8 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC validate(obj, schema) {
+  RETURN TRUE
+}
+

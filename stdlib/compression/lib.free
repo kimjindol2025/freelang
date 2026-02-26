@@ -1,0 +1,83 @@
+// stdlib/compression - 압축 라이브러리
+
+FUNC compress(data) {
+  RETURN ""
+}
+
+FUNC decompress(data) {
+  RETURN ""
+}
+
+FUNC gzip(data) {
+  RETURN ""
+}
+
+FUNC gunzip(data) {
+  RETURN ""
+}
+
+FUNC deflate(data) {
+  RETURN ""
+}
+
+FUNC inflate(data) {
+  RETURN ""
+}
+
+FUNC zipFiles(files, outputPath) {
+  RETURN TRUE
+}
+
+FUNC unzipFile(zipPath, outputPath) {
+  RETURN TRUE
+}
+
+FUNC tarFiles(files, outputPath) {
+  RETURN TRUE
+}
+
+FUNC untarFile(tarPath, outputPath) {
+  RETURN TRUE
+}
+
+FUNC brotliCompress(data) {
+  RETURN ""
+}
+
+FUNC brotliDecompress(data) {
+  RETURN ""
+}
+
+FUNC lz4Compress(data) {
+  RETURN ""
+}
+
+FUNC lz4Decompress(data) {
+  RETURN ""
+}
+
+FUNC getCompressionRatio(original, compressed) {
+  RETURN 0
+}
+
+FUNC getCompressedSize(data) {
+  RETURN 0
+}
+
+FUNC getOriginalSize(data) {
+  RETURN 0
+}
+
+FUNC canCompress(data) {
+  RETURN TRUE
+}
+
+FUNC listFiles(zipPath) {
+  SET result = []
+  RETURN result
+}
+
+FUNC extractFile(zipPath, fileName, outputPath) {
+  RETURN TRUE
+}
+

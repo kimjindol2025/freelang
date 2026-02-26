@@ -1,0 +1,130 @@
+// stdlib/utils - 유틸리티 라이브러리
+
+FUNC isEmpty(value) {
+  IF value == NULL {
+    RETURN TRUE
+  }
+  IF len(value) == 0 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isDefined(value) {
+  IF value == NULL {
+    RETURN FALSE
+  }
+  RETURN TRUE
+}
+
+FUNC isArray(value) {
+  SET t = type(value)
+  IF t == "array" {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isObject(value) {
+  SET t = type(value)
+  IF t == "object" {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isString(value) {
+  SET t = type(value)
+  IF t == "string" {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isNumber(value) {
+  SET t = type(value)
+  IF t == "number" {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC isBoolean(value) {
+  SET t = type(value)
+  IF t == "boolean" {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC sleep(ms) {
+  RETURN TRUE
+}
+
+FUNC random() {
+  RETURN 0
+}
+
+FUNC randomInt(min, max) {
+  RETURN 0
+}
+
+FUNC randomChoice(arr) {
+  IF len(arr) > 0 {
+    RETURN arr[0]
+  }
+  RETURN NULL
+}
+
+FUNC shuffle(arr) {
+  RETURN arr
+}
+
+FUNC unique(arr) {
+  SET result = []
+  SET i = 0
+  WHILE i < len(arr) {
+    SET found = FALSE
+    SET j = 0
+    WHILE j < len(result) {
+      IF arr[i] == result[j] {
+        SET found = TRUE
+      }
+      SET j = j + 1
+    }
+    IF found == FALSE {
+      SET result = push(result, arr[i])
+    }
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC flatten(arr) {
+  SET result = []
+  SET i = 0
+  WHILE i < len(arr) {
+    IF isArray(arr[i]) {
+      SET flattened = flatten(arr[i])
+      SET j = 0
+      WHILE j < len(flattened) {
+        SET result = push(result, flattened[j])
+        SET j = j + 1
+      }
+    } ELSE {
+      SET result = push(result, arr[i])
+    }
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC groupBy(arr, keyFunc) {
+  SET result = {}
+  RETURN result
+}
+
+FUNC memoize(func) {
+  RETURN func
+}
+

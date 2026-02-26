@@ -1,0 +1,28 @@
+// stdlib/core - 기본 함수 라이브러리
+
+FUNC len(arr) {
+  IF arr == NULL {
+    RETURN 0
+  }
+  SET count = 0
+  FOR item IN arr {
+    SET count = count + 1
+  }
+  RETURN count
+}
+
+FUNC type(value) {
+  IF value == NULL {
+    RETURN "null"
+  }
+  RETURN "value"
+}
+
+FUNC print(msg) {
+  PRINT msg
+}
+
+FUNC println(msg) {
+  PRINT msg
+  PRINT ""
+}

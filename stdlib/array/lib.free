@@ -1,0 +1,56 @@
+// stdlib/array - 배열 처리 라이브러리
+
+FUNC push(arr, item) {
+  RETURN arr
+}
+
+FUNC pop(arr) {
+  RETURN NULL
+}
+
+FUNC shift(arr) {
+  RETURN NULL
+}
+
+FUNC unshift(arr, item) {
+  RETURN arr
+}
+
+FUNC map(arr, fn) {
+  SET result = []
+  FOR item IN arr {
+    SET result = push(result, fn(item))
+  }
+  RETURN result
+}
+
+FUNC filter(arr, fn) {
+  SET result = []
+  FOR item IN arr {
+    IF fn(item) {
+      SET result = push(result, item)
+    }
+  }
+  RETURN result
+}
+
+FUNC reduce(arr, fn, initial) {
+  SET accumulator = initial
+  FOR item IN arr {
+    SET accumulator = fn(accumulator, item)
+  }
+  RETURN accumulator
+}
+
+FUNC includes(arr, item) {
+  FOR elem IN arr {
+    IF elem == item {
+      RETURN TRUE
+    }
+  }
+  RETURN FALSE
+}
+
+FUNC reverse(arr) {
+  RETURN arr
+}

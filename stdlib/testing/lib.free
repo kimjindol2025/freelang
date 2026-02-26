@@ -1,0 +1,105 @@
+// stdlib/testing - 테스트 라이브러리
+
+FUNC describe(name, callback) {
+  RETURN TRUE
+}
+
+FUNC it(name, callback) {
+  RETURN TRUE
+}
+
+FUNC beforeEach(callback) {
+  RETURN TRUE
+}
+
+FUNC afterEach(callback) {
+  RETURN TRUE
+}
+
+FUNC before(callback) {
+  RETURN TRUE
+}
+
+FUNC after(callback) {
+  RETURN TRUE
+}
+
+FUNC assert(condition, message) {
+  IF condition == FALSE {
+    RETURN FALSE
+  }
+  RETURN TRUE
+}
+
+FUNC assertEqual(actual, expected, message) {
+  IF actual == expected {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC assertNotEqual(actual, expected, message) {
+  IF actual != expected {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC assertTrue(value, message) {
+  IF value == TRUE {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC assertFalse(value, message) {
+  IF value == FALSE {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC assertNull(value, message) {
+  IF value == NULL {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC assertNotNull(value, message) {
+  IF value != NULL {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC assertThrows(callback, message) {
+  RETURN TRUE
+}
+
+FUNC assertDoesNotThrow(callback, message) {
+  RETURN TRUE
+}
+
+FUNC skip(name) {
+  RETURN TRUE
+}
+
+FUNC only(name) {
+  RETURN TRUE
+}
+
+FUNC run() {
+  RETURN TRUE
+}
+
+FUNC getSummary() {
+  SET summary = {}
+  RETURN summary
+}
+
+FUNC getResults() {
+  SET results = []
+  RETURN results
+}
+

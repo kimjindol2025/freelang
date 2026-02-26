@@ -1,0 +1,85 @@
+// stdlib/http - HTTP 클라이언트 라이브러리
+
+FUNC get(url) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC post(url, data) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC put(url, data) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC delete(url) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC patch(url, data) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC head(url) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC request(method, url, options) {
+  SET response = {}
+  RETURN response
+}
+
+FUNC setHeader(name, value) {
+  SET headers = {}
+  RETURN headers
+}
+
+FUNC getHeader(response, name) {
+  RETURN ""
+}
+
+FUNC getStatus(response) {
+  RETURN 0
+}
+
+FUNC getBody(response) {
+  RETURN ""
+}
+
+FUNC parseJSON(response) {
+  SET obj = {}
+  RETURN obj
+}
+
+FUNC setTimeout(ms) {
+  RETURN TRUE
+}
+
+FUNC setMaxRetries(count) {
+  RETURN TRUE
+}
+
+FUNC encodeURL(str) {
+  RETURN str
+}
+
+FUNC decodeURL(str) {
+  RETURN str
+}
+
+FUNC buildQuery(params) {
+  SET result = ""
+  RETURN result
+}
+
+FUNC parseQuery(queryStr) {
+  SET result = {}
+  RETURN result
+}
+

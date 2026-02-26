@@ -1,0 +1,62 @@
+// stdlib/io - 입출력 라이브러리
+
+FUNC readInput(prompt) {
+  PRINT prompt
+  RETURN ""
+}
+
+FUNC readLine() {
+  RETURN ""
+}
+
+FUNC writeOutput(text) {
+  PRINT text
+  RETURN TRUE
+}
+
+FUNC flush() {
+  RETURN TRUE
+}
+
+FUNC readFromString(str, delimiter) {
+  SET result = []
+  SET current = ""
+  SET i = 0
+  WHILE i < len(str) {
+    SET char = substr(str, i, 1)
+    IF char == delimiter {
+      SET result = push(result, current)
+      SET current = ""
+    } ELSE {
+      SET current = current + char
+    }
+    SET i = i + 1
+  }
+  SET result = push(result, current)
+  RETURN result
+}
+
+FUNC writeToString(arr, delimiter) {
+  SET result = ""
+  SET i = 0
+  WHILE i < len(arr) {
+    IF i > 0 {
+      SET result = result + delimiter
+    }
+    SET result = result + arr[i]
+    SET i = i + 1
+  }
+  RETURN result
+}
+
+FUNC getInputSize(input) {
+  RETURN len(input)
+}
+
+FUNC truncateOutput(text, maxLength) {
+  IF len(text) > maxLength {
+    RETURN substr(text, 0, maxLength)
+  }
+  RETURN text
+}
+

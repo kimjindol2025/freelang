@@ -1,0 +1,88 @@
+// stdlib/database - 데이터베이스 라이브러리
+
+FUNC connect(connectionString) {
+  SET connection = {}
+  RETURN connection
+}
+
+FUNC disconnect(connection) {
+  RETURN TRUE
+}
+
+FUNC query(connection, sql) {
+  SET result = []
+  RETURN result
+}
+
+FUNC queryOne(connection, sql) {
+  SET result = {}
+  RETURN result
+}
+
+FUNC insert(connection, table, data) {
+  RETURN 0
+}
+
+FUNC update(connection, table, data, where) {
+  RETURN 0
+}
+
+FUNC delete(connection, table, where) {
+  RETURN 0
+}
+
+FUNC beginTransaction(connection) {
+  RETURN TRUE
+}
+
+FUNC commit(connection) {
+  RETURN TRUE
+}
+
+FUNC rollback(connection) {
+  RETURN TRUE
+}
+
+FUNC prepare(connection, sql) {
+  SET stmt = {}
+  RETURN stmt
+}
+
+FUNC bind(stmt, index, value) {
+  RETURN TRUE
+}
+
+FUNC execute(stmt) {
+  SET result = []
+  RETURN result
+}
+
+FUNC close(stmt) {
+  RETURN TRUE
+}
+
+FUNC getLastId(connection) {
+  RETURN 0
+}
+
+FUNC getRowCount(connection) {
+  RETURN 0
+}
+
+FUNC getColumnNames(connection, table) {
+  SET result = []
+  RETURN result
+}
+
+FUNC createTable(connection, table, schema) {
+  RETURN TRUE
+}
+
+FUNC dropTable(connection, table) {
+  RETURN TRUE
+}
+
+FUNC escape(connection, str) {
+  RETURN str
+}
+

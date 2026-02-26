@@ -1,0 +1,69 @@
+// stdlib/regex - 정규표현식 라이브러리
+
+FUNC test(pattern, str) {
+  RETURN FALSE
+}
+
+FUNC match(pattern, str) {
+  SET result = []
+  RETURN result
+}
+
+FUNC matchAll(pattern, str) {
+  SET result = []
+  RETURN result
+}
+
+FUNC replace(pattern, str, replacement) {
+  RETURN str
+}
+
+FUNC replaceAll(pattern, str, replacement) {
+  RETURN str
+}
+
+FUNC split(pattern, str) {
+  SET result = []
+  RETURN result
+}
+
+FUNC exec(pattern, str) {
+  RETURN NULL
+}
+
+FUNC isValid(pattern) {
+  RETURN TRUE
+}
+
+FUNC escape(str) {
+  RETURN str
+}
+
+FUNC flags(pattern) {
+  RETURN ""
+}
+
+FUNC source(pattern) {
+  RETURN ""
+}
+
+FUNC createPattern(pattern) {
+  RETURN pattern
+}
+
+FUNC createPatternWithFlags(pattern, flags) {
+  RETURN pattern
+}
+
+FUNC matchCount(pattern, str) {
+  RETURN 0
+}
+
+FUNC findFirst(pattern, str) {
+  RETURN NULL
+}
+
+FUNC findLast(pattern, str) {
+  RETURN NULL
+}
+

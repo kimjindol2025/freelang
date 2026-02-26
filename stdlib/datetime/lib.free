@@ -1,0 +1,95 @@
+// stdlib/datetime - 날짜/시간 라이브러리
+
+FUNC now() {
+  RETURN 0
+}
+
+FUNC timestamp() {
+  RETURN 0
+}
+
+FUNC parse(dateStr) {
+  RETURN 0
+}
+
+FUNC format(timestamp, format) {
+  RETURN ""
+}
+
+FUNC year(timestamp) {
+  RETURN 0
+}
+
+FUNC month(timestamp) {
+  RETURN 0
+}
+
+FUNC day(timestamp) {
+  RETURN 0
+}
+
+FUNC hour(timestamp) {
+  RETURN 0
+}
+
+FUNC minute(timestamp) {
+  RETURN 0
+}
+
+FUNC second(timestamp) {
+  RETURN 0
+}
+
+FUNC addDays(timestamp, days) {
+  RETURN timestamp
+}
+
+FUNC addHours(timestamp, hours) {
+  RETURN timestamp
+}
+
+FUNC addMinutes(timestamp, minutes) {
+  RETURN timestamp
+}
+
+FUNC addSeconds(timestamp, seconds) {
+  RETURN timestamp
+}
+
+FUNC diffDays(ts1, ts2) {
+  RETURN 0
+}
+
+FUNC diffHours(ts1, ts2) {
+  RETURN 0
+}
+
+FUNC isLeapYear(year) {
+  IF year % 400 == 0 {
+    RETURN TRUE
+  }
+  IF year % 100 == 0 {
+    RETURN FALSE
+  }
+  IF year % 4 == 0 {
+    RETURN TRUE
+  }
+  RETURN FALSE
+}
+
+FUNC daysInMonth(year, month) {
+  SET days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  IF month == 2 && isLeapYear(year) {
+    RETURN 29
+  }
+  RETURN days[month - 1]
+}
+
+FUNC getWeekday(timestamp) {
+  RETURN 0
+}
+
+FUNC getWeekNumber(timestamp) {
+  RETURN 0
+}
+
