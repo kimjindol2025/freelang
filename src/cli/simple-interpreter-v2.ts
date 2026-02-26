@@ -200,7 +200,18 @@ export class SimpleInterpreter {
    */
   private executePrint(node: ASTNode, context: ExecutionContext): any {
     const values = node.args.map((arg: any) => this.evaluateExpression(arg, context));
-    const output = values.map((v: any) => String(v)).join(' ');
+    const output = values.map((v: any) => {
+      // 객체인 경우 JSON 형식으로 표시
+      if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+        return JSON.stringify(v);
+      }
+      // 배열인 경우 JSON 형식으로 표시
+      if (Array.isArray(v)) {
+        return JSON.stringify(v);
+      }
+      // 기본값: 문자열로 변환
+      return String(v);
+    }).join(' ');
     console.log(output);
     return undefined;
   }
@@ -1005,6 +1016,62 @@ export class SimpleInterpreter {
   private loadModule(modulePath: string, moduleName: string): any {
     try {
       const fs = require('fs');
+
+      // 특별 모듈 처리: regex (네이밍 충돌 방지)
+      if (moduleName === 'regex') {
+        return {
+          test: (pattern: string, str: string) => {
+            try {
+              const regex = new RegExp(pattern);
+              return regex.test(str);
+            } catch (e) {
+              throw new Error(`Invalid regex pattern: ${pattern}`);
+            }
+          },
+          match: (pattern: string, str: string) => {
+            try {
+              const regex = new RegExp(pattern);
+              const result = str.match(regex);
+              return result ? result[0] : null;
+            } catch (e) {
+              throw new Error(`Invalid regex pattern: ${pattern}`);
+            }
+          },
+          matchAll: (pattern: string, str: string) => {
+            try {
+              const regex = new RegExp(pattern, 'g');
+              const result = str.match(regex);
+              return result || [];
+            } catch (e) {
+              throw new Error(`Invalid regex pattern: ${pattern}`);
+            }
+          },
+          regexReplace: (pattern: string, str: string, replacement: string) => {
+            try {
+              const regex = new RegExp(pattern);
+              return str.replace(regex, replacement);
+            } catch (e) {
+              throw new Error(`Invalid regex pattern: ${pattern}`);
+            }
+          },
+          regexReplaceAll: (pattern: string, str: string, replacement: string) => {
+            try {
+              const regex = new RegExp(pattern, 'g');
+              return str.replace(regex, replacement);
+            } catch (e) {
+              throw new Error(`Invalid regex pattern: ${pattern}`);
+            }
+          },
+          regexSplit: (pattern: string, str: string) => {
+            try {
+              const regex = new RegExp(pattern);
+              return str.split(regex);
+            } catch (e) {
+              throw new Error(`Invalid regex pattern: ${pattern}`);
+            }
+          }
+        };
+      }
 
       // 파일 존재 확인
       if (!fs.existsSync(modulePath)) {

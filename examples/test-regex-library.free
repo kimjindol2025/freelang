@@ -1,14 +1,13 @@
 IMPORT regex FROM "stdlib/regex"
-IMPORT string FROM "stdlib/string"
 
-PRINT "=========================================="
+PRINT "==========================================="
 PRINT "=== Regular Expression Library Test ==="
-PRINT "=========================================="
+PRINT "==========================================="
 PRINT ""
 
 PRINT "1. Test pattern matching"
 SET has_email = regex.test("[a-z]+@[a-z]+\\.[a-z]+", "user@example.com")
-PRINT "test('email pattern', 'user@example.com') = "
+PRINT "test('[a-z]+@[a-z]+\\.[a-z]+', 'user@example.com') = "
 PRINT has_email
 PRINT ""
 
@@ -31,29 +30,29 @@ PRINT all_matches
 PRINT ""
 
 PRINT "5. Replace first match"
-SET replaced = regex.replace("[0-9]+", "abc123def456", "XXX")
-PRINT "replace('[0-9]+', 'abc123def456', 'XXX') = "
+SET replaced = regex.regexReplace("[0-9]+", "abc123def456", "XXX")
+PRINT "regexReplace('[0-9]+', 'abc123def456', 'XXX') = "
 PRINT replaced
 PRINT ""
 
 PRINT "6. Replace all matches"
-SET replaced_all = regex.replaceAll("[0-9]+", "abc123def456ghi789", "X")
-PRINT "replaceAll('[0-9]+', 'abc123def456ghi789', 'X') = "
+SET replaced_all = regex.regexReplaceAll("[0-9]+", "abc123def456ghi789", "X")
+PRINT "regexReplaceAll('[0-9]+', 'abc123def456ghi789', 'X') = "
 PRINT replaced_all
 PRINT ""
 
 PRINT "7. Split by pattern"
-SET parts = regex.split("[0-9]+", "abc123def456ghi789")
-PRINT "split('[0-9]+', 'abc123def456ghi789') = "
+SET parts = regex.regexSplit("[0-9]+", "abc123def456ghi789")
+PRINT "regexSplit('[0-9]+', 'abc123def456ghi789') = "
 PRINT parts
 PRINT ""
 
 PRINT "8. Test word boundary"
 SET word_test = regex.test("\\bhello\\b", "hello world hello")
-PRINT "test('\\\\bhello\\\\b', 'hello world hello') = "
+PRINT "test('\\bhello\\b', 'hello world hello') = "
 PRINT word_test
 PRINT ""
 
-PRINT "=========================================="
+PRINT "==========================================="
 PRINT "=== Regex Test Completed ==="
-PRINT "=========================================="
+PRINT "==========================================="
