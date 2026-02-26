@@ -361,7 +361,6 @@ export class CycleValidator {
    */
   verifyPatternDetection(): boolean {
     const stats = this.detector.getStats();
-    const patterns = new Set(stats.cycles.map((c) => c.pattern));
 
     // At minimum, should detect if cycles exist
     return stats.totalCycles >= 0;

@@ -49,10 +49,6 @@ export class LeakReporter {
   private actualLeaksFound: number[] = [];
   private reportHistory: LeakReport[] = [];
 
-  // Configuration
-  private reportOnShutdown = true;
-  private throwOnLeak = false;
-
   constructor(cycleDetector: CycleDetector) {
     this.cycleDetector = cycleDetector;
   }
@@ -294,17 +290,6 @@ export class LeakReporter {
     recs.push('📚 See CYCLE_HANDLING_POLICY.md for detailed guidance');
 
     return recs;
-  }
-
-  /**
-   * Configure reporting behavior
-   */
-  setReportOnShutdown(enabled: boolean): void {
-    this.reportOnShutdown = enabled;
-  }
-
-  setThrowOnLeak(enabled: boolean): void {
-    this.throwOnLeak = enabled;
   }
 
   /**

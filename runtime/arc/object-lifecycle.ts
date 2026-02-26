@@ -13,7 +13,7 @@
  * This prevents use-after-free and ensures cleanup order
  */
 
-import { ReferenceCountingEngine, ObjectMetadata } from './reference-counting';
+import { ReferenceCountingEngine } from './reference-counting';
 import { WeakRefTable } from './weak-ref-table';
 
 export interface MemberField {
@@ -334,11 +334,9 @@ export class LifecycleValidator {
 export class ObjectBuilder {
   private members: MemberField[] = [];
   private addr: number;
-  private type: string;
 
-  constructor(addr: number, type: string) {
+  constructor(addr: number, _type: string) {
     this.addr = addr;
-    this.type = type;
   }
 
   addMember(name: string, memberAddr: number, isStrong = true): ObjectBuilder {

@@ -10,7 +10,7 @@
  * Implements Swift-style ARC (Automatic Reference Counting)
  */
 
-import { AtomicRefCounter, atomicIncrement, atomicDecrement } from './atomic-ops';
+import { AtomicRefCounter } from './atomic-ops';
 
 export interface ObjectMetadata {
   id: number;

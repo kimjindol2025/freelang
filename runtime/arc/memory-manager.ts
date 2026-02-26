@@ -18,7 +18,7 @@
 import { ReferenceCountingEngine, ObjectMetadata } from './reference-counting';
 import { WeakRefTable } from './weak-ref-table';
 import { ObjectLifecycleManager, MemberField } from './object-lifecycle';
-import { SmartPtrContainer, SmartPtrFactory } from './smart-pointers';
+import { SmartPtrFactory } from './smart-pointers';
 
 export interface AllocationRequest {
   type: string;
@@ -69,7 +69,6 @@ export class MemoryManager {
 
   // Configuration
   private enableProfiling = true;
-  private enableLeakDetection = true;
 
   constructor() {
     this.rcEngine = new ReferenceCountingEngine();
@@ -402,12 +401,6 @@ export class MemoryManager {
     this.enableProfiling = enabled;
   }
 
-  /**
-   * Enable/disable leak detection
-   */
-  setLeakDetection(enabled: boolean): void {
-    this.enableLeakDetection = enabled;
-  }
 
   /**
    * Get internal engines (for advanced usage)

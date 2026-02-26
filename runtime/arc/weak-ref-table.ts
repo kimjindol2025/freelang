@@ -12,7 +12,7 @@
  * - dereferenceWeakRef(varName): Safe dereference with NULL check
  */
 
-import { atomicStore, atomicLoad, compareAndSwap } from './atomic-ops';
+import { atomicStore } from './atomic-ops';
 
 export interface WeakRefMetadata {
   varName: string;           // Variable name (e.g., "parent_ref")

@@ -30,15 +30,11 @@ export interface PtrMetadata {
  *   // ptr2 destroyed → automatic deallocation
  */
 export class UniquePtr {
-  private id: number;
   private addr: number;
   private metadata: PtrMetadata;
   private isValid: boolean;
 
-  private static nextId = 1;
-
   constructor(addr: number, metadata: PtrMetadata) {
-    this.id = UniquePtr.nextId++;
     this.addr = addr;
     this.metadata = metadata;
     this.isValid = true;
@@ -49,7 +45,7 @@ export class UniquePtr {
    */
   get(): number {
     if (!this.isValid) {
-      throw new Error(`[UNIQUE-PTR] Use after move: ${this.id}`);
+      throw new Error('[UNIQUE-PTR] Use after move');
     }
     return this.addr;
   }
@@ -60,7 +56,7 @@ export class UniquePtr {
    */
   move(): UniquePtr {
     if (!this.isValid) {
-      throw new Error(`[UNIQUE-PTR] Move from invalid pointer: ${this.id}`);
+      throw new Error('[UNIQUE-PTR] Move from invalid pointer');
     }
 
     const newPtr = new UniquePtr(this.addr, this.metadata);
@@ -74,7 +70,7 @@ export class UniquePtr {
    */
   release(): number {
     if (!this.isValid) {
-      throw new Error(`[UNIQUE-PTR] Release from invalid pointer: ${this.id}`);
+      throw new Error('[UNIQUE-PTR] Release from invalid pointer');
     }
 
     const addr = this.addr;
@@ -126,16 +122,13 @@ export class UniquePtr {
  *   // ptr2 destroyed → RC--, deallocate (RC=0)
  */
 export class SharedPtr {
-  private id: number;
   private addr: number;
   private metadata: PtrMetadata;
   private rcEngine: Map<number, number>; // Simulated RC storage: Map<addr, refCount>
 
-  private static nextId = 100;
   private static globalRcEngine = new Map<number, number>();
 
   constructor(addr: number, metadata: PtrMetadata, rcEngine?: Map<number, number>) {
-    this.id = SharedPtr.nextId++;
     this.addr = addr;
     this.metadata = metadata;
     this.rcEngine = rcEngine || SharedPtr.globalRcEngine;
@@ -143,6 +136,13 @@ export class SharedPtr {
     // Retain (RC++)
     const currentRC = this.rcEngine.get(addr) || 0;
     this.rcEngine.set(addr, currentRC + 1);
+  }
+
+  /**
+   * Get global RC engine for use in WeakPtr
+   */
+  static getGlobalRcEngine(): Map<number, number> {
+    return SharedPtr.globalRcEngine;
   }
 
   /**
@@ -205,21 +205,18 @@ export class SharedPtr {
  *   // Accessing weakPtr returns NULL (auto-invalidated)
  */
 export class WeakPtr {
-  private id: number;
   private addr: number;
   private metadata: PtrMetadata;
   private isAlive: boolean;
   private rcEngine: Map<number, number>;
 
-  private static nextId = 200;
   private static NULL_PTR = 0xDEADBEEF;
 
   constructor(addr: number, metadata: PtrMetadata, rcEngine?: Map<number, number>) {
-    this.id = WeakPtr.nextId++;
     this.addr = addr;
     this.metadata = metadata;
     this.isAlive = true;
-    this.rcEngine = rcEngine || SharedPtr.globalRcEngine;
+    this.rcEngine = rcEngine || SharedPtr.getGlobalRcEngine();
 
     // NOTE: No RC increment (non-owning)
   }
