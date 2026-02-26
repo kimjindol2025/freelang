@@ -8,7 +8,58 @@
 import { ASTNode } from './parser';
 
 /**
+ * 로깅 인프라
+ * 로그 레벨별로 관리 (DEBUG는 환경변수로 제어)
+ */
+class Logger {
+  private debugEnabled: boolean = process.env.DEBUG_INTERPRETER === 'true';
+
+  private logOutput(level: 'DEBUG' | 'TRACE' | 'WARN' | 'ERROR', msg: string, data?: any) {
+    if (level === 'DEBUG' && !this.debugEnabled) return;
+    if (level === 'TRACE' && !this.debugEnabled) return;
+
+    const timestamp = new Date().toISOString().slice(11, 23);
+    const prefix = `[${timestamp}] [${level}]`;
+
+    if (data !== undefined) {
+      console.log(`${prefix} ${msg}`, data);
+    } else {
+      console.log(`${prefix} ${msg}`);
+    }
+  }
+
+  debug(msg: string, data?: any) {
+    this.logOutput('DEBUG', msg, data);
+  }
+
+  trace(msg: string, data?: any) {
+    this.logOutput('TRACE', msg, data);
+  }
+
+  warn(msg: string, data?: any) {
+    this.logOutput('WARN', msg, data);
+  }
+
+  error(msg: string, error?: any) {
+    if (error instanceof Error) {
+      console.error(`[ERROR] ${msg}`, error.message, error.stack);
+    } else {
+      console.error(`[ERROR] ${msg}`, error);
+    }
+  }
+}
+
+/**
  * 실행 컨텍스트
+ *
+ * 변수, 함수, 클래스, 모듈을 관리하는 스코프
+ * - variables: 현재 스코프의 변수 저장소 (Map으로 명시적 존재 확인 필요)
+ * - functions: 전역 함수 레지스트리 (읽기 전용, 모든 스코프에서 공유)
+ * - classes: 전역 클래스 레지스트리 (읽기 전용)
+ * - modules: IMPORT된 모듈 저장소
+ * - returnValue: 현재 함수의 반환값 (RETURN 문에 의해 설정)
+ * - shouldReturn: 함수 반환 플래그 (콜 스택 언와인딩 신호)
+ * - logger: 디버깅 로그 출력
  */
 interface ExecutionContext {
   variables: Map<string, any>;
@@ -17,24 +68,42 @@ interface ExecutionContext {
   modules: Map<string, any>;  // IMPORT된 모듈 저장
   returnValue?: any;
   shouldReturn: boolean;
+  logger?: Logger;
 }
 
 /**
  * 간단한 인터프리터
+ *
+ * AST를 직접 실행하는 트리 워크 인터프리터
+ * - globalContext: 모든 변수/함수/클래스 저장
+ * - logger: 디버깅 로그 출력
+ * - expressionHandlers: Expression 타입별 핸들러 맵 (handler pattern)
  */
 export class SimpleInterpreter {
+  private logger: Logger = new Logger();
+
   private globalContext: ExecutionContext = {
     variables: new Map(),
     functions: new Map(),
     classes: new Map(),
     modules: new Map(),
     shouldReturn: false,
+    logger: new Logger(),
   };
 
   /**
    * 프로그램 실행 (비동기)
+   *
+   * @param ast - 파싱된 AST (Program 노드)
+   * @returns 프로그램 실행 결과
+   *
+   * @example
+   * const parser = new Parser();
+   * const ast = parser.parse('PRINT "Hello"');
+   * const result = await interpreter.execute(ast);
    */
   async execute(ast: ASTNode): Promise<any> {
+    this.logger.debug('Executing program', { stmtCount: ast.statements?.length || 0 });
     return await this.executeProgram(ast, this.globalContext);
   }
 
@@ -116,10 +185,41 @@ export class SimpleInterpreter {
 
   /**
    * SET 문 실행 (비동기)
+   *
+   * 변수에 값을 할당합니다.
+   * - 우변 표현식을 평가
+   * - 좌변 변수에 결과값 저장
+   * - 현재 스코프 컨텍스트의 variables Map에만 저장 (로컬 스코프)
+   *
+   * @param node - SetStatement 노드 { type: 'SetStatement', variable: 'x', value: {...} }
+   * @param context - 실행 컨텍스트 (현재 스코프)
+   * @returns 할당된 값
+   *
+   * @example
+   * // SET x = 10 + 5
+   * await executeSet(
+   *   { type: 'SetStatement', variable: 'x', value: { type: 'BinaryOp', ... } },
+   *   context
+   * );
+   * // context.variables.get('x') === 15
+   *
+   * // SET result = AWAIT delay(500)
+   * // 비동기 값도 정상 처리 (Promise resolve 후 저장)
    */
   private async executeSet(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const logger = context.logger || this.logger;
+    const varName = node.variable;
+
+    logger.debug('executeSet', { variable: varName, valueType: node.value?.type });
+
     const value = await this.evaluateExpression(node.value, context);
-    context.variables.set(node.variable, value);
+
+    logger.trace('executeSet evaluated', { variable: varName, value, type: typeof value });
+
+    context.variables.set(varName, value);
+
+    logger.debug('executeSet stored', { variable: varName, scopeVars: Array.from(context.variables.keys()) });
+
     return value;
   }
 
@@ -190,11 +290,48 @@ export class SimpleInterpreter {
 
   /**
    * RETURN 문 실행 (비동기)
+   *
+   * 함수에서 값을 반환합니다.
+   * - RETURN 표현식을 평가
+   * - 반환값을 context.returnValue에 저장
+   * - shouldReturn 플래그 설정하여 콜 스택 언와인딩 신호
+   * - 콜 스택이 이 플래그를 감지하면 함수 내 루프 중단
+   *
+   * @param node - ReturnStatement 노드 { type: 'ReturnStatement', value: {...} }
+   * @param context - 현재 함수의 컨텍스트
+   * @returns 반환 값
+   *
+   * @example
+   * // RETURN x + y
+   * await executeReturn(
+   *   { type: 'ReturnStatement', value: { type: 'BinaryOp', ... } },
+   *   context
+   * );
+   * // context.returnValue = x+y
+   * // context.shouldReturn = true  (플래그 설정)
+   *
+   * // RETURN AWAIT promise
+   * // 비동기 값도 정상 처리
+   *
+   * ⚠️ Context 격리 주의:
+   * - ASYNC FUNC에서는 localContext 사용
+   * - localContext.shouldReturn = true로 인해 함수 루프 중단
+   * - 함수가 반환되면 globalContext로 복귀
    */
   private async executeReturn(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const logger = context.logger || this.logger;
+
+    logger.debug('executeReturn', { valueType: node.value?.type, scopeVars: Array.from(context.variables.keys()) });
+
     const value = await this.evaluateExpression(node.value, context);
+
+    logger.trace('executeReturn evaluated', { value, type: typeof value });
+
     context.returnValue = value;
     context.shouldReturn = true;
+
+    logger.debug('executeReturn flagged', { shouldReturn: true, returnValue: value });
+
     return value;
   }
 
@@ -267,72 +404,145 @@ export class SimpleInterpreter {
   }
 
   /**
-   * 표현식 평가
+   * 표현식 평가 (Handler Pattern)
+   *
+   * 각 expression 타입별로 별도 메서드에서 처리
+   * - AwaitExpression: evaluateAwaitExpression
+   * - Identifier: evaluateIdentifier
+   * - BinaryOp: evaluateBinaryOp (기존)
+   * - FunctionCallExpr: evaluateFunctionCall
+   * - 등등
+   *
+   * @param expr - 평가할 expression 노드
+   * @param context - 실행 컨텍스트 (변수 스코프)
+   * @returns 표현식 평가 결과
+   *
+   * @throws {Error} 정의되지 않은 변수 또는 알 수 없는 expression 타입
+   *
+   * @example
+   * // Identifier 평가
+   * const value = await evaluateExpression({ type: 'Identifier', name: 'x' }, ctx);
+   *
+   * // BinaryOp 평가
+   * const result = await evaluateExpression(
+   *   { type: 'BinaryOp', operator: '+', left: {type:'NumberLiteral',value:10}, right: {...} },
+   *   ctx
+   * );
    */
   private async evaluateExpression(expr: any, context: ExecutionContext): Promise<any> {
     if (!expr) return undefined;
 
-    // AWAIT 표현식 (비동기 처리)
-    if (expr.type === 'AwaitExpression') {
-      const promise = await this.evaluateExpression(expr.argument, context);
-      if (promise instanceof Promise) {
-        return await promise;
-      }
-      return promise;
+    const exprType = expr.type;
+    const logger = context.logger || this.logger;
+
+    // Handler pattern: expression 타입별 처리
+    switch (exprType) {
+      case 'AwaitExpression':
+        return this.evaluateAwaitExpression(expr, context);
+
+      case 'NumberLiteral':
+      case 'StringLiteral':
+      case 'BoolLiteral':
+        return this.evaluateLiteral(expr, context);
+
+      case 'Identifier':
+        return this.evaluateIdentifier(expr, context);
+
+      case 'ArrayLiteral':
+        return this.evaluateArrayLiteral(expr, context);
+
+      case 'BinaryOp':
+        return this.evaluateBinaryOp(expr, context);
+
+      case 'UnaryOp':
+        return this.evaluateUnaryOp(expr, context);
+
+      case 'FunctionCallExpr':
+        return this.callFunction(expr.funcName, expr.args, context);
+
+      case 'MethodCallExpr':
+        return this.callMethod(expr.instance, expr.methodName, expr.args, context);
+
+      case 'NewExpr':
+        return this.createObject(expr.className, expr.args, context);
+
+      default:
+        logger.warn(`Unknown expression type: ${exprType}`, { expr });
+        return undefined;
+    }
+  }
+
+  /**
+   * AWAIT 표현식 평가
+   * Promise를 await하여 결과 반환
+   *
+   * @param expr - AwaitExpression 노드 { type: 'AwaitExpression', argument: ... }
+   * @param context - 실행 컨텍스트
+   * @returns await된 값
+   */
+  private async evaluateAwaitExpression(expr: any, context: ExecutionContext): Promise<any> {
+    const promise = await this.evaluateExpression(expr.argument, context);
+    if (promise instanceof Promise) {
+      return await promise;
+    }
+    return promise;
+  }
+
+  /**
+   * 리터럴 평가 (Number, String, Bool)
+   *
+   * @param expr - 리터럴 노드
+   * @param context - 실행 컨텍스트 (사용 안 함)
+   * @returns 리터럴 값
+   */
+  private evaluateLiteral(expr: any, context: ExecutionContext): any {
+    return expr.value;
+  }
+
+  /**
+   * 식별자(변수) 평가
+   * 변수가 정의되었는지 확인하고 값 반환
+   *
+   * @param expr - Identifier 노드 { type: 'Identifier', name: 'varName' }
+   * @param context - 실행 컨텍스트
+   * @returns 변수의 값
+   *
+   * @throws {Error} 변수가 정의되지 않은 경우
+   *
+   * @example
+   * // x = 10인 경우
+   * const value = await evaluateIdentifier({ type: 'Identifier', name: 'x' }, ctx);
+   * // value === 10
+   *
+   * // y가 정의되지 않은 경우
+   * const value = await evaluateIdentifier({ type: 'Identifier', name: 'y' }, ctx);
+   * // throws Error: "Undefined variable: y (available: x)"
+   */
+  private evaluateIdentifier(expr: any, context: ExecutionContext): any {
+    const varName = expr.name;
+
+    // ✅ Map.has()로 변수 존재 여부 확인 (undefined 값과 구분)
+    if (!context.variables.has(varName)) {
+      const available = Array.from(context.variables.keys()).join(', ');
+      const availMsg = available ? ` (available: ${available})` : ' (no variables defined)';
+      throw new Error(`Undefined variable: ${varName}${availMsg}`);
     }
 
-    // 리터럴
-    if (expr.type === 'NumberLiteral') {
-      return expr.value;
-    }
+    return context.variables.get(varName);
+  }
 
-    if (expr.type === 'StringLiteral') {
-      return expr.value;
-    }
-
-    if (expr.type === 'BoolLiteral') {
-      return expr.value;
-    }
-
-    // 식별자
-    if (expr.type === 'Identifier') {
-      if (!context.variables.has(expr.name)) {
-        throw new Error(`Undefined variable: ${expr.name}`);
-      }
-      return context.variables.get(expr.name);
-    }
-
-    // 배열 리터럴
-    if (expr.type === 'ArrayLiteral') {
-      return await Promise.all(expr.elements.map((e: any) => this.evaluateExpression(e, context)));
-    }
-
-    // 이항 연산
-    if (expr.type === 'BinaryOp') {
-      return await this.evaluateBinaryOp(expr, context);
-    }
-
-    // 단항 연산
-    if (expr.type === 'UnaryOp') {
-      return await this.evaluateUnaryOp(expr, context);
-    }
-
-    // 함수 호출
-    if (expr.type === 'FunctionCallExpr') {
-      return await this.callFunction(expr.funcName, expr.args, context);
-    }
-
-    // 메서드 호출
-    if (expr.type === 'MethodCallExpr') {
-      return await this.callMethod(expr.instance, expr.methodName, expr.args, context);
-    }
-
-    // NEW 표현식
-    if (expr.type === 'NewExpr') {
-      return await this.createObject(expr.className, expr.args, context);
-    }
-
-    return undefined;
+  /**
+   * 배열 리터럴 평가
+   * 모든 요소를 병렬로 평가
+   *
+   * @param expr - ArrayLiteral 노드 { type: 'ArrayLiteral', elements: [...] }
+   * @param context - 실행 컨텍스트
+   * @returns 평가된 배열
+   */
+  private async evaluateArrayLiteral(expr: any, context: ExecutionContext): Promise<any[]> {
+    return await Promise.all(
+      expr.elements.map((e: any) => this.evaluateExpression(e, context))
+    );
   }
 
   /**
@@ -1111,34 +1321,81 @@ export class SimpleInterpreter {
 
   /**
    * 비동기 함수 실행 (ASYNC FUNC)
+   *
    * Promise를 반환하여 AWAIT과 함께 사용
+   *
+   * 📋 Context 격리 계약:
+   * ┌─────────────────────────────────────────────────────────────────┐
+   * │ localContext는 함수의 로컬 스코프를 나타냅니다.                │
+   * │ - variables: 새로운 Map (글로벌 변수는 복사 X, 로컬 변수만)     │
+   * │ - functions: 글로벌 레지스트리 공유 (읽기 전용)               │
+   * │ - classes: 글로벌 레지스트리 공유 (읽기 전용)                 │
+   * │ - modules: 글로벌 모듈 저장소 공유                             │
+   * │ - shouldReturn: 함수 반환 플래그                               │
+   * │ - logger: 디버깅 로거                                          │
+   * │                                                                │
+   * │ ✅ 올바른 흐름:                                                 │
+   * │ 1. 인자 평가 ← 외부 context 사용 (글로벌 변수 접근)           │
+   * │ 2. 로컬 스코프 생성 ← 빈 variables Map                        │
+   * │ 3. 파라미터 바인딩 ← localContext에만 저장                     │
+   * │ 4. 함수 본체 실행 ← 항상 localContext 사용                     │
+   * │ 5. RETURN 처리 ← localContext.returnValue 반환                 │
+   * └─────────────────────────────────────────────────────────────────┘
+   *
+   * @param funcDef - 함수 정의 { name, params, body, isAsync }
+   * @param args - 함수 호출 인자 (unevaluated expressions)
+   * @param context - 함수 호출 시점의 컨텍스트 (글로벌)
+   * @returns Promise<반환값>
+   *
+   * @throws {Error} 함수 본체 실행 중 에러 발생 시
+   *
+   * @example
+   * // ASYNC FUNC wait() { SET x = AWAIT delay(500); RETURN x; }
+   * // 호출: AWAIT wait()
+   * const promise = executeAsyncFunction(waitFuncDef, [], globalContext);
+   * const result = await promise;  // result = undefined (delay returns undefined)
    */
   private executeAsyncFunction(funcDef: any, args: any[], context: ExecutionContext): Promise<any> {
     return (async () => {
-      // 새 컨텍스트 생성
+      const logger = context.logger || this.logger;
+
+      logger.debug('executeAsyncFunction', { funcName: funcDef.name, argCount: args.length });
+
+      // ✅ 새 로컬 컨텍스트 생성 (비어있는 상태로 시작)
       const localContext: ExecutionContext = {
-        variables: new Map(context.variables),
-        functions: context.functions,
-        classes: context.classes,
-        modules: context.modules,
+        variables: new Map(),  // ← 비어있음! 글로벌 변수 복사 X
+        functions: context.functions,  // ← 글로벌 함수 레지스트리 공유
+        classes: context.classes,  // ← 글로벌 클래스 레지스트리 공유
+        modules: context.modules,  // ← 모듈 저장소 공유
         shouldReturn: false,
+        logger,  // ← 로거 할당
       };
 
+      logger.debug('executeAsyncFunction localContext created', { localVars: 'empty' });
+
       // 파라미터 바인딩
+      // ✅ 인자는 외부 context(글로벌)로 평가하지만,
+      //    결과는 localContext(함수 로컬)에 저장
       for (let i = 0; i < funcDef.params.length; i++) {
         const paramName = funcDef.params[i];
-        const argValue = await this.evaluateExpression(args[i], context);
-        localContext.variables.set(paramName, argValue);
+        const argValue = await this.evaluateExpression(args[i], context);  // ← 외부 context
+        localContext.variables.set(paramName, argValue);  // ← 로컬에 저장
+        logger.trace('executeAsyncFunction param bound', { paramName, value: argValue });
       }
 
+      logger.debug('executeAsyncFunction params bound', { params: funcDef.params, localVars: Array.from(localContext.variables.keys()) });
+
       // 함수 본체 실행
+      // ✅ 항상 localContext 사용 (모든 변수는 로컬 스코프에서만 접근)
       for (const stmt of funcDef.body) {
-        await this.executeNode(stmt, localContext);
+        await this.executeNode(stmt, localContext);  // ← localContext만 사용
         if (localContext.shouldReturn) {
+          logger.debug('executeAsyncFunction returning', { returnValue: localContext.returnValue });
           return localContext.returnValue;
         }
       }
 
+      logger.debug('executeAsyncFunction completed', { implicitReturn: undefined });
       return undefined;
     })();
   }
