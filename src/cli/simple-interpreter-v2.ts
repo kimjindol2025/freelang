@@ -406,6 +406,109 @@ export class SimpleInterpreter {
       return Math.round(n);
     }
 
+    // 문자열 함수들
+    if (funcName === 'upper') {
+      const str = String(this.evaluateExpression(args[0], context));
+      return str.toUpperCase();
+    }
+
+    if (funcName === 'lower') {
+      const str = String(this.evaluateExpression(args[0], context));
+      return str.toLowerCase();
+    }
+
+    if (funcName === 'length') {
+      const str = String(this.evaluateExpression(args[0], context));
+      return str.length;
+    }
+
+    if (funcName === 'trim') {
+      const str = String(this.evaluateExpression(args[0], context));
+      return str.trim();
+    }
+
+    if (funcName === 'contains') {
+      const str = String(this.evaluateExpression(args[0], context));
+      const search = String(this.evaluateExpression(args[1], context));
+      return str.includes(search);
+    }
+
+    if (funcName === 'substr') {
+      const str = String(this.evaluateExpression(args[0], context));
+      const start = this.evaluateExpression(args[1], context);
+      const len = this.evaluateExpression(args[2], context);
+      return str.substr(start, len);
+    }
+
+    if (funcName === 'replace') {
+      const str = String(this.evaluateExpression(args[0], context));
+      const search = String(this.evaluateExpression(args[1], context));
+      const replacement = String(this.evaluateExpression(args[2], context));
+      // Replace all occurrences using regex with global flag
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      return str.replace(regex, replacement);
+    }
+
+    if (funcName === 'split') {
+      const str = String(this.evaluateExpression(args[0], context));
+      const delimiter = String(this.evaluateExpression(args[1], context));
+      return str.split(delimiter);
+    }
+
+    // 배열 함수들
+    if (funcName === 'push') {
+      const arr = this.evaluateExpression(args[0], context);
+      const item = this.evaluateExpression(args[1], context);
+      if (Array.isArray(arr)) {
+        arr.push(item);
+        return arr;
+      }
+      throw new Error(`push: first argument must be an array`);
+    }
+
+    if (funcName === 'pop') {
+      const arr = this.evaluateExpression(args[0], context);
+      if (Array.isArray(arr)) {
+        return arr.pop();
+      }
+      throw new Error(`pop: first argument must be an array`);
+    }
+
+    if (funcName === 'shift') {
+      const arr = this.evaluateExpression(args[0], context);
+      if (Array.isArray(arr)) {
+        return arr.shift();
+      }
+      throw new Error(`shift: first argument must be an array`);
+    }
+
+    if (funcName === 'unshift') {
+      const arr = this.evaluateExpression(args[0], context);
+      const item = this.evaluateExpression(args[1], context);
+      if (Array.isArray(arr)) {
+        arr.unshift(item);
+        return arr;
+      }
+      throw new Error(`unshift: first argument must be an array`);
+    }
+
+    if (funcName === 'join') {
+      const arr = this.evaluateExpression(args[0], context);
+      const delimiter = String(this.evaluateExpression(args[1], context));
+      if (Array.isArray(arr)) {
+        return arr.join(delimiter);
+      }
+      throw new Error(`join: first argument must be an array`);
+    }
+
+    if (funcName === 'reverse') {
+      const arr = this.evaluateExpression(args[0], context);
+      if (Array.isArray(arr)) {
+        return arr.reverse();
+      }
+      throw new Error(`reverse: first argument must be an array`);
+    }
+
     // 사용자 정의 함수
     const funcDef = context.functions.get(funcName);
     if (!funcDef) {

@@ -1,0 +1,111 @@
+IMPORT string FROM "stdlib/string"
+IMPORT array FROM "stdlib/array"
+
+PRINT "=== Advanced Libraries Test (String & Array) ==="
+PRINT ""
+
+PRINT "1. STRING LIBRARY"
+PRINT "=================="
+PRINT ""
+
+PRINT "1.1 upper()"
+SET text = "hello world"
+PRINT "upper('hello world') = "
+PRINT string.upper(text)
+PRINT ""
+
+PRINT "1.2 lower()"
+SET text2 = "HELLO WORLD"
+PRINT "lower('HELLO WORLD') = "
+PRINT string.lower(text2)
+PRINT ""
+
+PRINT "1.3 length()"
+SET text3 = "FreeLang"
+PRINT "length('FreeLang') = "
+PRINT string.length(text3)
+PRINT ""
+
+PRINT "1.4 trim()"
+SET text4 = "  spaces  "
+PRINT "trim('  spaces  ') = "
+PRINT string.trim(text4)
+PRINT ""
+
+PRINT "1.5 contains()"
+SET text5 = "hello world"
+PRINT "contains('hello world', 'world') = "
+PRINT string.contains(text5, "world")
+PRINT ""
+
+PRINT "1.6 substr()"
+SET text6 = "FreeLang"
+PRINT "substr('FreeLang', 0, 4) = "
+PRINT string.substr(text6, 0, 4)
+PRINT ""
+
+PRINT "1.7 replace()"
+SET text7 = "hello hello hello"
+PRINT "replace('hello hello hello', 'hello', 'hi') = "
+PRINT string.replace(text7, "hello", "hi")
+PRINT ""
+
+PRINT "1.8 split()"
+SET text8 = "apple,banana,cherry"
+PRINT "split('apple,banana,cherry', ',') = "
+PRINT string.split(text8, ",")
+PRINT ""
+
+PRINT "2. ARRAY LIBRARY"
+PRINT "=================="
+PRINT ""
+
+PRINT "2.1 push()"
+SET arr1 = [1, 2, 3]
+PRINT "push([1,2,3], 4) = "
+SET arr1 = array.push(arr1, 4)
+PRINT arr1
+PRINT ""
+
+PRINT "2.2 pop()"
+SET arr2 = [10, 20, 30]
+PRINT "pop([10,20,30]) = "
+PRINT array.pop(arr2)
+PRINT "Array after pop: "
+PRINT arr2
+PRINT ""
+
+PRINT "2.3 shift()"
+SET arr3 = [100, 200, 300]
+PRINT "shift([100,200,300]) = "
+PRINT array.shift(arr3)
+PRINT "Array after shift: "
+PRINT arr3
+PRINT ""
+
+PRINT "2.4 unshift()"
+SET arr4 = [2, 3, 4]
+PRINT "unshift([2,3,4], 1) = "
+SET arr4 = array.unshift(arr4, 1)
+PRINT arr4
+PRINT ""
+
+PRINT "2.5 join()"
+SET arr5 = ["apple", "banana", "cherry"]
+PRINT "join(['apple','banana','cherry'], '-') = "
+PRINT array.join(arr5, "-")
+PRINT ""
+
+PRINT "2.6 reverse()"
+SET arr6 = [1, 2, 3, 4, 5]
+PRINT "reverse([1,2,3,4,5]) = "
+PRINT array.reverse(arr6)
+PRINT ""
+
+PRINT "2.7 includes()"
+SET arr7 = [10, 20, 30, 40]
+PRINT "includes([10,20,30,40], 30) = "
+PRINT array.includes(arr7, 30)
+PRINT ""
+
+PRINT "=== All Advanced Tests Completed ==="

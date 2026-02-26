@@ -1,19 +1,19 @@
 // stdlib/array - 배열 처리 라이브러리
 
 FUNC push(arr, item) {
-  RETURN arr
+  RETURN push(arr, item)
 }
 
 FUNC pop(arr) {
-  RETURN NULL
+  RETURN pop(arr)
 }
 
 FUNC shift(arr) {
-  RETURN NULL
+  RETURN shift(arr)
 }
 
 FUNC unshift(arr, item) {
-  RETURN arr
+  RETURN unshift(arr, item)
 }
 
 FUNC map(arr, fn) {
@@ -52,5 +52,9 @@ FUNC includes(arr, item) {
 }
 
 FUNC reverse(arr) {
-  RETURN arr
+  RETURN reverse(arr)
+}
+
+FUNC join(arr, delimiter) {
+  RETURN join(arr, delimiter)
 }

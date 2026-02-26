@@ -1,38 +1,37 @@
 // stdlib/string - 문자열 처리 라이브러리
 
 FUNC upper(str) {
-  RETURN str
+  RETURN upper(str)
 }
 
 FUNC lower(str) {
-  RETURN str
+  RETURN lower(str)
 }
 
 FUNC trim(str) {
-  RETURN str
+  RETURN trim(str)
 }
 
 FUNC length(str) {
-  RETURN 0
+  RETURN length(str)
 }
 
 FUNC substr(str, start, len) {
-  RETURN str
+  RETURN substr(str, start, len)
 }
 
 FUNC split(str, delimiter) {
-  SET result = []
-  RETURN result
+  RETURN split(str, delimiter)
 }
 
 FUNC join(arr, delimiter) {
-  RETURN ""
+  RETURN join(arr, delimiter)
 }
 
 FUNC contains(str, search) {
-  RETURN FALSE
+  RETURN contains(str, search)
 }
 
 FUNC replace(str, search, replacement) {
-  RETURN str
+  RETURN replace(str, search, replacement)
 }
