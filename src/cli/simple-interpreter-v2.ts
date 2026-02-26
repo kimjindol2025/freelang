@@ -670,6 +670,232 @@ export class SimpleInterpreter {
       return typeof val;
     }
 
+    // FileSystem 함수들
+    if (funcName === 'exists') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      return fs.existsSync(path);
+    }
+
+    if (funcName === 'readFile') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      try {
+        return fs.readFileSync(path, 'utf-8');
+      } catch (e) {
+        throw new Error(`Failed to read file: ${path}`);
+      }
+    }
+
+    if (funcName === 'writeFile') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      const content = String(this.evaluateExpression(args[1], context));
+      try {
+        fs.writeFileSync(path, content, 'utf-8');
+        return true;
+      } catch (e) {
+        throw new Error(`Failed to write file: ${path}`);
+      }
+    }
+
+    if (funcName === 'appendFile') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      const content = String(this.evaluateExpression(args[1], context));
+      try {
+        fs.appendFileSync(path, content, 'utf-8');
+        return true;
+      } catch (e) {
+        throw new Error(`Failed to append to file: ${path}`);
+      }
+    }
+
+    if (funcName === 'deleteFile') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      try {
+        fs.unlinkSync(path);
+        return true;
+      } catch (e) {
+        throw new Error(`Failed to delete file: ${path}`);
+      }
+    }
+
+    if (funcName === 'mkdir') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      try {
+        if (!fs.existsSync(path)) {
+          fs.mkdirSync(path, { recursive: true });
+        }
+        return true;
+      } catch (e) {
+        throw new Error(`Failed to create directory: ${path}`);
+      }
+    }
+
+    if (funcName === 'listDir') {
+      const fs = require('fs');
+      const path = String(this.evaluateExpression(args[0], context));
+      try {
+        return fs.readdirSync(path);
+      } catch (e) {
+        throw new Error(`Failed to list directory: ${path}`);
+      }
+    }
+
+    // Regex 함수들
+    if (funcName === 'test') {
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      try {
+        const regex = new RegExp(pattern);
+        return regex.test(str);
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${pattern}`);
+      }
+    }
+
+    if (funcName === 'match') {
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      try {
+        const regex = new RegExp(pattern);
+        const result = str.match(regex);
+        return result ? result[0] : null;
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${pattern}`);
+      }
+    }
+
+    if (funcName === 'matchAll') {
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      try {
+        const regex = new RegExp(pattern, 'g');
+        const matches: string[] = [];
+        let match;
+        while ((match = regex.exec(str)) !== null) {
+          matches.push(match[0]);
+        }
+        return matches;
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${pattern}`);
+      }
+    }
+
+    if (funcName === 'regexReplace') {
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      const replacement = String(this.evaluateExpression(args[2], context));
+      try {
+        const regex = new RegExp(pattern);
+        return str.replace(regex, replacement);
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${pattern}`);
+      }
+    }
+
+    if (funcName === 'regexReplaceAll') {
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      const replacement = String(this.evaluateExpression(args[2], context));
+      try {
+        const regex = new RegExp(pattern, 'g');
+        return str.replace(regex, replacement);
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${pattern}`);
+      }
+    }
+
+    if (funcName === 'regexSplit') {
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      try {
+        const regex = new RegExp(pattern);
+        return str.split(regex);
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${pattern}`);
+      }
+    }
+
+    // HTTP 함수들
+    if (funcName === 'httpGet') {
+      const url = String(this.evaluateExpression(args[0], context));
+      try {
+        const http = require('http');
+        const https = require('https');
+        const urlModule = require('url');
+
+        const parsedUrl = new URL(url);
+        const protocol = parsedUrl.protocol === 'https:' ? https : http;
+
+        let data = '';
+        const request = protocol.get(url, (response: any) => {
+          response.on('data', (chunk: any) => { data += chunk; });
+        });
+
+        request.on('error', (e: any) => {
+          throw new Error(`HTTP request failed: ${e.message}`);
+        });
+
+        // 동기적으로 대기하려면 별도의 동기 처리 필요
+        // 현재는 동기식 구현이 불가능하므로 에러 처리
+        throw new Error('HTTP GET requires async support not yet available in FreeLang');
+      } catch (e) {
+        throw e;
+      }
+    }
+
+    if (funcName === 'httpPost') {
+      const url = String(this.evaluateExpression(args[0], context));
+      const data = String(this.evaluateExpression(args[1], context));
+      try {
+        throw new Error('HTTP POST requires async support not yet available in FreeLang');
+      } catch (e) {
+        throw e;
+      }
+    }
+
+    if (funcName === 'encodeURL') {
+      const str = String(this.evaluateExpression(args[0], context));
+      return encodeURIComponent(str);
+    }
+
+    if (funcName === 'decodeURL') {
+      const str = String(this.evaluateExpression(args[0], context));
+      return decodeURIComponent(str);
+    }
+
+    if (funcName === 'buildQuery') {
+      const params = this.evaluateExpression(args[0], context);
+      if (typeof params !== 'object' || params === null) {
+        return '';
+      }
+      const pairs = [];
+      for (const [key, value] of Object.entries(params)) {
+        pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+      }
+      return pairs.join('&');
+    }
+
+    if (funcName === 'parseQuery') {
+      const queryStr = String(this.evaluateExpression(args[0], context));
+      const result: any = {};
+      if (queryStr.trim() === '') {
+        return result;
+      }
+      const pairs = queryStr.split('&');
+      for (const pair of pairs) {
+        const [key, value] = pair.split('=');
+        if (key) {
+          result[decodeURIComponent(key)] = value ? decodeURIComponent(value) : '';
+        }
+      }
+      return result;
+    }
+
     // 사용자 정의 함수
     const funcDef = context.functions.get(funcName);
     if (!funcDef) {

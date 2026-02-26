@@ -1,69 +1,9 @@
 // stdlib/regex - 정규표현식 라이브러리
+// 주: 정규식 함수는 인터프리터 수준에서 직접 구현됨
+// 라이브러리 파일은 문서화 목적으로만 사용
 
-FUNC test(pattern, str) {
-  RETURN FALSE
-}
-
-FUNC match(pattern, str) {
-  SET result = []
-  RETURN result
-}
-
-FUNC matchAll(pattern, str) {
-  SET result = []
-  RETURN result
-}
-
-FUNC replace(pattern, str, replacement) {
-  RETURN str
-}
-
-FUNC replaceAll(pattern, str, replacement) {
-  RETURN str
-}
-
-FUNC split(pattern, str) {
-  SET result = []
-  RETURN result
-}
-
-FUNC exec(pattern, str) {
-  RETURN NULL
-}
-
-FUNC isValid(pattern) {
-  RETURN TRUE
-}
-
-FUNC escape(str) {
-  RETURN str
-}
-
-FUNC flags(pattern) {
-  RETURN ""
-}
-
-FUNC source(pattern) {
-  RETURN ""
-}
-
-FUNC createPattern(pattern) {
-  RETURN pattern
-}
-
-FUNC createPatternWithFlags(pattern, flags) {
-  RETURN pattern
-}
-
-FUNC matchCount(pattern, str) {
-  RETURN 0
-}
-
-FUNC findFirst(pattern, str) {
-  RETURN NULL
-}
-
-FUNC findLast(pattern, str) {
-  RETURN NULL
-}
-
+// 사용 예:
+// IMPORT regex FROM "stdlib/regex"
+// SET has_match = regex.test("[0-9]+", "abc123")
+// SET matches = regex.matchAll("[0-9]+", "abc123def456")
+// SET replaced = regex.replace("[0-9]+", "abc123", "X")

@@ -1,0 +1,65 @@
+IMPORT fs FROM "stdlib/fs"
+
+PRINT "=========================================="
+PRINT "=== FileSystem Library Test ==="
+PRINT "=========================================="
+PRINT ""
+
+PRINT "1. Create directory"
+SET result = fs.mkdir("/tmp/freelang-test")
+PRINT "mkdir('/tmp/freelang-test') = "
+PRINT result
+PRINT ""
+
+PRINT "2. Write file"
+SET content = "Hello FreeLang! This is a test file."
+SET result = fs.writeFile("/tmp/freelang-test/hello.txt", content)
+PRINT "writeFile('hello.txt', content) = "
+PRINT result
+PRINT ""
+
+PRINT "3. Check if file exists"
+SET exists_result = fs.exists("/tmp/freelang-test/hello.txt")
+PRINT "exists('hello.txt') = "
+PRINT exists_result
+PRINT ""
+
+PRINT "4. Read file"
+SET file_content = fs.readFile("/tmp/freelang-test/hello.txt")
+PRINT "readFile('hello.txt') = "
+PRINT file_content
+PRINT ""
+
+PRINT "5. Append to file"
+SET append_result = fs.appendFile("/tmp/freelang-test/hello.txt", " - Appended!")
+PRINT "appendFile('hello.txt', ' - Appended!') = "
+PRINT append_result
+PRINT ""
+
+PRINT "6. Read appended file"
+SET appended_content = fs.readFile("/tmp/freelang-test/hello.txt")
+PRINT "readFile('hello.txt') after append = "
+PRINT appended_content
+PRINT ""
+
+PRINT "7. List directory"
+SET files = fs.listDir("/tmp/freelang-test")
+PRINT "listDir('/tmp/freelang-test') = "
+PRINT files
+PRINT ""
+
+PRINT "8. Delete file"
+SET delete_result = fs.deleteFile("/tmp/freelang-test/hello.txt")
+PRINT "deleteFile('hello.txt') = "
+PRINT delete_result
+PRINT ""
+
+PRINT "9. Check if file exists after deletion"
+SET exists_after = fs.exists("/tmp/freelang-test/hello.txt")
+PRINT "exists('hello.txt') after delete = "
+PRINT exists_after
+PRINT ""
+
+PRINT "=========================================="
+PRINT "=== FileSystem Test Completed ==="
+PRINT "=========================================="

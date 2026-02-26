@@ -1,0 +1,57 @@
+// stdlib/http - HTTP 유틸리티 테스트
+// 주: URL 인코딩/디코딩 및 쿼리 파싱 함수 테스트
+// 주: HTTP GET/POST는 async 미지원으로 인해 현재 불가능
+
+PRINT "==========================================="
+PRINT "=== HTTP Library Test ==="
+PRINT "==========================================="
+PRINT ""
+
+PRINT "1. Test URL encoding"
+SET encoded = encodeURL("hello world & special chars!")
+PRINT "encodeURL('hello world & special chars!') = "
+PRINT encoded
+PRINT ""
+
+PRINT "2. Test URL decoding"
+SET decoded = decodeURL("hello%20world%20%26%20special%20chars%21")
+PRINT "decodeURL('hello%20world%20%26%20special%20chars%21') = "
+PRINT decoded
+PRINT ""
+
+PRINT "3. Test parseQuery with simple query string"
+SET queryStr = "name=John&age=30&city=NewYork"
+SET parsed = parseQuery(queryStr)
+PRINT "parseQuery('name=John&age=30&city=NewYork') = "
+PRINT parsed
+PRINT ""
+
+PRINT "4. Test parseQuery with empty string"
+SET empty = parseQuery("")
+PRINT "parseQuery('') = "
+PRINT empty
+PRINT ""
+
+PRINT "5. Test parseQuery with URL encoded values"
+SET encodedQuery = "search=hello%20world&filter=a%26b&tag=test%2Bdata"
+SET decodedParams = parseQuery(encodedQuery)
+PRINT "parseQuery('search=hello%20world&filter=a%26b&tag=test%2Bdata') = "
+PRINT decodedParams
+PRINT ""
+
+PRINT "6. Test round-trip encoding/decoding"
+SET original = "hello world & test=value"
+SET encoded_roundtrip = encodeURL(original)
+SET decoded_roundtrip = decodeURL(encoded_roundtrip)
+PRINT "Original: "
+PRINT original
+PRINT "Encoded: "
+PRINT encoded_roundtrip
+PRINT "Decoded back: "
+PRINT decoded_roundtrip
+PRINT ""
+
+PRINT "==========================================="
+PRINT "=== HTTP Library Test Completed ==="
+PRINT "=== Note: HTTP GET/POST require async ==="
+PRINT "=========================================="

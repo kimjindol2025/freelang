@@ -1,23 +1,23 @@
 // stdlib/fs - 파일 시스템 라이브러리
 
 FUNC exists(path) {
-  RETURN FALSE
+  RETURN exists(path)
 }
 
 FUNC readFile(path) {
-  RETURN ""
+  RETURN readFile(path)
 }
 
 FUNC writeFile(path, content) {
-  RETURN TRUE
+  RETURN writeFile(path, content)
 }
 
 FUNC appendFile(path, content) {
-  RETURN TRUE
+  RETURN appendFile(path, content)
 }
 
 FUNC deleteFile(path) {
-  RETURN TRUE
+  RETURN deleteFile(path)
 }
 
 FUNC copyFile(source, destination) {
@@ -29,7 +29,7 @@ FUNC renameFile(oldPath, newPath) {
 }
 
 FUNC mkdir(path) {
-  RETURN TRUE
+  RETURN mkdir(path)
 }
 
 FUNC rmdir(path) {
@@ -37,7 +37,7 @@ FUNC rmdir(path) {
 }
 
 FUNC listDir(path) {
-  SET result = []
+  RETURN listDir(path)
   RETURN result
 }
 

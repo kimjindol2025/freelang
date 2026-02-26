@@ -1,85 +1,32 @@
 // stdlib/http - HTTP 클라이언트 라이브러리
+// 주: HTTP 동기 처리는 FreeLang의 async 미지원으로 인해 제한됨
+// 주: URL 인코딩/디코딩, 쿼리 파싱은 동기식으로 작동
 
-FUNC get(url) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC post(url, data) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC put(url, data) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC delete(url) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC patch(url, data) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC head(url) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC request(method, url, options) {
-  SET response = {}
-  RETURN response
-}
-
-FUNC setHeader(name, value) {
-  SET headers = {}
-  RETURN headers
-}
-
-FUNC getHeader(response, name) {
-  RETURN ""
-}
-
-FUNC getStatus(response) {
-  RETURN 0
-}
-
-FUNC getBody(response) {
-  RETURN ""
-}
-
-FUNC parseJSON(response) {
-  SET obj = {}
-  RETURN obj
-}
-
-FUNC setTimeout(ms) {
-  RETURN TRUE
-}
-
-FUNC setMaxRetries(count) {
-  RETURN TRUE
-}
+// ===== URL 유틸리티 함수 (동기식) =====
 
 FUNC encodeURL(str) {
-  RETURN str
+  RETURN encodeURL(str)
 }
 
 FUNC decodeURL(str) {
-  RETURN str
+  RETURN decodeURL(str)
 }
 
 FUNC buildQuery(params) {
-  SET result = ""
-  RETURN result
+  RETURN buildQuery(params)
 }
 
 FUNC parseQuery(queryStr) {
-  SET result = {}
-  RETURN result
+  RETURN parseQuery(queryStr)
 }
+
+// ===== HTTP 메서드 (async 미지원으로 인해 현재 불가) =====
+// 주의: 다음 함수들은 FreeLang이 async/await를 지원할 때까지 사용할 수 없습니다
+//
+// FUNC get(url) - 비동기 처리 필요
+// FUNC post(url, data) - 비동기 처리 필요
+// FUNC put(url, data) - 비동기 처리 필요
+// FUNC delete(url) - 비동기 처리 필요
+// FUNC patch(url, data) - 비동기 처리 필요
+// FUNC head(url) - 비동기 처리 필요
 

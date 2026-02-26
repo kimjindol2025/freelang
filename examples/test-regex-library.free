@@ -1,0 +1,59 @@
+IMPORT regex FROM "stdlib/regex"
+IMPORT string FROM "stdlib/string"
+
+PRINT "=========================================="
+PRINT "=== Regular Expression Library Test ==="
+PRINT "=========================================="
+PRINT ""
+
+PRINT "1. Test pattern matching"
+SET has_email = regex.test("[a-z]+@[a-z]+\\.[a-z]+", "user@example.com")
+PRINT "test('email pattern', 'user@example.com') = "
+PRINT has_email
+PRINT ""
+
+PRINT "2. Test digit pattern"
+SET has_digits = regex.test("[0-9]+", "abc123def")
+PRINT "test('[0-9]+', 'abc123def') = "
+PRINT has_digits
+PRINT ""
+
+PRINT "3. Match first occurrence"
+SET first_match = regex.match("[0-9]+", "abc123def456ghi")
+PRINT "match('[0-9]+', 'abc123def456ghi') = "
+PRINT first_match
+PRINT ""
+
+PRINT "4. Match all occurrences"
+SET all_matches = regex.matchAll("[0-9]+", "abc123def456ghi789")
+PRINT "matchAll('[0-9]+', 'abc123def456ghi789') = "
+PRINT all_matches
+PRINT ""
+
+PRINT "5. Replace first match"
+SET replaced = regex.replace("[0-9]+", "abc123def456", "XXX")
+PRINT "replace('[0-9]+', 'abc123def456', 'XXX') = "
+PRINT replaced
+PRINT ""
+
+PRINT "6. Replace all matches"
+SET replaced_all = regex.replaceAll("[0-9]+", "abc123def456ghi789", "X")
+PRINT "replaceAll('[0-9]+', 'abc123def456ghi789', 'X') = "
+PRINT replaced_all
+PRINT ""
+
+PRINT "7. Split by pattern"
+SET parts = regex.split("[0-9]+", "abc123def456ghi789")
+PRINT "split('[0-9]+', 'abc123def456ghi789') = "
+PRINT parts
+PRINT ""
+
+PRINT "8. Test word boundary"
+SET word_test = regex.test("\\bhello\\b", "hello world hello")
+PRINT "test('\\\\bhello\\\\b', 'hello world hello') = "
+PRINT word_test
+PRINT ""
+
+PRINT "=========================================="
+PRINT "=== Regex Test Completed ==="
+PRINT "=========================================="
