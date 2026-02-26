@@ -1,5 +1,33 @@
 // stdlib/validation - 검증 라이브러리
 
+FUNC isString(val) {
+  RETURN isString(val)
+}
+
+FUNC isNumber(val) {
+  RETURN isNumber(val)
+}
+
+FUNC isArray(val) {
+  RETURN isArray(val)
+}
+
+FUNC isObject(val) {
+  RETURN isObject(val)
+}
+
+FUNC isBoolean(val) {
+  RETURN isBoolean(val)
+}
+
+FUNC isNull(val) {
+  RETURN isNull(val)
+}
+
+FUNC isDefined(val) {
+  RETURN isDefined(val)
+}
+
 FUNC isEmail(str) {
   IF contains(str, "@") {
     RETURN TRUE
@@ -73,16 +101,20 @@ FUNC isOdd(value) {
 }
 
 FUNC isBetween(value, min, max) {
-  IF value >= min && value <= max {
-    RETURN TRUE
+  IF value >= min {
+    IF value <= max {
+      RETURN TRUE
+    }
   }
   RETURN FALSE
 }
 
 FUNC isLengthBetween(str, min, max) {
   SET l = len(str)
-  IF l >= min && l <= max {
-    RETURN TRUE
+  IF l >= min {
+    IF l <= max {
+      RETURN TRUE
+    }
   }
   RETURN FALSE
 }

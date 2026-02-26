@@ -1,31 +1,31 @@
 // stdlib/datetime - 날짜/시간 라이브러리
 
 FUNC now() {
-  RETURN 0
+  RETURN now()
 }
 
 FUNC timestamp() {
-  RETURN 0
+  RETURN timestamp()
 }
 
 FUNC parse(dateStr) {
-  RETURN 0
+  RETURN parse(dateStr)
 }
 
 FUNC format(timestamp, format) {
-  RETURN ""
+  RETURN format(timestamp, format)
 }
 
 FUNC year(timestamp) {
-  RETURN 0
+  RETURN getYear(timestamp)
 }
 
 FUNC month(timestamp) {
-  RETURN 0
+  RETURN getMonth(timestamp)
 }
 
 FUNC day(timestamp) {
-  RETURN 0
+  RETURN getDay(timestamp)
 }
 
 FUNC hour(timestamp) {
@@ -79,8 +79,10 @@ FUNC isLeapYear(year) {
 
 FUNC daysInMonth(year, month) {
   SET days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-  IF month == 2 && isLeapYear(year) {
-    RETURN 29
+  IF month == 2 {
+    IF isLeapYear(year) {
+      RETURN 29
+    }
   }
   RETURN days[month - 1]
 }

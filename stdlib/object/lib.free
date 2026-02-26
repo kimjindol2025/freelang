@@ -1,32 +1,30 @@
 // stdlib/object - 객체 처리 라이브러리
 
 FUNC keys(obj) {
-  SET result = []
-  RETURN result
+  RETURN keys(obj)
 }
 
 FUNC values(obj) {
-  SET result = []
-  RETURN result
+  RETURN values(obj)
 }
 
 FUNC entries(obj) {
-  SET result = []
-  RETURN result
+  RETURN entries(obj)
 }
 
 FUNC merge(obj1, obj2) {
-  RETURN obj1
+  RETURN merge(obj1, obj2)
 }
 
 FUNC clone(obj) {
-  RETURN obj
+  RETURN clone(obj)
 }
 
 FUNC hasKey(obj, key) {
-  RETURN FALSE
+  SET keys = keys(obj)
+  RETURN array.includes(keys, key)
 }
 
 FUNC isEmpty(obj) {
-  RETURN FALSE
+  RETURN isEmpty(obj)
 }

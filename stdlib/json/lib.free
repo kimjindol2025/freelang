@@ -1,25 +1,23 @@
 // stdlib/json - JSON 처리 라이브러리
 
 FUNC parse(jsonStr) {
-  SET obj = {}
-  RETURN obj
+  RETURN parse(jsonStr)
 }
 
 FUNC stringify(obj) {
-  RETURN ""
+  RETURN stringify(obj)
 }
 
 FUNC parseArray(jsonArr) {
-  SET result = []
-  RETURN result
+  RETURN parse(jsonArr)
 }
 
 FUNC stringifyArray(arr) {
-  RETURN ""
+  RETURN stringify(arr)
 }
 
 FUNC isValid(jsonStr) {
-  RETURN FALSE
+  RETURN isValid(jsonStr)
 }
 
 FUNC getPath(obj, path) {
@@ -35,24 +33,22 @@ FUNC deletePath(obj, path) {
 }
 
 FUNC merge(obj1, obj2) {
-  RETURN obj1
+  RETURN merge(obj1, obj2)
 }
 
 FUNC clone(obj) {
-  RETURN obj
+  RETURN clone(obj)
 }
 
 FUNC keys(obj) {
-  SET result = []
-  RETURN result
+  RETURN keys(obj)
 }
 
 FUNC values(obj) {
-  SET result = []
-  RETURN result
+  RETURN values(obj)
 }
 
 FUNC isEmpty(obj) {
-  RETURN TRUE
+  RETURN isEmpty(obj)
 }
 

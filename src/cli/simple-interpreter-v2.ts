@@ -509,6 +509,167 @@ export class SimpleInterpreter {
       throw new Error(`reverse: first argument must be an array`);
     }
 
+    // JSON 함수들
+    if (funcName === 'stringify') {
+      const obj = this.evaluateExpression(args[0], context);
+      return JSON.stringify(obj);
+    }
+
+    if (funcName === 'parse') {
+      const jsonStr = String(this.evaluateExpression(args[0], context));
+      try {
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        throw new Error(`JSON parse error: ${e}`);
+      }
+    }
+
+    if (funcName === 'isValid') {
+      const jsonStr = String(this.evaluateExpression(args[0], context));
+      try {
+        JSON.parse(jsonStr);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    // Object 함수들
+    if (funcName === 'keys') {
+      const obj = this.evaluateExpression(args[0], context);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        return Object.keys(obj);
+      }
+      return [];
+    }
+
+    if (funcName === 'values') {
+      const obj = this.evaluateExpression(args[0], context);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        return Object.values(obj);
+      }
+      return [];
+    }
+
+    if (funcName === 'entries') {
+      const obj = this.evaluateExpression(args[0], context);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        return Object.entries(obj).map(([k, v]) => [k, v]);
+      }
+      return [];
+    }
+
+    if (funcName === 'merge') {
+      const obj1 = this.evaluateExpression(args[0], context);
+      const obj2 = this.evaluateExpression(args[1], context);
+      return Object.assign({}, obj1, obj2);
+    }
+
+    if (funcName === 'clone') {
+      const obj = this.evaluateExpression(args[0], context);
+      return JSON.parse(JSON.stringify(obj));
+    }
+
+    if (funcName === 'isEmpty') {
+      const obj = this.evaluateExpression(args[0], context);
+      if (Array.isArray(obj)) {
+        return obj.length === 0;
+      }
+      if (obj && typeof obj === 'object') {
+        return Object.keys(obj).length === 0;
+      }
+      return String(obj).length === 0;
+    }
+
+    // Validation 함수들
+    if (funcName === 'isString') {
+      const val = this.evaluateExpression(args[0], context);
+      return typeof val === 'string';
+    }
+
+    if (funcName === 'isNumber') {
+      const val = this.evaluateExpression(args[0], context);
+      return typeof val === 'number' && !isNaN(val);
+    }
+
+    if (funcName === 'isArray') {
+      const val = this.evaluateExpression(args[0], context);
+      return Array.isArray(val);
+    }
+
+    if (funcName === 'isObject') {
+      const val = this.evaluateExpression(args[0], context);
+      return val !== null && typeof val === 'object' && !Array.isArray(val);
+    }
+
+    if (funcName === 'isBoolean') {
+      const val = this.evaluateExpression(args[0], context);
+      return typeof val === 'boolean';
+    }
+
+    if (funcName === 'isNull') {
+      const val = this.evaluateExpression(args[0], context);
+      return val === null || val === undefined;
+    }
+
+    if (funcName === 'isDefined') {
+      const val = this.evaluateExpression(args[0], context);
+      return val !== undefined && val !== null;
+    }
+
+    // DateTime 함수들
+    if (funcName === 'now') {
+      return Date.now();
+    }
+
+    if (funcName === 'timestamp') {
+      return Math.floor(Date.now() / 1000);
+    }
+
+    if (funcName === 'getDay') {
+      const date = new Date(this.evaluateExpression(args[0], context));
+      return date.getDay();
+    }
+
+    if (funcName === 'getMonth') {
+      const date = new Date(this.evaluateExpression(args[0], context));
+      return date.getMonth() + 1; // JavaScript months are 0-indexed
+    }
+
+    if (funcName === 'getYear') {
+      const date = new Date(this.evaluateExpression(args[0], context));
+      return date.getFullYear();
+    }
+
+    // Utils 함수들
+    if (funcName === 'random') {
+      return Math.random();
+    }
+
+    if (funcName === 'min') {
+      const a = this.evaluateExpression(args[0], context);
+      const b = this.evaluateExpression(args[1], context);
+      return Math.min(a, b);
+    }
+
+    if (funcName === 'max') {
+      const a = this.evaluateExpression(args[0], context);
+      const b = this.evaluateExpression(args[1], context);
+      return Math.max(a, b);
+    }
+
+    if (funcName === 'abs') {
+      const n = this.evaluateExpression(args[0], context);
+      return Math.abs(n);
+    }
+
+    if (funcName === 'type') {
+      const val = this.evaluateExpression(args[0], context);
+      if (val === null) return 'null';
+      if (Array.isArray(val)) return 'array';
+      return typeof val;
+    }
+
     // 사용자 정의 함수
     const funcDef = context.functions.get(funcName);
     if (!funcDef) {

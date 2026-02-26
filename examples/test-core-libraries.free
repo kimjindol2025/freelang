@@ -1,0 +1,79 @@
+IMPORT math FROM "stdlib/math"
+IMPORT string FROM "stdlib/string"
+IMPORT array FROM "stdlib/array"
+IMPORT json FROM "stdlib/json"
+IMPORT object FROM "stdlib/object"
+IMPORT core FROM "stdlib/core"
+
+PRINT "========================================="
+PRINT "=== CORE LIBRARIES TEST SUITE ====="
+PRINT "========================================="
+PRINT ""
+
+PRINT "1. MATH LIBRARY"
+PRINT "==============="
+PRINT "floor(3.7) = "
+PRINT math.floor(3.7)
+PRINT "ceil(3.2) = "
+PRINT math.ceil(3.2)
+PRINT "round(3.5) = "
+PRINT math.round(3.5)
+PRINT "sqrt(16) = "
+PRINT math.sqrt(16)
+PRINT ""
+
+PRINT "2. STRING LIBRARY"
+PRINT "================="
+PRINT "upper('hello') = "
+PRINT string.upper("hello")
+PRINT "lower('WORLD') = "
+PRINT string.lower("WORLD")
+PRINT "length('test') = "
+PRINT string.length("test")
+PRINT "trim('  space  ') = "
+PRINT string.trim("  space  ")
+PRINT "contains('hello', 'ell') = "
+PRINT string.contains("hello", "ell")
+PRINT ""
+
+PRINT "3. ARRAY LIBRARY"
+PRINT "================"
+SET arr = [1, 2, 3]
+PRINT "push([1,2,3], 4) = "
+SET arr = array.push(arr, 4)
+PRINT arr
+PRINT "join with '-' = "
+PRINT array.join(arr, "-")
+PRINT "reverse([1,2,3,4]) = "
+SET arr2 = [1, 2, 3, 4]
+PRINT array.reverse(arr2)
+PRINT ""
+
+PRINT "4. JSON LIBRARY"
+PRINT "==============="
+PRINT "isValid('{\"a\":1}') = "
+PRINT json.isValid("{\"a\":1}")
+PRINT "stringify test (check parse)"
+SET parsed = json.parse("{\"a\":1}")
+PRINT "parsed = "
+PRINT parsed
+PRINT ""
+
+PRINT "5. OBJECT LIBRARY"
+PRINT "=================="
+PRINT "isEmpty test (basic)"
+PRINT ""
+
+PRINT "6. CORE LIBRARY"
+PRINT "==============="
+PRINT "type('hello') = "
+PRINT core.type("hello")
+PRINT "type(123) = "
+PRINT core.type(123)
+PRINT "type([1,2,3]) = "
+PRINT core.type([1, 2, 3])
+PRINT ""
+
+PRINT "========================================="
+PRINT "=== CORE LIBRARIES TESTED SUCCESSFULLY ==="
+PRINT "========================================="

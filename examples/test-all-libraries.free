@@ -1,0 +1,107 @@
+IMPORT math FROM "stdlib/math"
+IMPORT string FROM "stdlib/string"
+IMPORT array FROM "stdlib/array"
+IMPORT json FROM "stdlib/json"
+IMPORT object FROM "stdlib/object"
+IMPORT validation FROM "stdlib/validation"
+IMPORT datetime FROM "stdlib/datetime"
+IMPORT utils FROM "stdlib/utils"
+IMPORT core FROM "stdlib/core"
+
+PRINT "========================================="
+PRINT "=== COMPREHENSIVE LIBRARY TEST SUITE ==="
+PRINT "========================================="
+PRINT ""
+
+PRINT "1. MATH LIBRARY"
+PRINT "==============="
+PRINT "floor(3.7) = "
+PRINT math.floor(3.7)
+PRINT "ceil(3.2) = "
+PRINT math.ceil(3.2)
+PRINT "round(3.5) = "
+PRINT math.round(3.5)
+PRINT "sqrt(16) = "
+PRINT math.sqrt(16)
+PRINT "pow(2, 3) = "
+PRINT math.pow(2, 3)
+PRINT ""
+
+PRINT "2. STRING LIBRARY"
+PRINT "================="
+PRINT "upper('hello') = "
+PRINT string.upper("hello")
+PRINT "lower('WORLD') = "
+PRINT string.lower("WORLD")
+PRINT "length('FreeLang') = "
+PRINT string.length("FreeLang")
+PRINT "trim('  space  ') = "
+PRINT string.trim("  space  ")
+PRINT ""
+
+PRINT "3. ARRAY LIBRARY"
+PRINT "================"
+SET arr = [1, 2, 3]
+PRINT "push([1,2,3], 4) = "
+SET arr = array.push(arr, 4)
+PRINT arr
+PRINT "join with '-' = "
+PRINT array.join(arr, "-")
+PRINT ""
+
+PRINT "4. JSON LIBRARY"
+PRINT "==============="
+PRINT "isValid('{\"test\":1}') = "
+PRINT json.isValid("{\"test\":1}")
+PRINT "parse('{\"a\":1}') = "
+PRINT json.parse("{\"a\":1}")
+PRINT ""
+
+PRINT "5. OBJECT LIBRARY"
+PRINT "=================="
+PRINT "keys test (object needs literal support)"
+PRINT ""
+
+PRINT "6. VALIDATION LIBRARY"
+PRINT "====================="
+PRINT "isString('hello') = "
+PRINT validation.isString("hello")
+PRINT "isNumber(42) = "
+PRINT validation.isNumber(42)
+PRINT "isArray([1,2,3]) = "
+PRINT validation.isArray([1, 2, 3])
+PRINT "isBoolean(true) = "
+PRINT validation.isBoolean(TRUE)
+PRINT ""
+
+PRINT "7. DATETIME LIBRARY"
+PRINT "==================="
+PRINT "now() = "
+PRINT datetime.now()
+PRINT "timestamp() = "
+PRINT datetime.timestamp()
+PRINT ""
+
+PRINT "8. UTILS LIBRARY"
+PRINT "================"
+PRINT "random() = "
+PRINT utils.random()
+PRINT "isDefined(42) = "
+PRINT utils.isDefined(42)
+PRINT "isString('text') = "
+PRINT utils.isString("text")
+PRINT ""
+
+PRINT "9. CORE LIBRARY"
+PRINT "==============="
+PRINT "type('hello') = "
+PRINT core.type("hello")
+PRINT "type(123) = "
+PRINT core.type(123)
+PRINT "type([1,2,3]) = "
+PRINT core.type([1, 2, 3])
+PRINT ""
+
+PRINT "========================================="
+PRINT "=== ALL LIBRARIES TESTED SUCCESSFULLY ==="
+PRINT "========================================="

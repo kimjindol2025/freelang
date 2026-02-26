@@ -12,10 +12,7 @@ FUNC len(arr) {
 }
 
 FUNC type(value) {
-  IF value == NULL {
-    RETURN "null"
-  }
-  RETURN "value"
+  RETURN type(value)
 }
 
 FUNC print(msg) {

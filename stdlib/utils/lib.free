@@ -1,60 +1,31 @@
 // stdlib/utils - 유틸리티 라이브러리
 
 FUNC isEmpty(value) {
-  IF value == NULL {
-    RETURN TRUE
-  }
-  IF len(value) == 0 {
-    RETURN TRUE
-  }
-  RETURN FALSE
+  RETURN isEmpty(value)
 }
 
 FUNC isDefined(value) {
-  IF value == NULL {
-    RETURN FALSE
-  }
-  RETURN TRUE
+  RETURN isDefined(value)
 }
 
 FUNC isArray(value) {
-  SET t = type(value)
-  IF t == "array" {
-    RETURN TRUE
-  }
-  RETURN FALSE
+  RETURN isArray(value)
 }
 
 FUNC isObject(value) {
-  SET t = type(value)
-  IF t == "object" {
-    RETURN TRUE
-  }
-  RETURN FALSE
+  RETURN isObject(value)
 }
 
 FUNC isString(value) {
-  SET t = type(value)
-  IF t == "string" {
-    RETURN TRUE
-  }
-  RETURN FALSE
+  RETURN isString(value)
 }
 
 FUNC isNumber(value) {
-  SET t = type(value)
-  IF t == "number" {
-    RETURN TRUE
-  }
-  RETURN FALSE
+  RETURN isNumber(value)
 }
 
 FUNC isBoolean(value) {
-  SET t = type(value)
-  IF t == "boolean" {
-    RETURN TRUE
-  }
-  RETURN FALSE
+  RETURN isBoolean(value)
 }
 
 FUNC sleep(ms) {
@@ -62,16 +33,20 @@ FUNC sleep(ms) {
 }
 
 FUNC random() {
-  RETURN 0
+  RETURN random()
 }
 
 FUNC randomInt(min, max) {
-  RETURN 0
+  SET r = random()
+  SET range = max - min
+  RETURN min + floor(r * range)
 }
 
 FUNC randomChoice(arr) {
   IF len(arr) > 0 {
-    RETURN arr[0]
+    SET idx = floor(random() * len(arr))
+    SET item = arr[idx]
+    RETURN item
   }
   RETURN NULL
 }
@@ -86,14 +61,16 @@ FUNC unique(arr) {
   WHILE i < len(arr) {
     SET found = FALSE
     SET j = 0
+    SET currItem = arr[i]
     WHILE j < len(result) {
-      IF arr[i] == result[j] {
+      SET resultItem = result[j]
+      IF currItem == resultItem {
         SET found = TRUE
       }
       SET j = j + 1
     }
     IF found == FALSE {
-      SET result = push(result, arr[i])
+      SET result = push(result, currItem)
     }
     SET i = i + 1
   }
