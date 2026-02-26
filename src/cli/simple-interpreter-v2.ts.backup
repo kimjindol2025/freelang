@@ -107,7 +107,7 @@ export class SimpleInterpreter {
         return await this.executeTry(node, context);
 
       default:
-        return await await this.evaluateExpression(node, context);
+        return await this.evaluateExpression(node, context);
     }
   }
 
@@ -115,7 +115,7 @@ export class SimpleInterpreter {
    * SET 문 실행 (비동기)
    */
   private async executeSet(node: ASTNode, context: ExecutionContext): Promise<any> {
-    const value = await await this.evaluateExpression(node.value, context);
+    const value = await this.evaluateExpression(node.value, context);
     context.variables.set(node.variable, value);
     return value;
   }
@@ -124,7 +124,7 @@ export class SimpleInterpreter {
    * IF 문 실행 (비동기)
    */
   private async executeIf(node: ASTNode, context: ExecutionContext): Promise<any> {
-    const condition = await await this.evaluateExpression(node.condition, context);
+    const condition = await this.evaluateExpression(node.condition, context);
 
     if (this.isTruthy(condition)) {
       for (const stmt of node.thenBody) {
@@ -147,7 +147,7 @@ export class SimpleInterpreter {
   private async executeWhile(node: ASTNode, context: ExecutionContext): Promise<any> {
     let result: any = undefined;
 
-    while (this.isTruthy(await await this.evaluateExpression(node.condition, context))) {
+    while (this.isTruthy(await this.evaluateExpression(node.condition, context))) {
       for (const stmt of node.body) {
         result = await this.executeNode(stmt, context);
         if (context.shouldReturn) break;
@@ -189,7 +189,7 @@ export class SimpleInterpreter {
    * RETURN 문 실행 (비동기)
    */
   private async executeReturn(node: ASTNode, context: ExecutionContext): Promise<any> {
-    const value = await await this.evaluateExpression(node.value, context);
+    const value = await this.evaluateExpression(node.value, context);
     context.returnValue = value;
     context.shouldReturn = true;
     return value;
@@ -262,7 +262,7 @@ export class SimpleInterpreter {
 
     // AWAIT 표현식 (비동기 처리)
     if (expr.type === 'AwaitExpression') {
-      const promise = await await this.evaluateExpression(expr.argument, context);
+      const promise = await this.evaluateExpression(expr.argument, context);
       if (promise instanceof Promise) {
         return await promise;
       }
@@ -328,8 +328,8 @@ export class SimpleInterpreter {
    * 이항 연산 평가 (비동기)
    */
   private async evaluateBinaryOp(expr: any, context: ExecutionContext): Promise<any> {
-    const left = await await this.evaluateExpression(expr.left, context);
-    const right = await await this.evaluateExpression(expr.right, context);
+    const left = await this.evaluateExpression(expr.left, context);
+    const right = await this.evaluateExpression(expr.right, context);
 
     const op = expr.operator;
 
@@ -381,7 +381,7 @@ export class SimpleInterpreter {
    * 단항 연산 평가 (비동기)
    */
   private async evaluateUnaryOp(expr: any, context: ExecutionContext): Promise<any> {
-    const operand = await await this.evaluateExpression(expr.operand, context);
+    const operand = await this.evaluateExpression(expr.operand, context);
 
     if (expr.operator === 'NOT' || expr.operator === '!') {
       return !this.isTruthy(operand);
@@ -406,79 +406,79 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'len') {
-      const arr = await this.evaluateExpression(args[0], context);
+      const arr = this.evaluateExpression(args[0], context);
       return Array.isArray(arr) ? arr.length : String(arr).length;
     }
 
     // 수학 함수들
     if (funcName === 'floor') {
-      const n = await this.evaluateExpression(args[0], context);
+      const n = this.evaluateExpression(args[0], context);
       return Math.floor(n);
     }
 
     if (funcName === 'ceil') {
-      const n = await this.evaluateExpression(args[0], context);
+      const n = this.evaluateExpression(args[0], context);
       return Math.ceil(n);
     }
 
     if (funcName === 'round') {
-      const n = await this.evaluateExpression(args[0], context);
+      const n = this.evaluateExpression(args[0], context);
       return Math.round(n);
     }
 
     // 문자열 함수들
     if (funcName === 'upper') {
-      const str = String(await this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[0], context));
       return str.toUpperCase();
     }
 
     if (funcName === 'lower') {
-      const str = String(await this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[0], context));
       return str.toLowerCase();
     }
 
     if (funcName === 'length') {
-      const str = String(await this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[0], context));
       return str.length;
     }
 
     if (funcName === 'trim') {
-      const str = String(await this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[0], context));
       return str.trim();
     }
 
     if (funcName === 'contains') {
-      const str = String(await this.evaluateExpression(args[0], context));
-      const search = String(await this.evaluateExpression(args[1], context));
+      const str = String(this.evaluateExpression(args[0], context));
+      const search = String(this.evaluateExpression(args[1], context));
       return str.includes(search);
     }
 
     if (funcName === 'substr') {
-      const str = String(await this.evaluateExpression(args[0], context));
-      const start = await this.evaluateExpression(args[1], context);
-      const len = await this.evaluateExpression(args[2], context);
+      const str = String(this.evaluateExpression(args[0], context));
+      const start = this.evaluateExpression(args[1], context);
+      const len = this.evaluateExpression(args[2], context);
       return str.substr(start, len);
     }
 
     if (funcName === 'replace') {
-      const str = String(await this.evaluateExpression(args[0], context));
-      const search = String(await this.evaluateExpression(args[1], context));
-      const replacement = String(await this.evaluateExpression(args[2], context));
+      const str = String(this.evaluateExpression(args[0], context));
+      const search = String(this.evaluateExpression(args[1], context));
+      const replacement = String(this.evaluateExpression(args[2], context));
       // Replace all occurrences using regex with global flag
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
       return str.replace(regex, replacement);
     }
 
     if (funcName === 'split') {
-      const str = String(await this.evaluateExpression(args[0], context));
-      const delimiter = String(await this.evaluateExpression(args[1], context));
+      const str = String(this.evaluateExpression(args[0], context));
+      const delimiter = String(this.evaluateExpression(args[1], context));
       return str.split(delimiter);
     }
 
     // 배열 함수들
     if (funcName === 'push') {
-      const arr = await this.evaluateExpression(args[0], context);
-      const item = await this.evaluateExpression(args[1], context);
+      const arr = this.evaluateExpression(args[0], context);
+      const item = this.evaluateExpression(args[1], context);
       if (Array.isArray(arr)) {
         arr.push(item);
         return arr;
@@ -487,7 +487,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'pop') {
-      const arr = await this.evaluateExpression(args[0], context);
+      const arr = this.evaluateExpression(args[0], context);
       if (Array.isArray(arr)) {
         return arr.pop();
       }
@@ -495,7 +495,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'shift') {
-      const arr = await this.evaluateExpression(args[0], context);
+      const arr = this.evaluateExpression(args[0], context);
       if (Array.isArray(arr)) {
         return arr.shift();
       }
@@ -503,8 +503,8 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'unshift') {
-      const arr = await this.evaluateExpression(args[0], context);
-      const item = await this.evaluateExpression(args[1], context);
+      const arr = this.evaluateExpression(args[0], context);
+      const item = this.evaluateExpression(args[1], context);
       if (Array.isArray(arr)) {
         arr.unshift(item);
         return arr;
@@ -513,8 +513,8 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'join') {
-      const arr = await this.evaluateExpression(args[0], context);
-      const delimiter = String(await this.evaluateExpression(args[1], context));
+      const arr = this.evaluateExpression(args[0], context);
+      const delimiter = String(this.evaluateExpression(args[1], context));
       if (Array.isArray(arr)) {
         return arr.join(delimiter);
       }
@@ -522,7 +522,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'reverse') {
-      const arr = await this.evaluateExpression(args[0], context);
+      const arr = this.evaluateExpression(args[0], context);
       if (Array.isArray(arr)) {
         return arr.reverse();
       }
@@ -531,12 +531,12 @@ export class SimpleInterpreter {
 
     // JSON 함수들
     if (funcName === 'stringify') {
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       return JSON.stringify(obj);
     }
 
     if (funcName === 'parse') {
-      const jsonStr = String(await this.evaluateExpression(args[0], context));
+      const jsonStr = String(this.evaluateExpression(args[0], context));
       try {
         return JSON.parse(jsonStr);
       } catch (e) {
@@ -545,7 +545,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'isValid') {
-      const jsonStr = String(await this.evaluateExpression(args[0], context));
+      const jsonStr = String(this.evaluateExpression(args[0], context));
       try {
         JSON.parse(jsonStr);
         return true;
@@ -556,7 +556,7 @@ export class SimpleInterpreter {
 
     // Object 함수들
     if (funcName === 'keys') {
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
         return Object.keys(obj);
       }
@@ -564,7 +564,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'values') {
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
         return Object.values(obj);
       }
@@ -572,7 +572,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'entries') {
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
         return Object.entries(obj).map(([k, v]) => [k, v]);
       }
@@ -580,18 +580,18 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'merge') {
-      const obj1 = await this.evaluateExpression(args[0], context);
-      const obj2 = await this.evaluateExpression(args[1], context);
+      const obj1 = this.evaluateExpression(args[0], context);
+      const obj2 = this.evaluateExpression(args[1], context);
       return Object.assign({}, obj1, obj2);
     }
 
     if (funcName === 'clone') {
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       return JSON.parse(JSON.stringify(obj));
     }
 
     if (funcName === 'isEmpty') {
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       if (Array.isArray(obj)) {
         return obj.length === 0;
       }
@@ -603,37 +603,37 @@ export class SimpleInterpreter {
 
     // Validation 함수들
     if (funcName === 'isString') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return typeof val === 'string';
     }
 
     if (funcName === 'isNumber') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return typeof val === 'number' && !isNaN(val);
     }
 
     if (funcName === 'isArray') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return Array.isArray(val);
     }
 
     if (funcName === 'isObject') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return val !== null && typeof val === 'object' && !Array.isArray(val);
     }
 
     if (funcName === 'isBoolean') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return typeof val === 'boolean';
     }
 
     if (funcName === 'isNull') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return val === null || val === undefined;
     }
 
     if (funcName === 'isDefined') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       return val !== undefined && val !== null;
     }
 
@@ -647,17 +647,17 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'getDay') {
-      const date = new Date(await this.evaluateExpression(args[0], context));
+      const date = new Date(this.evaluateExpression(args[0], context));
       return date.getDay();
     }
 
     if (funcName === 'getMonth') {
-      const date = new Date(await this.evaluateExpression(args[0], context));
+      const date = new Date(this.evaluateExpression(args[0], context));
       return date.getMonth() + 1; // JavaScript months are 0-indexed
     }
 
     if (funcName === 'getYear') {
-      const date = new Date(await this.evaluateExpression(args[0], context));
+      const date = new Date(this.evaluateExpression(args[0], context));
       return date.getFullYear();
     }
 
@@ -667,19 +667,19 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'min') {
-      const a = await this.evaluateExpression(args[0], context);
-      const b = await this.evaluateExpression(args[1], context);
+      const a = this.evaluateExpression(args[0], context);
+      const b = this.evaluateExpression(args[1], context);
       return Math.min(a, b);
     }
 
     if (funcName === 'max') {
-      const a = await this.evaluateExpression(args[0], context);
-      const b = await this.evaluateExpression(args[1], context);
+      const a = this.evaluateExpression(args[0], context);
+      const b = this.evaluateExpression(args[1], context);
       return Math.max(a, b);
     }
 
     if (funcName === 'abs') {
-      const n = await this.evaluateExpression(args[0], context);
+      const n = this.evaluateExpression(args[0], context);
       return Math.abs(n);
     }
 
@@ -696,9 +696,9 @@ export class SimpleInterpreter {
 
     if (funcName === 'put') {
       // 객체에 key-value 쌍 추가: put(obj, key, value)
-      const obj = await this.evaluateExpression(args[0], context);
-      const key = String(await this.evaluateExpression(args[1], context));
-      const value = await this.evaluateExpression(args[2], context);
+      const obj = this.evaluateExpression(args[0], context);
+      const key = String(this.evaluateExpression(args[1], context));
+      const value = this.evaluateExpression(args[2], context);
       if (typeof obj === 'object' && obj !== null) {
         (obj as any)[key] = value;
         return obj;
@@ -708,8 +708,8 @@ export class SimpleInterpreter {
 
     if (funcName === 'get') {
       // 객체에서 값 읽기: get(obj, key)
-      const obj = await this.evaluateExpression(args[0], context);
-      const key = String(await this.evaluateExpression(args[1], context));
+      const obj = this.evaluateExpression(args[0], context);
+      const key = String(this.evaluateExpression(args[1], context));
       if (typeof obj === 'object' && obj !== null) {
         return (obj as any)[key];
       }
@@ -718,7 +718,7 @@ export class SimpleInterpreter {
 
     if (funcName === 'keys') {
       // 객체의 모든 키 반환: keys(obj)
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       if (typeof obj === 'object' && obj !== null) {
         return Object.keys(obj);
       }
@@ -727,7 +727,7 @@ export class SimpleInterpreter {
 
     if (funcName === 'values') {
       // 객체의 모든 값 반환: values(obj)
-      const obj = await this.evaluateExpression(args[0], context);
+      const obj = this.evaluateExpression(args[0], context);
       if (typeof obj === 'object' && obj !== null) {
         return Object.values(obj);
       }
@@ -735,7 +735,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'type') {
-      const val = await this.evaluateExpression(args[0], context);
+      const val = this.evaluateExpression(args[0], context);
       if (val === null) return 'null';
       if (Array.isArray(val)) return 'array';
       return typeof val;
@@ -744,13 +744,13 @@ export class SimpleInterpreter {
     // FileSystem 함수들
     if (funcName === 'exists') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
+      const path = String(this.evaluateExpression(args[0], context));
       return fs.existsSync(path);
     }
 
     if (funcName === 'readFile') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
+      const path = String(this.evaluateExpression(args[0], context));
       try {
         return fs.readFileSync(path, 'utf-8');
       } catch (e) {
@@ -760,8 +760,8 @@ export class SimpleInterpreter {
 
     if (funcName === 'writeFile') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
-      const content = String(await this.evaluateExpression(args[1], context));
+      const path = String(this.evaluateExpression(args[0], context));
+      const content = String(this.evaluateExpression(args[1], context));
       try {
         fs.writeFileSync(path, content, 'utf-8');
         return true;
@@ -772,8 +772,8 @@ export class SimpleInterpreter {
 
     if (funcName === 'appendFile') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
-      const content = String(await this.evaluateExpression(args[1], context));
+      const path = String(this.evaluateExpression(args[0], context));
+      const content = String(this.evaluateExpression(args[1], context));
       try {
         fs.appendFileSync(path, content, 'utf-8');
         return true;
@@ -784,7 +784,7 @@ export class SimpleInterpreter {
 
     if (funcName === 'deleteFile') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
+      const path = String(this.evaluateExpression(args[0], context));
       try {
         fs.unlinkSync(path);
         return true;
@@ -795,7 +795,7 @@ export class SimpleInterpreter {
 
     if (funcName === 'mkdir') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
+      const path = String(this.evaluateExpression(args[0], context));
       try {
         if (!fs.existsSync(path)) {
           fs.mkdirSync(path, { recursive: true });
@@ -808,7 +808,7 @@ export class SimpleInterpreter {
 
     if (funcName === 'listDir') {
       const fs = require('fs');
-      const path = String(await this.evaluateExpression(args[0], context));
+      const path = String(this.evaluateExpression(args[0], context));
       try {
         return fs.readdirSync(path);
       } catch (e) {
@@ -818,8 +818,8 @@ export class SimpleInterpreter {
 
     // Regex 함수들
     if (funcName === 'test') {
-      const pattern = String(await this.evaluateExpression(args[0], context));
-      const str = String(await this.evaluateExpression(args[1], context));
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
       try {
         const regex = new RegExp(pattern);
         return regex.test(str);
@@ -829,8 +829,8 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'match') {
-      const pattern = String(await this.evaluateExpression(args[0], context));
-      const str = String(await this.evaluateExpression(args[1], context));
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
       try {
         const regex = new RegExp(pattern);
         const result = str.match(regex);
@@ -841,8 +841,8 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'matchAll') {
-      const pattern = String(await this.evaluateExpression(args[0], context));
-      const str = String(await this.evaluateExpression(args[1], context));
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
       try {
         const regex = new RegExp(pattern, 'g');
         const matches: string[] = [];
@@ -857,9 +857,9 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'regexReplace') {
-      const pattern = String(await this.evaluateExpression(args[0], context));
-      const str = String(await this.evaluateExpression(args[1], context));
-      const replacement = String(await this.evaluateExpression(args[2], context));
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      const replacement = String(this.evaluateExpression(args[2], context));
       try {
         const regex = new RegExp(pattern);
         return str.replace(regex, replacement);
@@ -869,9 +869,9 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'regexReplaceAll') {
-      const pattern = String(await this.evaluateExpression(args[0], context));
-      const str = String(await this.evaluateExpression(args[1], context));
-      const replacement = String(await this.evaluateExpression(args[2], context));
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
+      const replacement = String(this.evaluateExpression(args[2], context));
       try {
         const regex = new RegExp(pattern, 'g');
         return str.replace(regex, replacement);
@@ -881,8 +881,8 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'regexSplit') {
-      const pattern = String(await this.evaluateExpression(args[0], context));
-      const str = String(await this.evaluateExpression(args[1], context));
+      const pattern = String(this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[1], context));
       try {
         const regex = new RegExp(pattern);
         return str.split(regex);
@@ -893,7 +893,7 @@ export class SimpleInterpreter {
 
     // HTTP 함수들 - Promise 반환
     if (funcName === 'httpGet') {
-      const url = String(await this.evaluateExpression(args[0], context));
+      const url = String(this.evaluateExpression(args[0], context));
       return new Promise((resolve, reject) => {
         try {
           const https = require('https');
@@ -924,8 +924,8 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'httpPost') {
-      const url = String(await this.evaluateExpression(args[0], context));
-      const data = String(await this.evaluateExpression(args[1], context));
+      const url = String(this.evaluateExpression(args[0], context));
+      const data = String(this.evaluateExpression(args[1], context));
 
       return new Promise((resolve, reject) => {
         try {
@@ -972,17 +972,17 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'encodeURL') {
-      const str = String(await this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[0], context));
       return encodeURIComponent(str);
     }
 
     if (funcName === 'decodeURL') {
-      const str = String(await this.evaluateExpression(args[0], context));
+      const str = String(this.evaluateExpression(args[0], context));
       return decodeURIComponent(str);
     }
 
     if (funcName === 'buildQuery') {
-      const params = await this.evaluateExpression(args[0], context);
+      const params = this.evaluateExpression(args[0], context);
       if (typeof params !== 'object' || params === null) {
         return '';
       }
@@ -994,7 +994,7 @@ export class SimpleInterpreter {
     }
 
     if (funcName === 'parseQuery') {
-      const queryStr = String(await this.evaluateExpression(args[0], context));
+      const queryStr = String(this.evaluateExpression(args[0], context));
       const result: any = {};
       if (queryStr.trim() === '') {
         return result;
@@ -1027,7 +1027,7 @@ export class SimpleInterpreter {
     // 파라미터 바인딩
     for (let i = 0; i < funcDef.params.length; i++) {
       const paramName = funcDef.params[i];
-      const argValue = await this.evaluateExpression(args[i], context);
+      const argValue = this.evaluateExpression(args[i], context);
       localContext.variables.set(paramName, argValue);
     }
 
@@ -1046,12 +1046,12 @@ export class SimpleInterpreter {
    * 메서드 호출 (또는 모듈 함수 호출)
    * 예: math.sqrt(16) 또는 obj.method()
    */
-  private async callMethod(instanceName: string, methodName: string, args: any[], context: ExecutionContext): Promise<any> {
+  private callMethod(instanceName: string, methodName: string, args: any[], context: ExecutionContext): any {
     // 먼저 모듈에서 찾기
     const module = context.modules.get(instanceName);
     if (module && module[methodName]) {
       // 모듈의 함수 호출
-      const evalArgs = await Promise.all(args.map(arg => this.evaluateExpression(arg, context)));
+      const evalArgs = args.map(arg => this.evaluateExpression(arg, context));
       return module[methodName](...evalArgs);
     }
 
@@ -1068,7 +1068,7 @@ export class SimpleInterpreter {
   /**
    * 객체 생성 (NEW)
    */
-  private async createObject(className: string, _args: any[], context: ExecutionContext): Promise<any> {
+  private createObject(className: string, _args: any[], context: ExecutionContext): any {
     const classDef = context.classes.get(className);
     if (!classDef) {
       throw new Error(`Undefined class: ${className}`);
@@ -1081,7 +1081,7 @@ export class SimpleInterpreter {
   /**
    * IMPORT 문 실행: IMPORT moduleName FROM "path"
    */
-  private async executeImport(node: ASTNode, context: ExecutionContext): Promise<any> {
+  private executeImport(node: ASTNode, context: ExecutionContext): any {
     const moduleName = node.moduleName;
     const modulePath = node.modulePath;
 
@@ -1115,7 +1115,7 @@ export class SimpleInterpreter {
   /**
    * 모듈 로드
    */
-  private async loadModule(modulePath: string, moduleName: string): Promise<any> {
+  private loadModule(modulePath: string, moduleName: string): any {
     try {
       const fs = require('fs');
 

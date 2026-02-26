@@ -843,7 +843,8 @@ export class SimpleLangParser {
    */
   private parseUnary(): ASTNode {
     // v10+: await 표현식
-    if (this.matchType(TokenType.AWAIT)) {
+    if (this.current() && this.current().type === TokenType.KEYWORD && this.current().value === 'AWAIT') {
+      this.advance();
       const expr = this.parseUnary();
       return {
         type: 'AwaitExpression',

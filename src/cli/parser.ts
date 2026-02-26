@@ -425,6 +425,16 @@ export class Parser {
    * 단항 연산자 파싱
    */
   private parseUnaryOp(): any {
+    // v10+: AWAIT 표현식
+    if (this.match('KEYWORD', 'AWAIT')) {
+      this.advance();
+      const expr = this.parseUnaryOp();
+      return {
+        type: 'AwaitExpression',
+        argument: expr
+      };
+    }
+
     // NOT 연산
     if (this.match('KEYWORD', 'NOT') || this.current().value === '!') {
       this.advance();
