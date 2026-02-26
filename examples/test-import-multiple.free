@@ -1,0 +1,46 @@
+IMPORT math FROM "stdlib/math"
+IMPORT string FROM "stdlib/string"
+IMPORT array FROM "stdlib/array"
+IMPORT core FROM "stdlib/core"
+
+PRINT "=== FreeLang Standard Library IMPORT Test ==="
+PRINT ""
+
+PRINT "1. Math Library"
+SET a = math.sqrt(25)
+SET b = math.pow(3, 3)
+SET c = math.abs(-15)
+PRINT "sqrt(25) = "
+PRINT a
+PRINT "pow(3, 3) = "
+PRINT b
+PRINT "abs(-15) = "
+PRINT c
+PRINT ""
+
+PRINT "2. String Library"
+SET text = "hello world"
+SET upper = string.upper(text)
+SET lower = string.lower("HELLO")
+PRINT "upper('hello world') = "
+PRINT upper
+PRINT "lower('HELLO') = "
+PRINT lower
+PRINT ""
+
+PRINT "3. Array Library"
+SET numbers = [1, 2, 3, 4, 5]
+SET has3 = array.includes(numbers, 3)
+PRINT "Array: "
+PRINT numbers
+PRINT "includes(arr, 3) = "
+PRINT has3
+PRINT ""
+
+PRINT "4. Core Library"
+SET len = core.len(numbers)
+PRINT "len([1, 2, 3, 4, 5]) = "
+PRINT len
+PRINT ""
+
+PRINT "=== All Tests Completed Successfully ==="

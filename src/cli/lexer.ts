@@ -61,6 +61,11 @@ export interface Token {
  * 키워드 맵
  */
 const KEYWORDS = new Set([
+  // 모듈 시스템
+  'IMPORT',
+  'FROM',
+  'EXPORT',
+
   // 제어 흐름
   'IF',
   'ELSE',

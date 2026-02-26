@@ -1,0 +1,12 @@
+IMPORT math FROM "stdlib/math"
+
+PRINT "Math Library Test"
+
+SET result1 = math.sqrt(16)
+PRINT result1
+
+SET result2 = math.pow(2, 8)
+PRINT result2
+
+SET result3 = math.abs(-10)
+PRINT result3

@@ -14,6 +14,7 @@ interface ExecutionContext {
   variables: Map<string, any>;
   functions: Map<string, ASTNode>;
   classes: Map<string, ASTNode>;
+  modules: Map<string, any>;  // IMPORT된 모듈 저장
   returnValue?: any;
   shouldReturn: boolean;
 }
@@ -26,6 +27,7 @@ export class SimpleInterpreter {
     variables: new Map(),
     functions: new Map(),
     classes: new Map(),
+    modules: new Map(),
     shouldReturn: false,
   };
 
@@ -72,6 +74,9 @@ export class SimpleInterpreter {
     if (!node) return undefined;
 
     switch (node.type) {
+      case 'ImportStatement':
+        return this.executeImport(node, context);
+
       case 'SetStatement':
         return this.executeSet(node, context);
 
@@ -362,6 +367,10 @@ export class SimpleInterpreter {
       return !this.isTruthy(operand);
     }
 
+    if (expr.operator === '-') {
+      return -operand;
+    }
+
     throw new Error(`Unknown unary operator: ${expr.operator}`);
   }
 
@@ -392,6 +401,7 @@ export class SimpleInterpreter {
       variables: new Map(context.variables),
       functions: context.functions,
       classes: context.classes,
+      modules: context.modules,
       shouldReturn: false,
     };
 
@@ -414,16 +424,26 @@ export class SimpleInterpreter {
   }
 
   /**
-   * 메서드 호출
+   * 메서드 호출 (또는 모듈 함수 호출)
+   * 예: math.sqrt(16) 또는 obj.method()
    */
-  private callMethod(instanceName: string, methodName: string, _args: any[], context: ExecutionContext): any {
-    const instance = context.variables.get(instanceName);
-    if (!instance) {
-      throw new Error(`Undefined instance: ${instanceName}`);
+  private callMethod(instanceName: string, methodName: string, args: any[], context: ExecutionContext): any {
+    // 먼저 모듈에서 찾기
+    const module = context.modules.get(instanceName);
+    if (module && module[methodName]) {
+      // 모듈의 함수 호출
+      const evalArgs = args.map(arg => this.evaluateExpression(arg, context));
+      return module[methodName](...evalArgs);
     }
 
-    // 간단한 구현: 메서드는 아직 지원하지 않음
-    throw new Error(`Method calls not yet supported: ${methodName}`);
+    // 모듈이 아니면 일반 인스턴스 메서드로 처리
+    const instance = context.variables.get(instanceName);
+    if (!instance) {
+      throw new Error(`Undefined instance or module: ${instanceName}`);
+    }
+
+    // 현재는 인스턴스 메서드 미지원
+    throw new Error(`Instance method calls not yet fully supported: ${methodName}`);
   }
 
   /**
@@ -437,6 +457,116 @@ export class SimpleInterpreter {
 
     // 간단한 구현: 객체는 아직 지원하지 않음
     return { __className: className };
+  }
+
+  /**
+   * IMPORT 문 실행: IMPORT moduleName FROM "path"
+   */
+  private executeImport(node: ASTNode, context: ExecutionContext): any {
+    const moduleName = node.moduleName;
+    const modulePath = node.modulePath;
+
+    try {
+      // 모듈 경로 정규화 (예: "stdlib/math" → 실제 파일 경로)
+      const normalizedPath = this.resolveModulePath(modulePath);
+
+      // 모듈 로드 (스텁: 현재는 빈 객체 반환)
+      const module = this.loadModule(normalizedPath, moduleName);
+
+      // 컨텍스트에 모듈 저장
+      context.modules.set(moduleName, module);
+
+      console.log(`[IMPORT] 모듈 로드: ${moduleName} from ${modulePath}`);
+      return undefined;
+    } catch (error: any) {
+      throw new Error(`Failed to import ${moduleName} from ${modulePath}: ${error.message}`);
+    }
+  }
+
+  /**
+   * 모듈 경로 해석
+   */
+  private resolveModulePath(modulePath: string): string {
+    // 경로 정규화: "stdlib/math" → /absolute/path/stdlib/math/lib.free
+    const path = require('path');
+    const projectRoot = '/home/kimjin/Desktop/kim/v2-freelang-ai';
+    return path.join(projectRoot, modulePath, 'lib.free');
+  }
+
+  /**
+   * 모듈 로드
+   */
+  private loadModule(modulePath: string, moduleName: string): any {
+    try {
+      const fs = require('fs');
+
+      // 파일 존재 확인
+      if (!fs.existsSync(modulePath)) {
+        throw new Error(`Module file not found: ${modulePath}`);
+      }
+
+      // 파일 읽기
+      const code = fs.readFileSync(modulePath, 'utf-8');
+
+      // 모듈 코드 파싱 및 실행
+      const { Parser } = require('./parser');
+      const parser = new Parser();
+      const ast = parser.parse(code);
+
+      // 모듈 컨텍스트 생성
+      const moduleContext: ExecutionContext = {
+        variables: new Map(),
+        functions: new Map(),
+        classes: new Map(),
+        modules: new Map(),
+        shouldReturn: false,
+      };
+
+      // 모듈 실행 (함수와 클래스만 등록)
+      this.executeProgram(ast, moduleContext);
+
+      // 모듈 객체 생성 (함수들을 프로퍼티로 가짐)
+      const moduleObj: any = {};
+      for (const [funcName] of moduleContext.functions) {
+        // 함수 래퍼 생성 (이미 평가된 인자를 직접 받음)
+        moduleObj[funcName] = (...evalArgs: any[]) => {
+          const funcDef = moduleContext.functions.get(funcName);
+          if (!funcDef) {
+            throw new Error(`Undefined function: ${funcName}`);
+          }
+
+          // 새 컨텍스트 생성
+          const callContext: ExecutionContext = {
+            variables: new Map(moduleContext.variables),
+            functions: moduleContext.functions,
+            classes: moduleContext.classes,
+            modules: moduleContext.modules,
+            shouldReturn: false,
+          };
+
+          // 파라미터 바인딩 (이미 평가된 값)
+          for (let i = 0; i < funcDef.params.length; i++) {
+            const paramName = funcDef.params[i];
+            callContext.variables.set(paramName, evalArgs[i]);
+          }
+
+          // 함수 본체 실행
+          for (const stmt of funcDef.body) {
+            this.executeNode(stmt, callContext);
+            if (callContext.shouldReturn) {
+              return callContext.returnValue;
+            }
+          }
+
+          return undefined;
+        };
+      }
+
+      console.log(`  → ${moduleName}: ${moduleContext.functions.size}개 함수 로드됨`);
+      return moduleObj;
+    } catch (error: any) {
+      throw new Error(`Failed to load module from ${modulePath}: ${error.message}`);
+    }
   }
 
   /**

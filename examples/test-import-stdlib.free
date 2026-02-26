@@ -1,0 +1,61 @@
+// 표준 라이브러리 IMPORT 테스트
+
+// math 라이브러리 임포트
+IMPORT math FROM "stdlib/math"
+
+// math 라이브러리 함수 사용
+PRINT "=== Math Library Test ==="
+SET result1 = math.sqrt(16)
+PRINT "sqrt(16) = "
+PRINT result1
+
+SET result2 = math.pow(2, 8)
+PRINT "pow(2, 8) = "
+PRINT result2
+
+SET result3 = math.abs(-10)
+PRINT "abs(-10) = "
+PRINT result3
+
+SET result4 = math.max(100, 50)
+PRINT "max(100, 50) = "
+PRINT result4
+
+// string 라이브러리 임포트
+IMPORT string FROM "stdlib/string"
+
+PRINT ""
+PRINT "=== String Library Test ==="
+SET text = "hello world"
+SET upper_text = string.upper(text)
+PRINT "upper('hello world') = "
+PRINT upper_text
+
+SET lower_text = string.lower("HELLO")
+PRINT "lower('HELLO') = "
+PRINT lower_text
+
+// array 라이브러리 임포트
+IMPORT array FROM "stdlib/array"
+
+PRINT ""
+PRINT "=== Array Library Test ==="
+SET arr = [1, 2, 3, 4, 5]
+PRINT "Array: "
+PRINT arr
+
+SET arr_len = array.includes(arr, 3)
+PRINT "includes(arr, 3) = "
+PRINT arr_len
+
+// core 라이브러리 임포트
+IMPORT core FROM "stdlib/core"
+
+PRINT ""
+PRINT "=== Core Library Test ==="
+SET arr_length = core.len(arr)
+PRINT "len([1,2,3,4,5]) = "
+PRINT arr_length
+
+PRINT ""
+PRINT "=== All Tests Completed ==="

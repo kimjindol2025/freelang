@@ -70,6 +70,11 @@ export class Parser {
   private parseStatement(): ASTNode | null {
     if (this.isEOF()) return null;
 
+    // IMPORT 모듈 로드: IMPORT math FROM "stdlib/math"
+    if (this.match('KEYWORD', 'IMPORT')) {
+      return this.parseImportStatement();
+    }
+
     // SET 변수 할당: SET x = 10
     if (this.match('KEYWORD', 'SET')) {
       return this.parseSetStatement();
@@ -140,6 +145,22 @@ export class Parser {
     // 그 외: 스킵
     this.advance();
     return null;
+  }
+
+  /**
+   * IMPORT 문 파싱: IMPORT moduleName FROM "path"
+   */
+  private parseImportStatement(): ASTNode {
+    this.expect('KEYWORD', 'IMPORT');
+    const moduleName = this.expect(TokenType.IDENTIFIER).value;
+    this.expect('KEYWORD', 'FROM');
+    const modulePath = this.expect(TokenType.STRING).value;
+
+    return {
+      type: 'ImportStatement',
+      moduleName,
+      modulePath,
+    };
   }
 
   /**
@@ -404,12 +425,24 @@ export class Parser {
    * 단항 연산자 파싱
    */
   private parseUnaryOp(): any {
+    // NOT 연산
     if (this.match('KEYWORD', 'NOT') || this.current().value === '!') {
       this.advance();
       const operand = this.parseUnaryOp();
       return {
         type: 'UnaryOp',
         operator: 'NOT',
+        operand,
+      };
+    }
+
+    // Unary minus (음수)
+    if (this.current().value === '-' && this.check(TokenType.OPERATOR)) {
+      this.advance();
+      const operand = this.parseUnaryOp();
+      return {
+        type: 'UnaryOp',
+        operator: '-',
         operand,
       };
     }
@@ -432,6 +465,23 @@ export class Parser {
 
     if (this.check(TokenType.BOOL)) {
       return { type: 'BoolLiteral', value: this.advance().value };
+    }
+
+    // TRUE/FALSE 불린 리터럴
+    if (this.match('KEYWORD', 'TRUE')) {
+      this.advance();
+      return { type: 'BoolLiteral', value: true };
+    }
+
+    if (this.match('KEYWORD', 'FALSE')) {
+      this.advance();
+      return { type: 'BoolLiteral', value: false };
+    }
+
+    // NULL 리터럴
+    if (this.match('KEYWORD', 'NULL')) {
+      this.advance();
+      return { type: 'NullLiteral', value: null };
     }
 
     // NEW 표현식: NEW ClassName()
