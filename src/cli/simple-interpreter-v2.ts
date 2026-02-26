@@ -110,7 +110,7 @@ export class SimpleInterpreter {
         return await this.executeThrow(node, context);
 
       default:
-        return await await this.evaluateExpression(node, context);
+        return await this.evaluateExpression(node, context);
     }
   }
 
@@ -118,7 +118,7 @@ export class SimpleInterpreter {
    * SET 문 실행 (비동기)
    */
   private async executeSet(node: ASTNode, context: ExecutionContext): Promise<any> {
-    const value = await await this.evaluateExpression(node.value, context);
+    const value = await this.evaluateExpression(node.value, context);
     context.variables.set(node.variable, value);
     return value;
   }
@@ -127,7 +127,7 @@ export class SimpleInterpreter {
    * IF 문 실행 (비동기)
    */
   private async executeIf(node: ASTNode, context: ExecutionContext): Promise<any> {
-    const condition = await await this.evaluateExpression(node.condition, context);
+    const condition = await this.evaluateExpression(node.condition, context);
 
     if (this.isTruthy(condition)) {
       for (const stmt of node.thenBody) {
@@ -150,7 +150,7 @@ export class SimpleInterpreter {
   private async executeWhile(node: ASTNode, context: ExecutionContext): Promise<any> {
     let result: any = undefined;
 
-    while (this.isTruthy(await await this.evaluateExpression(node.condition, context))) {
+    while (this.isTruthy(await this.evaluateExpression(node.condition, context))) {
       for (const stmt of node.body) {
         result = await this.executeNode(stmt, context);
         if (context.shouldReturn) break;
@@ -192,7 +192,7 @@ export class SimpleInterpreter {
    * RETURN 문 실행 (비동기)
    */
   private async executeReturn(node: ASTNode, context: ExecutionContext): Promise<any> {
-    const value = await await this.evaluateExpression(node.value, context);
+    const value = await this.evaluateExpression(node.value, context);
     context.returnValue = value;
     context.shouldReturn = true;
     return value;
@@ -274,7 +274,7 @@ export class SimpleInterpreter {
 
     // AWAIT 표현식 (비동기 처리)
     if (expr.type === 'AwaitExpression') {
-      const promise = await await this.evaluateExpression(expr.argument, context);
+      const promise = await this.evaluateExpression(expr.argument, context);
       if (promise instanceof Promise) {
         return await promise;
       }
@@ -296,11 +296,10 @@ export class SimpleInterpreter {
 
     // 식별자
     if (expr.type === 'Identifier') {
-      const value = context.variables.get(expr.name);
-      if (value === undefined) {
+      if (!context.variables.has(expr.name)) {
         throw new Error(`Undefined variable: ${expr.name}`);
       }
-      return value;
+      return context.variables.get(expr.name);
     }
 
     // 배열 리터럴
@@ -340,8 +339,8 @@ export class SimpleInterpreter {
    * 이항 연산 평가 (비동기)
    */
   private async evaluateBinaryOp(expr: any, context: ExecutionContext): Promise<any> {
-    const left = await await this.evaluateExpression(expr.left, context);
-    const right = await await this.evaluateExpression(expr.right, context);
+    const left = await this.evaluateExpression(expr.left, context);
+    const right = await this.evaluateExpression(expr.right, context);
 
     const op = expr.operator;
 
@@ -393,7 +392,7 @@ export class SimpleInterpreter {
    * 단항 연산 평가 (비동기)
    */
   private async evaluateUnaryOp(expr: any, context: ExecutionContext): Promise<any> {
-    const operand = await await this.evaluateExpression(expr.operand, context);
+    const operand = await this.evaluateExpression(expr.operand, context);
 
     if (expr.operator === 'NOT' || expr.operator === '!') {
       return !this.isTruthy(operand);
@@ -1021,6 +1020,16 @@ export class SimpleInterpreter {
     if (funcName === 'Promise.reject') {
       const reason = args[0] ? await this.evaluateExpression(args[0], context) : 'Promise rejected';
       return Promise.reject(new Error(String(reason)));
+    }
+
+    // delay/setTimeout - 지정된 시간 후 완료되는 Promise
+    if (funcName === 'delay' || funcName === 'setTimeout') {
+      const ms = await this.evaluateExpression(args[0], context);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(undefined);
+        }, Number(ms));
+      });
     }
 
     if (funcName === 'encodeURL') {
