@@ -1,0 +1,15 @@
+// Fibonacci: 피보나치 수열
+// FUNC와 RETURN 사용
+
+FUNC fib(n) {
+  IF n <= 1 {
+    RETURN n
+  }
+  
+  SET a = fib(n - 1)
+  SET b = fib(n - 2)
+  RETURN a + b
+}
+
+SET result = fib(6)
+PRINT "fib(6) =" result

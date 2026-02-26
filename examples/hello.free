@@ -1,5 +1,10 @@
-fn hello
-  intent: "인사말 출력"
-  output: string
-  do
-    return "Hello, FreeLang!"
+// FreeLang v2 - Hello World
+// 간단한 인간 중심 언어
+
+PRINT "안녕하세요!"
+PRINT "FreeLang v2입니다!"
+
+SET name = "FreeLang"
+SET version = 2
+PRINT name
+PRINT version

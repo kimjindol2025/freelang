@@ -1,0 +1,13 @@
+// 간단한 함수 테스트
+
+FUNC add(a, b) {
+  SET sum = a + b
+  RETURN sum
+}
+
+PRINT "테스트 시작"
+SET x = 5
+SET y = 3
+PRINT "5 + 3 계산 중..."
+PRINT x
+PRINT y

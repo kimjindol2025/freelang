@@ -1,197 +1,84 @@
 /**
- * FreeLang CLI Runner
- * Reads program file, compiles to IR, executes on VM
+ * FreeLang v2 Runner
+ *
+ * .free 파일을 읽어서 Lexer → Parser → Interpreter로 실행
+ * 간단한 인간 중심 언어
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { IRGenerator } from '../codegen/ir-generator';
-import { VM } from '../vm';
-import { FunctionRegistry } from '../parser/function-registry';
-import { FunctionParser } from './parser';
-import { Inst, VMResult } from '../types';
+import fs from 'fs';
+import path from 'path';
+import { Parser } from './parser';
+import { SimpleInterpreter } from './simple-interpreter-v2';
 
-export interface RunResult {
-  success: boolean;
-  output?: unknown;
-  error?: string;
-  exitCode: number;
-  executionTime: number;
+/**
+ * FreeLang 파일 실행
+ */
+export function runFile(filePath: string): void {
+  const absolutePath = path.resolve(filePath);
+
+  if (!fs.existsSync(absolutePath)) {
+    console.error(`❌ 파일을 찾을 수 없습니다: ${filePath}`);
+    process.exit(1);
+  }
+
+  try {
+    const code = fs.readFileSync(absolutePath, 'utf-8');
+
+    console.log(`\n▶️  FreeLang v2 Interpreter\n`);
+    console.log(`📄 파일: ${filePath}`);
+    console.log(`════════════════════════════════════════\n`);
+
+    const parser = new Parser();
+    const ast = parser.parse(code);
+
+    const interpreter = new SimpleInterpreter();
+    interpreter.execute(ast);
+
+    console.log(`\n════════════════════════════════════════`);
+    console.log(`✅ 실행 완료\n`);
+  } catch (error: any) {
+    console.error(`\n❌ 실행 오류: ${error.message}\n`);
+    process.exit(1);
+  }
 }
 
 /**
- * Simple parser to convert string to AST
- * For now, returns mock AST based on patterns
+ * 코드 문자열로 실행
  */
-function parseProgram(source: string): Record<string, any> {
-  // For Day 6, we implement basic parsing for simple expressions
-  // Real parser would be in parser module
+export function runString(code: string): void {
+  try {
+    const parser = new Parser();
+    const ast = parser.parse(code);
 
-  // Trim and check basic patterns
-  const trimmed = source.trim();
-
-  // Pattern 1: Simple number
-  if (/^\d+$/.test(trimmed)) {
-    return {
-      type: 'NumberLiteral',
-      value: parseInt(trimmed, 10)
-    };
+    const interpreter = new SimpleInterpreter();
+    interpreter.execute(ast);
+  } catch (error: any) {
+    console.error(`❌ 실행 오류: ${error.message}`);
+    process.exit(1);
   }
-
-  // Pattern 2: String literal
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return {
-      type: 'StringLiteral',
-      value: trimmed.slice(1, -1)
-    };
-  }
-
-  // Pattern 3: Simple addition (e.g., "5 + 3")
-  const addMatch = trimmed.match(/^(\d+)\s*\+\s*(\d+)$/);
-  if (addMatch) {
-    return {
-      type: 'BinaryOp',
-      operator: '+',
-      left: { type: 'NumberLiteral', value: parseInt(addMatch[1], 10) },
-      right: { type: 'NumberLiteral', value: parseInt(addMatch[2], 10) }
-    };
-  }
-
-  // Pattern 4: String concatenation
-  const strConcatMatch = trimmed.match(/^"([^"]*)"\s*\+\s*"([^"]*)"$/);
-  if (strConcatMatch) {
-    return {
-      type: 'BinaryOp',
-      operator: '+',
-      left: { type: 'StringLiteral', value: strConcatMatch[1] },
-      right: { type: 'StringLiteral', value: strConcatMatch[2] }
-    };
-  }
-
-  // Default: treat as variable identifier or error
-  if (/^[a-zA-Z_]\w*$/.test(trimmed)) {
-    return {
-      type: 'Identifier',
-      name: trimmed
-    };
-  }
-
-  throw new Error(`Unable to parse program: ${trimmed}`);
 }
 
 /**
- * Compile and run a FreeLang program
+ * 명령줄 실행
  */
-export class ProgramRunner {
-  private gen: IRGenerator;
-  private vm: VM;
-  private registry: FunctionRegistry;
+if (require.main === module) {
+  const args = process.argv.slice(2);
 
-  constructor(registry?: FunctionRegistry) {
-    this.registry = registry || new FunctionRegistry();
-    this.gen = new IRGenerator();
-    this.vm = new VM(this.registry);
+  if (args.length === 0) {
+    console.log(`
+╔════════════════════════════════════════╗
+║   FreeLang v2 - 간단한 인간 중심 언어  ║
+╚════════════════════════════════════════╝
+
+사용법: freelang <file.free>
+
+예시:
+  freelang hello.free
+  freelang factorial.free
+  freelang fibonacci.free
+    `);
+    process.exit(0);
   }
 
-  /**
-   * Get the function registry (for accessing registered functions)
-   */
-  getRegistry(): FunctionRegistry {
-    return this.registry;
-  }
-
-  /**
-   * Run program from string
-   */
-  runString(source: string): RunResult {
-    const startTime = Date.now();
-
-    try {
-      // 1. Parse functions from source
-      const parsed = FunctionParser.parseProgram(source);
-
-      // 2. Clear previous functions and register new ones
-      this.registry.clear();
-      for (const fnDef of parsed.functionDefs) {
-        // Convert parsed function to AST form for registry
-        this.registry.register({
-          type: 'FunctionDefinition',
-          name: fnDef.name,
-          params: fnDef.params,
-          body: parseProgram(fnDef.body) as any
-        });
-      }
-
-      // 3. Parse statements (source without functions)
-      // For now, simple implementation: parse the entire source
-      const ast = parseProgram(source) as any;
-
-      // 4. Generate IR
-      const ir = this.gen.generateIR(ast);
-
-      // 5. Execute on VM
-      const result = this.vm.run(ir);
-
-      const executionTime = Date.now() - startTime;
-
-      return {
-        success: result.ok,
-        output: result.value,
-        error: result.error ? `VM Error: ${result.error.detail}` : undefined,
-        exitCode: result.ok ? 0 : 1,
-        executionTime
-      };
-    } catch (error) {
-      const executionTime = Date.now() - startTime;
-
-      return {
-        success: false,
-        error: `Compilation Error: ${error instanceof Error ? error.message : String(error)}`,
-        exitCode: 2,
-        executionTime
-      };
-    }
-  }
-
-  /**
-   * Run program from file
-   */
-  runFile(filePath: string): RunResult {
-    const startTime = Date.now();
-
-    try {
-      // 1. Check file exists
-      if (!fs.existsSync(filePath)) {
-        return {
-          success: false,
-          error: `File not found: ${filePath}`,
-          exitCode: 3,
-          executionTime: Date.now() - startTime
-        };
-      }
-
-      // 2. Read file
-      const source = fs.readFileSync(filePath, 'utf-8');
-
-      // 3. Run program
-      return this.runString(source);
-    } catch (error) {
-      const executionTime = Date.now() - startTime;
-
-      return {
-        success: false,
-        error: `File Error: ${error instanceof Error ? error.message : String(error)}`,
-        exitCode: 3,
-        executionTime
-      };
-    }
-  }
-
-  /**
-   * Get IR for a program (for debugging)
-   */
-  getIR(source: string): Inst[] {
-    const ast = parseProgram(source) as any;
-    return this.gen.generateIR(ast);
-  }
+  runFile(args[0]);
 }

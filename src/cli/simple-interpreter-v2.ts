@@ -1,0 +1,399 @@
+/**
+ * FreeLang v2 Simple Interpreter
+ *
+ * AST를 직접 실행하는 트리 워크 인터프리터
+ * 필수 기능: 변수, 함수, 제어 흐름
+ */
+
+import { ASTNode } from './parser';
+
+/**
+ * 실행 컨텍스트
+ */
+interface ExecutionContext {
+  variables: Map<string, any>;
+  functions: Map<string, ASTNode>;
+  classes: Map<string, ASTNode>;
+  returnValue?: any;
+  shouldReturn: boolean;
+}
+
+/**
+ * 간단한 인터프리터
+ */
+export class SimpleInterpreter {
+  private globalContext: ExecutionContext = {
+    variables: new Map(),
+    functions: new Map(),
+    classes: new Map(),
+    shouldReturn: false,
+  };
+
+  /**
+   * 프로그램 실행
+   */
+  execute(ast: ASTNode): any {
+    return this.executeProgram(ast, this.globalContext);
+  }
+
+  /**
+   * 프로그램 실행
+   */
+  private executeProgram(node: ASTNode, context: ExecutionContext): any {
+    if (node.type !== 'Program') {
+      return this.executeNode(node, context);
+    }
+
+    let result: any = undefined;
+
+    for (const stmt of node.statements) {
+      result = this.executeNode(stmt, context);
+
+      // 함수 정의는 결과 반환 안 함
+      if (stmt.type === 'FunctionDeclaration') {
+        context.functions.set(stmt.name, stmt);
+      } else if (stmt.type === 'ClassDefinition') {
+        context.classes.set(stmt.name, stmt);
+      }
+
+      // RETURN이 발생하면 종료
+      if (context.shouldReturn) {
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 노드 실행 (디스패치)
+   */
+  private executeNode(node: ASTNode, context: ExecutionContext): any {
+    if (!node) return undefined;
+
+    switch (node.type) {
+      case 'SetStatement':
+        return this.executeSet(node, context);
+
+      case 'IfStatement':
+        return this.executeIf(node, context);
+
+      case 'WhileStatement':
+        return this.executeWhile(node, context);
+
+      case 'ForStatement':
+        return this.executeFor(node, context);
+
+      case 'FunctionDeclaration':
+        // 함수 정의는 처리하지 않음 (executeProgram에서 등록)
+        return undefined;
+
+      case 'ClassDefinition':
+        // 클래스 정의는 처리하지 않음 (executeProgram에서 등록)
+        return undefined;
+
+      case 'ReturnStatement':
+        return this.executeReturn(node, context);
+
+      case 'PrintStatement':
+        return this.executePrint(node, context);
+
+      default:
+        return this.evaluateExpression(node, context);
+    }
+  }
+
+  /**
+   * SET 문 실행
+   */
+  private executeSet(node: ASTNode, context: ExecutionContext): any {
+    const value = this.evaluateExpression(node.value, context);
+    context.variables.set(node.variable, value);
+    return value;
+  }
+
+  /**
+   * IF 문 실행
+   */
+  private executeIf(node: ASTNode, context: ExecutionContext): any {
+    const condition = this.evaluateExpression(node.condition, context);
+
+    if (this.isTruthy(condition)) {
+      for (const stmt of node.thenBody) {
+        this.executeNode(stmt, context);
+        if (context.shouldReturn) break;
+      }
+    } else {
+      for (const stmt of node.elseBody) {
+        this.executeNode(stmt, context);
+        if (context.shouldReturn) break;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * WHILE 루프 실행
+   */
+  private executeWhile(node: ASTNode, context: ExecutionContext): any {
+    let result: any = undefined;
+
+    while (this.isTruthy(this.evaluateExpression(node.condition, context))) {
+      for (const stmt of node.body) {
+        result = this.executeNode(stmt, context);
+        if (context.shouldReturn) break;
+      }
+
+      if (context.shouldReturn) break;
+    }
+
+    return result;
+  }
+
+  /**
+   * FOR 루프 실행: FOR var IN iterable
+   */
+  private executeFor(node: ASTNode, context: ExecutionContext): any {
+    const iterable = context.variables.get(node.iterable);
+
+    if (!Array.isArray(iterable)) {
+      throw new Error(`${node.iterable} is not an array`);
+    }
+
+    let result: any = undefined;
+
+    for (const value of iterable) {
+      context.variables.set(node.variable, value);
+
+      for (const stmt of node.body) {
+        result = this.executeNode(stmt, context);
+        if (context.shouldReturn) break;
+      }
+
+      if (context.shouldReturn) break;
+    }
+
+    return result;
+  }
+
+  /**
+   * RETURN 문 실행
+   */
+  private executeReturn(node: ASTNode, context: ExecutionContext): any {
+    const value = this.evaluateExpression(node.value, context);
+    context.returnValue = value;
+    context.shouldReturn = true;
+    return value;
+  }
+
+  /**
+   * PRINT 문 실행
+   */
+  private executePrint(node: ASTNode, context: ExecutionContext): any {
+    const values = node.args.map((arg: any) => this.evaluateExpression(arg, context));
+    const output = values.map((v: any) => String(v)).join(' ');
+    console.log(output);
+    return undefined;
+  }
+
+  /**
+   * 표현식 평가
+   */
+  private evaluateExpression(expr: any, context: ExecutionContext): any {
+    if (!expr) return undefined;
+
+    // 리터럴
+    if (expr.type === 'NumberLiteral') {
+      return expr.value;
+    }
+
+    if (expr.type === 'StringLiteral') {
+      return expr.value;
+    }
+
+    if (expr.type === 'BoolLiteral') {
+      return expr.value;
+    }
+
+    // 식별자
+    if (expr.type === 'Identifier') {
+      const value = context.variables.get(expr.name);
+      if (value === undefined) {
+        throw new Error(`Undefined variable: ${expr.name}`);
+      }
+      return value;
+    }
+
+    // 배열 리터럴
+    if (expr.type === 'ArrayLiteral') {
+      return expr.elements.map((e: any) => this.evaluateExpression(e, context));
+    }
+
+    // 이항 연산
+    if (expr.type === 'BinaryOp') {
+      return this.evaluateBinaryOp(expr, context);
+    }
+
+    // 단항 연산
+    if (expr.type === 'UnaryOp') {
+      return this.evaluateUnaryOp(expr, context);
+    }
+
+    // 함수 호출
+    if (expr.type === 'FunctionCallExpr') {
+      return this.callFunction(expr.funcName, expr.args, context);
+    }
+
+    // 메서드 호출
+    if (expr.type === 'MethodCallExpr') {
+      return this.callMethod(expr.instance, expr.methodName, expr.args, context);
+    }
+
+    // NEW 표현식
+    if (expr.type === 'NewExpr') {
+      return this.createObject(expr.className, expr.args, context);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * 이항 연산 평가
+   */
+  private evaluateBinaryOp(expr: any, context: ExecutionContext): any {
+    const left = this.evaluateExpression(expr.left, context);
+    const right = this.evaluateExpression(expr.right, context);
+
+    const op = expr.operator;
+
+    // 산술
+    if (op === '+') {
+      if (typeof left === 'string' || typeof right === 'string') {
+        return String(left) + String(right);
+      }
+      return left + right;
+    }
+    if (op === '-') return left - right;
+    if (op === '*') return left * right;
+    if (op === '/') return left / right;
+    if (op === '%') return left % right;
+
+    // 비교
+    if (op === '<') return left < right;
+    if (op === '>') return left > right;
+    if (op === '<=') return left <= right;
+    if (op === '>=') return left >= right;
+    if (op === '==') return left === right;
+    if (op === '!=') return left !== right;
+
+    // 논리
+    if (op === '&&') return left && right;
+    if (op === '||') return left || right;
+
+    // 비트
+    if (op === '&') return left & right;
+    if (op === '|') return left | right;
+    if (op === '^') return left ^ right;
+
+    throw new Error(`Unknown operator: ${op}`);
+  }
+
+  /**
+   * 단항 연산 평가
+   */
+  private evaluateUnaryOp(expr: any, context: ExecutionContext): any {
+    const operand = this.evaluateExpression(expr.operand, context);
+
+    if (expr.operator === 'NOT' || expr.operator === '!') {
+      return !this.isTruthy(operand);
+    }
+
+    throw new Error(`Unknown unary operator: ${expr.operator}`);
+  }
+
+  /**
+   * 함수 호출
+   */
+  private callFunction(funcName: string, args: any[], context: ExecutionContext): any {
+    // 내장 함수
+    if (funcName === 'print' || funcName === 'println') {
+      const values = args.map(arg => this.evaluateExpression(arg, context));
+      console.log(...values);
+      return undefined;
+    }
+
+    if (funcName === 'len') {
+      const arr = this.evaluateExpression(args[0], context);
+      return Array.isArray(arr) ? arr.length : String(arr).length;
+    }
+
+    // 사용자 정의 함수
+    const funcDef = context.functions.get(funcName);
+    if (!funcDef) {
+      throw new Error(`Undefined function: ${funcName}`);
+    }
+
+    // 새 컨텍스트 생성
+    const localContext: ExecutionContext = {
+      variables: new Map(context.variables),
+      functions: context.functions,
+      classes: context.classes,
+      shouldReturn: false,
+    };
+
+    // 파라미터 바인딩
+    for (let i = 0; i < funcDef.params.length; i++) {
+      const paramName = funcDef.params[i];
+      const argValue = this.evaluateExpression(args[i], context);
+      localContext.variables.set(paramName, argValue);
+    }
+
+    // 함수 본체 실행
+    for (const stmt of funcDef.body) {
+      this.executeNode(stmt, localContext);
+      if (localContext.shouldReturn) {
+        return localContext.returnValue;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * 메서드 호출
+   */
+  private callMethod(instanceName: string, methodName: string, _args: any[], context: ExecutionContext): any {
+    const instance = context.variables.get(instanceName);
+    if (!instance) {
+      throw new Error(`Undefined instance: ${instanceName}`);
+    }
+
+    // 간단한 구현: 메서드는 아직 지원하지 않음
+    throw new Error(`Method calls not yet supported: ${methodName}`);
+  }
+
+  /**
+   * 객체 생성 (NEW)
+   */
+  private createObject(className: string, _args: any[], context: ExecutionContext): any {
+    const classDef = context.classes.get(className);
+    if (!classDef) {
+      throw new Error(`Undefined class: ${className}`);
+    }
+
+    // 간단한 구현: 객체는 아직 지원하지 않음
+    return { __className: className };
+  }
+
+  /**
+   * 참/거짓 판정
+   */
+  private isTruthy(value: any): boolean {
+    if (value === null || value === undefined) return false;
+    if (value === false) return false;
+    if (value === 0) return false;
+    if (value === '') return false;
+    return true;
+  }
+}
