@@ -674,6 +674,57 @@ export class SimpleInterpreter {
       return Math.abs(n);
     }
 
+    // Object 생성 및 관리 함수들
+    if (funcName === 'Object') {
+      // 빈 객체 생성
+      return {};
+    }
+
+    if (funcName === 'Dict') {
+      // 빈 객체 생성 (Object의 별칭)
+      return {};
+    }
+
+    if (funcName === 'put') {
+      // 객체에 key-value 쌍 추가: put(obj, key, value)
+      const obj = this.evaluateExpression(args[0], context);
+      const key = String(this.evaluateExpression(args[1], context));
+      const value = this.evaluateExpression(args[2], context);
+      if (typeof obj === 'object' && obj !== null) {
+        (obj as any)[key] = value;
+        return obj;
+      }
+      throw new Error('put() requires an object as first argument');
+    }
+
+    if (funcName === 'get') {
+      // 객체에서 값 읽기: get(obj, key)
+      const obj = this.evaluateExpression(args[0], context);
+      const key = String(this.evaluateExpression(args[1], context));
+      if (typeof obj === 'object' && obj !== null) {
+        return (obj as any)[key];
+      }
+      throw new Error('get() requires an object as first argument');
+    }
+
+    if (funcName === 'keys') {
+      // 객체의 모든 키 반환: keys(obj)
+      const obj = this.evaluateExpression(args[0], context);
+      if (typeof obj === 'object' && obj !== null) {
+        return Object.keys(obj);
+      }
+      return [];
+    }
+
+    if (funcName === 'values') {
+      // 객체의 모든 값 반환: values(obj)
+      const obj = this.evaluateExpression(args[0], context);
+      if (typeof obj === 'object' && obj !== null) {
+        return Object.values(obj);
+      }
+      return [];
+    }
+
     if (funcName === 'type') {
       const val = this.evaluateExpression(args[0], context);
       if (val === null) return 'null';
