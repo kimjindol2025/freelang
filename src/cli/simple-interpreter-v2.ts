@@ -983,6 +983,46 @@ export class SimpleInterpreter {
       });
     }
 
+    // Promise.all - 모든 Promise를 동시에 대기
+    if (funcName === 'Promise.all') {
+      const promises = await this.evaluateExpression(args[0], context);
+      if (!Array.isArray(promises)) {
+        throw new Error('Promise.all requires an array argument');
+      }
+      try {
+        const results = await Promise.all(promises);
+        return results;
+      } catch (error: any) {
+        throw new Error(`Promise.all failed: ${error.message}`);
+      }
+    }
+
+    // Promise.race - 가장 먼저 완료된 Promise 반환
+    if (funcName === 'Promise.race') {
+      const promises = await this.evaluateExpression(args[0], context);
+      if (!Array.isArray(promises)) {
+        throw new Error('Promise.race requires an array argument');
+      }
+      try {
+        const result = await Promise.race(promises);
+        return result;
+      } catch (error: any) {
+        throw new Error(`Promise.race failed: ${error.message}`);
+      }
+    }
+
+    // Promise.resolve - 값을 resolved Promise로 변환
+    if (funcName === 'Promise.resolve') {
+      const value = await this.evaluateExpression(args[0], context);
+      return Promise.resolve(value);
+    }
+
+    // Promise.reject - rejected Promise 생성
+    if (funcName === 'Promise.reject') {
+      const reason = args[0] ? await this.evaluateExpression(args[0], context) : 'Promise rejected';
+      return Promise.reject(new Error(String(reason)));
+    }
+
     if (funcName === 'encodeURL') {
       const str = String(await this.evaluateExpression(args[0], context));
       return encodeURIComponent(str);
@@ -1099,6 +1139,47 @@ export class SimpleInterpreter {
    * 예: math.sqrt(16) 또는 obj.method()
    */
   private async callMethod(instanceName: string, methodName: string, args: any[], context: ExecutionContext): Promise<any> {
+    // Promise 정적 메서드 처리
+    if (instanceName === 'Promise') {
+      if (methodName === 'all') {
+        const promises = await this.evaluateExpression(args[0], context);
+        if (!Array.isArray(promises)) {
+          throw new Error('Promise.all requires an array argument');
+        }
+        try {
+          const results = await Promise.all(promises);
+          return results;
+        } catch (error: any) {
+          throw new Error(`Promise.all failed: ${error.message}`);
+        }
+      }
+
+      if (methodName === 'race') {
+        const promises = await this.evaluateExpression(args[0], context);
+        if (!Array.isArray(promises)) {
+          throw new Error('Promise.race requires an array argument');
+        }
+        try {
+          const result = await Promise.race(promises);
+          return result;
+        } catch (error: any) {
+          throw new Error(`Promise.race failed: ${error.message}`);
+        }
+      }
+
+      if (methodName === 'resolve') {
+        const value = await this.evaluateExpression(args[0], context);
+        return Promise.resolve(value);
+      }
+
+      if (methodName === 'reject') {
+        const reason = args[0] ? await this.evaluateExpression(args[0], context) : 'Promise rejected';
+        return Promise.reject(new Error(String(reason)));
+      }
+
+      throw new Error(`Unknown Promise method: ${methodName}`);
+    }
+
     // 먼저 모듈에서 찾기
     const module = context.modules.get(instanceName);
     if (module && module[methodName]) {
