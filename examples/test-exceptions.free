@@ -1,0 +1,28 @@
+// v8.9 System Exception 테스트
+// 자동으로 감지되는 예외
+
+PRINT "=== v8.9 System Trap Detection 테스트 ==="
+PRINT ""
+
+// 테스트 1: ArithmeticException (0 나눗셈)
+PRINT "테스트 1: 0으로 나눗셈"
+TRY {
+  SET result = 10 / 0
+  PRINT "이 줄은 실행되지 않음"
+} CATCH (e: ArithmeticException) {
+  PRINT "✅ ArithmeticException 감지됨!"
+}
+
+PRINT ""
+
+// 테스트 2: 다형 CATCH
+PRINT "테스트 2: 다형 예외 처리"
+TRY {
+  SET x = 5
+  SET result = x / 0
+} CATCH (e: Exception) {
+  PRINT "✅ 모든 예외 처리"
+}
+
+PRINT ""
+PRINT "=== 모든 테스트 통과! ==="

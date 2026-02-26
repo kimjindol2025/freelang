@@ -132,6 +132,11 @@ export class Parser {
       };
     }
 
+    // TRY/CATCH/FINALLY: TRY { ... } CATCH (e) { ... } FINALLY { ... }
+    if (this.match('KEYWORD', 'TRY')) {
+      return this.parseTryStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -295,6 +300,48 @@ export class Parser {
     return {
       type: 'ReturnStatement',
       value,
+    };
+  }
+
+  /**
+   * TRY/CATCH/FINALLY 문 파싱
+   */
+  private parseTryStatement(): ASTNode {
+    this.expect('KEYWORD', 'TRY');
+    const tryBody = this.parseBlock();
+
+    let catchVar: string | undefined;
+    let catchBody: ASTNode[] = [];
+    let finallyBody: ASTNode[] = [];
+
+    // CATCH 블록
+    if (this.match('KEYWORD', 'CATCH')) {
+      this.advance();
+      this.expect(TokenType.LPAREN);
+      catchVar = this.expect(TokenType.IDENTIFIER).value;
+
+      // 타입 정보가 있으면 스킵 (: ExceptionType)
+      if (this.check(TokenType.COLON)) {
+        this.advance();
+        this.advance(); // 타입 스킵
+      }
+
+      this.expect(TokenType.RPAREN);
+      catchBody = this.parseBlock();
+    }
+
+    // FINALLY 블록
+    if (this.match('KEYWORD', 'FINALLY')) {
+      this.advance();
+      finallyBody = this.parseBlock();
+    }
+
+    return {
+      type: 'TryStatement',
+      tryBody,
+      catchVar,
+      catchBody,
+      finallyBody,
     };
   }
 

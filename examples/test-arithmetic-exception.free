@@ -1,0 +1,15 @@
+// v8.9 ArithmeticException 테스트
+
+PRINT "=== v8.9 System Trap Detection ==="
+PRINT ""
+
+PRINT "테스트: 0으로 나눗셈 감지"
+TRY {
+  SET result = 10 / 0
+  PRINT "이 줄은 실행되지 않음"
+} CATCH (e) {
+  PRINT "✅ ArithmeticException 자동 감지!"
+}
+
+PRINT ""
+PRINT "=== v8.9 테스트 완료 ==="

@@ -98,6 +98,9 @@ export class SimpleInterpreter {
       case 'PrintStatement':
         return this.executePrint(node, context);
 
+      case 'TryStatement':
+        return this.executeTry(node, context);
+
       default:
         return this.evaluateExpression(node, context);
     }
@@ -198,6 +201,44 @@ export class SimpleInterpreter {
   }
 
   /**
+   * TRY 문 실행
+   */
+  private executeTry(node: ASTNode, context: ExecutionContext): any {
+    try {
+      // TRY 블록 실행
+      for (const stmt of node.tryBody) {
+        this.executeNode(stmt, context);
+        if (context.shouldReturn) break;
+      }
+    } catch (error: any) {
+      // CATCH 블록 실행
+      if (node.catchBody && node.catchVar) {
+        // 예외 변수를 컨텍스트에 바인딩
+        const exceptionName = node.catchVar;
+        const exceptionMsg = error instanceof Error ? error.message : String(error);
+        context.variables.set(exceptionName, { type: 'Exception', message: exceptionMsg });
+
+        for (const stmt of node.catchBody) {
+          this.executeNode(stmt, context);
+          if (context.shouldReturn) break;
+        }
+      } else {
+        throw error;
+      }
+    } finally {
+      // FINALLY 블록 실행 (있으면)
+      if (node.finallyBody) {
+        for (const stmt of node.finallyBody) {
+          this.executeNode(stmt, context);
+          if (context.shouldReturn) break;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * 표현식 평가
    */
   private evaluateExpression(expr: any, context: ExecutionContext): any {
@@ -276,8 +317,20 @@ export class SimpleInterpreter {
     }
     if (op === '-') return left - right;
     if (op === '*') return left * right;
-    if (op === '/') return left / right;
-    if (op === '%') return left % right;
+    if (op === '/') {
+      // v8.9: ArithmeticException 감지
+      if (right === 0) {
+        throw new Error(`ArithmeticException: Division by Zero`);
+      }
+      return left / right;
+    }
+    if (op === '%') {
+      // v8.9: ArithmeticException 감지
+      if (right === 0) {
+        throw new Error(`ArithmeticException: Modulo by Zero`);
+      }
+      return left % right;
+    }
 
     // 비교
     if (op === '<') return left < right;
