@@ -95,6 +95,14 @@ export class Parser {
       return this.parseForStatement();
     }
 
+    // v10+: ASYNC FUNC 비동기 함수 정의
+    if (this.match('KEYWORD', 'ASYNC')) {
+      this.advance();
+      const funcDecl = this.parseFunctionDeclaration();
+      (funcDecl as any).isAsync = true;
+      return funcDecl;
+    }
+
     // FUNC 함수 정의: FUNC add(a, b) { ... }
     if (this.match('KEYWORD', 'FUNC')) {
       return this.parseFunctionDeclaration();
@@ -436,7 +444,7 @@ export class Parser {
     }
 
     // NOT 연산
-    if (this.match('KEYWORD', 'NOT') || this.current().value === '!') {
+    if (this.match('KEYWORD', 'NOT') || (this.check(TokenType.OPERATOR) && this.current().value === '!')) {
       this.advance();
       const operand = this.parseUnaryOp();
       return {

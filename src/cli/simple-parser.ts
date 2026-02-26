@@ -83,6 +83,14 @@ export class SimpleLangParser {
     //   return funcDecl;
     // }
 
+    // v10+: ASYNC FUNC 비동기 함수 정의
+    if (this.current() && this.current().type === TokenType.KEYWORD && this.current().value === 'ASYNC') {
+      this.advance();
+      const funcDecl = this.parseFunctionDeclaration();
+      (funcDecl as any).isAsync = true;
+      return funcDecl;
+    }
+
     // v4.0: fn 함수 정의
     if (this.matchType(TokenType.FN)) {
       return this.parseFunctionDeclaration();

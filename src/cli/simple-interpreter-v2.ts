@@ -12,7 +12,7 @@ import { ASTNode } from './parser';
  */
 interface ExecutionContext {
   variables: Map<string, any>;
-  functions: Map<string, ASTNode>;
+  functions: Map<string, any>;  // ASTNode & { isAsync?: boolean }
   classes: Map<string, ASTNode>;
   modules: Map<string, any>;  // IMPORT된 모듈 저장
   returnValue?: any;
@@ -1015,6 +1015,12 @@ export class SimpleInterpreter {
       throw new Error(`Undefined function: ${funcName}`);
     }
 
+    // v10+: ASYNC FUNC 지원
+    // 비동기 함수이면 Promise로 감싸기
+    if (funcDef.isAsync) {
+      return this.executeAsyncFunction(funcDef, args, context);
+    }
+
     // 새 컨텍스트 생성
     const localContext: ExecutionContext = {
       variables: new Map(context.variables),
@@ -1033,13 +1039,47 @@ export class SimpleInterpreter {
 
     // 함수 본체 실행
     for (const stmt of funcDef.body) {
-      this.executeNode(stmt, localContext);
+      await this.executeNode(stmt, localContext);
       if (localContext.shouldReturn) {
         return localContext.returnValue;
       }
     }
 
     return undefined;
+  }
+
+  /**
+   * 비동기 함수 실행 (ASYNC FUNC)
+   * Promise를 반환하여 AWAIT과 함께 사용
+   */
+  private executeAsyncFunction(funcDef: any, args: any[], context: ExecutionContext): Promise<any> {
+    return (async () => {
+      // 새 컨텍스트 생성
+      const localContext: ExecutionContext = {
+        variables: new Map(context.variables),
+        functions: context.functions,
+        classes: context.classes,
+        modules: context.modules,
+        shouldReturn: false,
+      };
+
+      // 파라미터 바인딩
+      for (let i = 0; i < funcDef.params.length; i++) {
+        const paramName = funcDef.params[i];
+        const argValue = await this.evaluateExpression(args[i], context);
+        localContext.variables.set(paramName, argValue);
+      }
+
+      // 함수 본체 실행
+      for (const stmt of funcDef.body) {
+        await this.executeNode(stmt, localContext);
+        if (localContext.shouldReturn) {
+          return localContext.returnValue;
+        }
+      }
+
+      return undefined;
+    })();
   }
 
   /**
