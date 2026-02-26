@@ -37,15 +37,15 @@ FUNC sqrt(n) {
 }
 
 FUNC floor(n) {
-  RETURN n
+  RETURN floor(n)
 }
 
 FUNC ceil(n) {
-  RETURN n
+  RETURN ceil(n)
 }
 
 FUNC round(n) {
-  RETURN n
+  RETURN round(n)
 }
 
 FUNC min(a, b) {

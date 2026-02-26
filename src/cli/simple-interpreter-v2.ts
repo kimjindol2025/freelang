@@ -390,6 +390,22 @@ export class SimpleInterpreter {
       return Array.isArray(arr) ? arr.length : String(arr).length;
     }
 
+    // 수학 함수들
+    if (funcName === 'floor') {
+      const n = this.evaluateExpression(args[0], context);
+      return Math.floor(n);
+    }
+
+    if (funcName === 'ceil') {
+      const n = this.evaluateExpression(args[0], context);
+      return Math.ceil(n);
+    }
+
+    if (funcName === 'round') {
+      const n = this.evaluateExpression(args[0], context);
+      return Math.round(n);
+    }
+
     // 사용자 정의 함수
     const funcDef = context.functions.get(funcName);
     if (!funcDef) {

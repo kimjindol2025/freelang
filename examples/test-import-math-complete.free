@@ -1,0 +1,56 @@
+IMPORT math FROM "stdlib/math"
+
+PRINT "=== Math Library Complete Test ==="
+PRINT ""
+
+PRINT "1. Already Implemented Functions"
+PRINT "abs(-10) = "
+PRINT math.abs(-10)
+PRINT ""
+
+PRINT "pow(2, 8) = "
+PRINT math.pow(2, 8)
+PRINT ""
+
+PRINT "sqrt(25) = "
+PRINT math.sqrt(25)
+PRINT ""
+
+PRINT "min(10, 20) = "
+PRINT math.min(10, 20)
+PRINT ""
+
+PRINT "max(10, 20) = "
+PRINT math.max(10, 20)
+PRINT ""
+
+PRINT "2. Newly Implemented Functions (Stage 9)"
+PRINT "floor(3.7) = "
+PRINT math.floor(3.7)
+PRINT ""
+
+PRINT "floor(3.2) = "
+PRINT math.floor(3.2)
+PRINT ""
+
+PRINT "ceil(3.2) = "
+PRINT math.ceil(3.2)
+PRINT ""
+
+PRINT "ceil(3.7) = "
+PRINT math.ceil(3.7)
+PRINT ""
+
+PRINT "round(3.4) = "
+PRINT math.round(3.4)
+PRINT ""
+
+PRINT "round(3.5) = "
+PRINT math.round(3.5)
+PRINT ""
+
+PRINT "round(3.6) = "
+PRINT math.round(3.6)
+PRINT ""
+
+PRINT "=== All Tests Completed Successfully ==="
