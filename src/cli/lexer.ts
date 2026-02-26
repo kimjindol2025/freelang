@@ -98,6 +98,9 @@ const KEYWORDS = new Set([
   'THROW',
   'FINALLY',
 
+  // 재시도
+  'RETRY',
+
   // 기타
   'AND',
   'OR',

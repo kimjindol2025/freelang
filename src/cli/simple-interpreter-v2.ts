@@ -178,6 +178,9 @@ export class SimpleInterpreter {
       case 'ThrowStatement':
         return await this.executeThrow(node, context);
 
+      case 'RetryStatement':
+        return await this.executeRetry(node, context);
+
       default:
         return await this.evaluateExpression(node, context);
     }
@@ -401,6 +404,116 @@ export class SimpleInterpreter {
     const value = await this.evaluateExpression(node.value, context);
     const errorMessage = typeof value === 'string' ? value : JSON.stringify(value);
     throw new Error(errorMessage);
+  }
+
+  /**
+   * RETRY 문 실행 (재시도 로직)
+   *
+   * 비동기 작업이 실패할 때 자동으로 재시도합니다.
+   * 지수 백오프를 사용하여 대기 시간을 점진적으로 증가시킵니다.
+   *
+   * 📋 재시도 전략:
+   * - LINEAR: initialDelay, initialDelay*2, initialDelay*3, ...
+   * - EXPONENTIAL: initialDelay, initialDelay*2, initialDelay*4, ... (지수 증가)
+   * - FIXED: initialDelay, initialDelay, initialDelay, ... (고정)
+   *
+   * 🔄 실행 흐름:
+   * 1. 첫 번째 시도 (대기 없음)
+   * 2. 실패 시 delay 만큼 대기
+   * 3. 재시도 (delay를 전략에 따라 계산)
+   * 4. 성공하거나 maxAttempts 초과 시 종료
+   *
+   * @param node - RetryStatement { maxAttempts, backoff, initialDelay, body }
+   * @param context - 실행 컨텍스트
+   * @returns 마지막 시도의 결과 또는 에러 발생
+   *
+   * @throws {Error} maxAttempts 초과 시 마지막 에러 발생
+   *
+   * @example
+   * // 지수 백오프로 최대 3회 재시도 (100ms, 200ms, 400ms 대기)
+   * RETRY maxAttempts=3, backoff=exponential, initialDelay=100 {
+   *   SET data = AWAIT httpGet("https://api.example.com")
+   * }
+   *
+   * @example
+   * // 선형으로 최대 2회 재시도 (50ms, 100ms 대기)
+   * RETRY maxAttempts=2, backoff=linear, initialDelay=50 {
+   *   SET result = AWAIT riskOperation()
+   * }
+   */
+  private async executeRetry(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const logger = context.logger || this.logger;
+    const maxAttempts = node.maxAttempts || 3;
+    const backoffStrategy = node.backoff || 'exponential';  // 'linear' | 'exponential' | 'fixed'
+    const initialDelay = node.initialDelay || 100;  // milliseconds
+
+    logger.debug('executeRetry start', { maxAttempts, backoffStrategy, initialDelay });
+
+    let lastError: Error | null = null;
+
+    // 재시도 루프
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        logger.debug('executeRetry attempt', { attempt, maxAttempts });
+
+        // 시도 1은 대기 없이 바로 실행
+        if (attempt > 1) {
+          // 대기 시간 계산
+          let delayMs: number;
+
+          switch (backoffStrategy) {
+            case 'linear':
+              // 선형: initialDelay * attempt
+              delayMs = initialDelay * attempt;
+              break;
+
+            case 'exponential':
+              // 지수: initialDelay * (2 ^ (attempt - 1))
+              delayMs = initialDelay * Math.pow(2, attempt - 1);
+              break;
+
+            case 'fixed':
+              // 고정: initialDelay
+              delayMs = initialDelay;
+              break;
+
+            default:
+              delayMs = initialDelay;
+          }
+
+          logger.trace('executeRetry waiting', { attempt, delayMs, strategy: backoffStrategy });
+
+          // 대기 (delay 함수 활용)
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+
+        // 재시도 블록 실행
+        for (const stmt of node.body) {
+          await this.executeNode(stmt, context);
+          if (context.shouldReturn) break;
+        }
+
+        // 성공! 종료
+        logger.debug('executeRetry succeeded', { attempt });
+        return undefined;
+
+      } catch (error: any) {
+        lastError = error;
+        logger.debug('executeRetry failed', { attempt, error: error.message });
+
+        // 마지막 시도면 에러 발생
+        if (attempt === maxAttempts) {
+          logger.warn('executeRetry exceeded maxAttempts', { maxAttempts });
+          throw lastError;
+        }
+
+        // 다음 재시도로 진행
+      }
+    }
+
+    // 도달 불가능한 코드지만, 타입 안정성을 위해
+    if (lastError) throw lastError;
+    return undefined;
   }
 
   /**

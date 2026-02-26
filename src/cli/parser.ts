@@ -155,6 +155,11 @@ export class Parser {
       return this.parseThrowStatement();
     }
 
+    // RETRY 재시도: RETRY maxAttempts=3, backoff=exponential, initialDelay=100 { ... }
+    if (this.match('KEYWORD', 'RETRY')) {
+      return this.parseRetryStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -246,6 +251,54 @@ export class Parser {
       type: 'ForStatement',
       variable,
       iterable,
+      body,
+    };
+  }
+
+  /**
+   * RETRY 재시도 파싱: RETRY maxAttempts=N, backoff=strategy, initialDelay=N { ... }
+   *
+   * @example
+   * RETRY maxAttempts=3, backoff=exponential, initialDelay=100 {
+   *   SET data = AWAIT httpGet(url)
+   * }
+   */
+  private parseRetryStatement(): ASTNode {
+    this.expect('KEYWORD', 'RETRY');
+
+    // 재시도 옵션 파싱
+    const options: any = {
+      maxAttempts: 3,  // 기본값
+      backoff: 'exponential',  // 기본값
+      initialDelay: 100,  // 기본값 (ms)
+    };
+
+    // maxAttempts=3, backoff=exponential, initialDelay=100
+    while (!this.check(TokenType.LBRACE) && !this.isEOF()) {
+      const optionName = this.expect(TokenType.IDENTIFIER).value;
+      this.expect(TokenType.ASSIGN);  // =
+      const optionValue = this.parseExpression();
+
+      if (optionValue.type === 'NumberLiteral') {
+        options[optionName] = optionValue.value;
+      } else if (optionValue.type === 'Identifier') {
+        options[optionName] = optionValue.name;
+      }
+
+      if (this.check(TokenType.COMMA)) {
+        this.advance();
+      } else {
+        break;
+      }
+    }
+
+    const body = this.parseBlock();
+
+    return {
+      type: 'RetryStatement',
+      maxAttempts: options.maxAttempts,
+      backoff: options.backoff,  // 'linear' | 'exponential' | 'fixed'
+      initialDelay: options.initialDelay,
       body,
     };
   }
