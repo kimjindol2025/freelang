@@ -106,6 +106,9 @@ export class SimpleInterpreter {
       case 'TryStatement':
         return await this.executeTry(node, context);
 
+      case 'ThrowStatement':
+        return await this.executeThrow(node, context);
+
       default:
         return await await this.evaluateExpression(node, context);
     }
@@ -229,10 +232,10 @@ export class SimpleInterpreter {
     } catch (error: any) {
       // CATCH 블록 실행
       if (node.catchBody && node.catchVar) {
-        // 예외 변수를 컨텍스트에 바인딩
+        // 예외 변수를 컨텍스트에 바인딩 (문자열로 저장)
         const exceptionName = node.catchVar;
         const exceptionMsg = error instanceof Error ? error.message : String(error);
-        context.variables.set(exceptionName, { type: 'Exception', message: exceptionMsg });
+        context.variables.set(exceptionName, exceptionMsg);
 
         for (const stmt of node.catchBody) {
           await this.executeNode(stmt, context);
@@ -252,6 +255,15 @@ export class SimpleInterpreter {
     }
 
     return undefined;
+  }
+
+  /**
+   * THROW 문 실행 (예외 발생)
+   */
+  private async executeThrow(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const value = await this.evaluateExpression(node.value, context);
+    const errorMessage = typeof value === 'string' ? value : JSON.stringify(value);
+    throw new Error(errorMessage);
   }
 
   /**

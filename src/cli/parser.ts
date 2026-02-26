@@ -150,6 +150,11 @@ export class Parser {
       return this.parseTryStatement();
     }
 
+    // THROW 예외 발생: THROW "error message"
+    if (this.match('KEYWORD', 'THROW')) {
+      return this.parseThrowStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -371,6 +376,19 @@ export class Parser {
       catchVar,
       catchBody,
       finallyBody,
+    };
+  }
+
+  /**
+   * THROW 문 파싱: THROW expr
+   */
+  private parseThrowStatement(): ASTNode {
+    this.expect('KEYWORD', 'THROW');
+    const value = this.parseExpression();
+
+    return {
+      type: 'ThrowStatement',
+      value,
     };
   }
 
