@@ -80,6 +80,8 @@ const KEYWORDS = new Set([
   'FUNCTION',  // 메서드 정의 (CLASS 내)
   'RETURN',
   'CALL',
+  'ASYNC',     // 비동기 함수
+  'AWAIT',     // 비동기 대기
 
   // v2 메모리 관리
   'SET',

@@ -76,6 +76,13 @@ export class SimpleLangParser {
       return this.parseVariableDeclaration();
     }
 
+    // v10+: async 함수 정의 (구현 예정)
+    // if (this.matchType(TokenType.ASYNC)) {
+    //   const funcDecl = this.parseFunctionDeclaration();
+    //   (funcDecl as any).isAsync = true;
+    //   return funcDecl;
+    // }
+
     // v4.0: fn 함수 정의
     if (this.matchType(TokenType.FN)) {
       return this.parseFunctionDeclaration();
@@ -835,6 +842,15 @@ export class SimpleLangParser {
    * v5.5: & (address-of), * (dereference) 추가
    */
   private parseUnary(): ASTNode {
+    // v10+: await 표현식
+    if (this.matchType(TokenType.AWAIT)) {
+      const expr = this.parseUnary();
+      return {
+        type: 'AwaitExpression',
+        argument: expr
+      };
+    }
+
     if (this.matchAnyType([TokenType.MINUS, TokenType.NOT, TokenType.BIT_AND, TokenType.STAR])) {
       const op = this.previous().value;
       const expr = this.parseUnary();

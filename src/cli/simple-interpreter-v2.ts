@@ -882,42 +882,84 @@ export class SimpleInterpreter {
       }
     }
 
-    // HTTP 함수들
+    // HTTP 함수들 - Promise 반환
     if (funcName === 'httpGet') {
       const url = String(this.evaluateExpression(args[0], context));
-      try {
-        const http = require('http');
-        const https = require('https');
-        const urlModule = require('url');
+      return new Promise((resolve, reject) => {
+        try {
+          const https = require('https');
+          const http = require('http');
 
-        const parsedUrl = new URL(url);
-        const protocol = parsedUrl.protocol === 'https:' ? https : http;
+          const protocol = url.startsWith('https') ? https : http;
+          let data = '';
 
-        let data = '';
-        const request = protocol.get(url, (response: any) => {
-          response.on('data', (chunk: any) => { data += chunk; });
-        });
+          const request = protocol.get(url, (response: any) => {
+            response.on('data', (chunk: any) => { data += chunk; });
+            response.on('end', () => {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                // JSON 파싱 실패 시 원본 문자열 반환
+                resolve(data);
+              }
+            });
+          });
 
-        request.on('error', (e: any) => {
-          throw new Error(`HTTP request failed: ${e.message}`);
-        });
-
-        // 동기적으로 대기하려면 별도의 동기 처리 필요
-        // 현재는 동기식 구현이 불가능하므로 에러 처리
-        throw new Error('HTTP GET requires async support not yet available in FreeLang');
-      } catch (e) {
-        throw e;
-      }
+          request.on('error', (e: any) => {
+            reject(new Error(`HTTP GET failed: ${e.message}`));
+          });
+        } catch (e: any) {
+          reject(new Error(`HTTP GET error: ${e.message}`));
+        }
+      });
     }
 
     if (funcName === 'httpPost') {
       const url = String(this.evaluateExpression(args[0], context));
       const data = String(this.evaluateExpression(args[1], context));
-      try {
-        throw new Error('HTTP POST requires async support not yet available in FreeLang');
-      } catch (e) {
-        throw e;
-      }
+
+      return new Promise((resolve, reject) => {
+        try {
+          const https = require('https');
+          const http = require('http');
+          const urlModule = require('url');
+
+          const protocol = url.startsWith('https') ? https : http;
+          const parsedUrl = new URL(url);
+
+          const options = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': data.length,
+            },
+          };
+
+          let responseData = '';
+          const request = protocol.request(options, (response: any) => {
+            response.on('data', (chunk: any) => { responseData += chunk; });
+            response.on('end', () => {
+              try {
+                resolve(JSON.parse(responseData));
+              } catch (e) {
+                resolve(responseData);
+              }
+            });
+          });
+
+          request.on('error', (e: any) => {
+            reject(new Error(`HTTP POST failed: ${e.message}`));
+          });
+
+          request.write(data);
+          request.end();
+        } catch (e: any) {
+          reject(new Error(`HTTP POST error: ${e.message}`));
+        }
+      });
     }
 
     if (funcName === 'encodeURL') {
