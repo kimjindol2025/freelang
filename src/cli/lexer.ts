@@ -105,6 +105,11 @@ const KEYWORDS = new Set([
   'SEMAPHORE',
   'MUTEX',
 
+  // 스트리밍 & 성능
+  'STREAM',
+  'PERF',
+  'LAZY',
+
   // 기타
   'AND',
   'OR',

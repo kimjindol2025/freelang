@@ -142,6 +142,97 @@ class Mutex {
 }
 
 /**
+ * 지연 평가 값 (Lazy Value)
+ *
+ * 계산을 미루고, 첫 접근 시점에만 계산
+ * - thunk: 계산을 미룬 함수
+ * - value: 계산된 값 (캐시)
+ * - computed: 계산 완료 여부
+ */
+class LazyValue<T> {
+  private value: T | undefined;
+  private computed: boolean = false;
+
+  constructor(private thunk: () => Promise<T>) {}
+
+  /**
+   * 강제 평가: 아직 계산되지 않았다면 계산하고 캐시
+   */
+  async force(): Promise<T> {
+    if (!this.computed) {
+      this.value = await this.thunk();
+      this.computed = true;
+    }
+    return this.value!;
+  }
+
+  /**
+   * 계산 완료 여부 확인
+   */
+  isComputed(): boolean {
+    return this.computed;
+  }
+}
+
+/**
+ * 성능 메트릭 수집
+ *
+ * 실행 시간, 메모리 사용량 등 추적
+ */
+interface PerformanceMetrics {
+  startTime: number;           // 시작 시간 (ms, performance.now())
+  endTime: number;             // 종료 시간
+  executionTime: number;       // 실행 시간 (ms)
+  memoryBefore?: number;       // 사전 메모리 (bytes)
+  memoryAfter?: number;        // 사후 메모리
+  memoryUsed?: number;         // 메모리 사용량
+}
+
+/**
+ * 스트림 프로세서
+ *
+ * 데이터를 청크 단위로 처리
+ * - source: 원본 데이터 (배열, 문자열 등)
+ * - chunkSize: 청크 크기
+ * - chunks(): 청크를 생성하는 async generator
+ */
+class StreamProcessor {
+  constructor(private source: any, private chunkSize: number = 10) {}
+
+  /**
+   * 청크를 생성하는 async generator
+   *
+   * 소스를 chunkSize 단위로 분할하고 yield
+   */
+  async *chunks(): AsyncGenerator<any, void, void> {
+    if (typeof this.source === 'string') {
+      // 문자열: 문자 단위로 분할
+      for (let i = 0; i < this.source.length; i += this.chunkSize) {
+        yield this.source.slice(i, i + this.chunkSize);
+      }
+    } else if (Array.isArray(this.source)) {
+      // 배열: 요소 단위로 분할
+      for (let i = 0; i < this.source.length; i += this.chunkSize) {
+        yield this.source.slice(i, i + this.chunkSize);
+      }
+    } else if (typeof this.source === 'number') {
+      // 숫자: 1부터 source까지 청크로 분할
+      for (let i = 1; i <= this.source; i += this.chunkSize) {
+        const end = Math.min(i + this.chunkSize - 1, this.source);
+        const chunk = [];
+        for (let j = i; j <= end; j++) {
+          chunk.push(j);
+        }
+        yield chunk;
+      }
+    } else {
+      // 기타: 단일 청크로 반환
+      yield this.source;
+    }
+  }
+}
+
+/**
  * 실행 컨텍스트
  *
  * 변수, 함수, 클래스, 모듈을 관리하는 스코프
@@ -160,6 +251,8 @@ interface ExecutionContext {
   modules: Map<string, any>;  // IMPORT된 모듈 저장
   semaphores?: Map<string, Semaphore>;  // 글로벌 세마포어 레지스트리
   mutexes?: Map<string, Mutex>;  // 글로벌 뮤텍스 레지스트리
+  lazyValues?: Map<string, LazyValue<any>>;  // 지연 평가 값 레지스트리
+  performanceMetrics?: PerformanceMetrics[];  // 성능 메트릭 기록
   returnValue?: any;
   shouldReturn: boolean;
   logger?: Logger;
@@ -183,6 +276,8 @@ export class SimpleInterpreter {
     modules: new Map(),
     semaphores: new Map(),  // 글로벌 세마포어 레지스트리
     mutexes: new Map(),  // 글로벌 뮤텍스 레지스트리
+    lazyValues: new Map(),  // 지연 평가 값 레지스트리
+    performanceMetrics: [],  // 성능 메트릭 기록
     shouldReturn: false,
     logger: new Logger(),
   };
@@ -282,6 +377,15 @@ export class SimpleInterpreter {
 
       case 'MutexStatement':
         return await this.executeMutex(node, context);
+
+      case 'StreamStatement':
+        return await this.executeStream(node, context);
+
+      case 'PerfStatement':
+        return await this.executePerf(node, context);
+
+      case 'LazyStatement':
+        return await this.executeLazy(node, context);
 
       default:
         return await this.evaluateExpression(node, context);
@@ -737,6 +841,187 @@ export class SimpleInterpreter {
       mutex.unlock();
       logger.trace('executeMutex lock released', { mutexId });
     }
+  }
+
+  /**
+   * STREAM 스트리밍 실행
+   *
+   * 대용량 데이터를 청크 단위로 처리합니다.
+   * - 소스를 chunkSize 단위로 분할
+   * - 각 청크에 대해 본체 실행
+   *
+   * @param node - StreamStatement { source, chunkSize, body }
+   * @param context - 실행 컨텍스트
+   * @returns 스트림 처리 결과
+   *
+   * @example
+   * STREAM data chunkSize=5 {
+   *   SET result = AWAIT process(chunk)
+   * }
+   */
+  private async executeStream(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const source = (node as any).source;
+    const chunkSize = (node as any).chunkSize || 10;
+    const logger = context.logger || this.logger;
+
+    logger.debug('executeStream start', { source, chunkSize });
+
+    // 소스 변수 조회
+    if (!context.variables.has(source)) {
+      throw new Error(`Undefined variable: ${source} (for STREAM source)`);
+    }
+
+    const sourceData = context.variables.get(source);
+    const processor = new StreamProcessor(sourceData, chunkSize);
+
+    logger.trace('executeStream chunks generator created', { chunkCount: 'async' });
+
+    // 청크 처리
+    for await (const chunk of processor.chunks()) {
+      logger.trace('executeStream processing chunk', { chunkSize: Array.isArray(chunk) ? chunk.length : chunk.length });
+
+      // 현재 청크를 임시 변수에 저장 (STREAM chunk 형태는 아니고, 변수로 직접 접근)
+      const tempVar = source;  // 기존 변수를 청크로 재할당
+      const originalValue = context.variables.get(tempVar);
+      context.variables.set(tempVar, chunk);
+
+      try {
+        // 본체 실행
+        const body = (node as any).body || [];
+        for (const stmt of body) {
+          const result = await this.executeNode(stmt, context);
+          if (context.shouldReturn) {
+            return result;
+          }
+        }
+      } finally {
+        // 원본 값 복원
+        context.variables.set(tempVar, originalValue);
+      }
+    }
+
+    logger.debug('executeStream finished', { source });
+    return undefined;
+  }
+
+  /**
+   * PERF 성능 모니터링 실행
+   *
+   * 블록의 실행 시간과 메모리 사용량을 측정합니다.
+   * - 시작 시간 기록
+   * - 본체 실행
+   * - 종료 시간 기록
+   * - 메트릭 저장
+   *
+   * @param node - PerfStatement { body }
+   * @param context - 실행 컨텍스트
+   * @returns 블록 실행 결과
+   *
+   * @example
+   * PERF {
+   *   SET result = AWAIT heavyComputation()
+   * }
+   * // 실행 시간 자동 측정
+   */
+  private async executePerf(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const logger = context.logger || this.logger;
+
+    logger.debug('executePerf start');
+
+    // 성능 메트릭 수집
+    const startTime = performance.now();
+    const memoryBefore = process.memoryUsage().heapUsed;
+
+    logger.trace('executePerf marked start', { startTime, memoryBefore });
+
+    try {
+      // 본체 실행
+      const body = (node as any).body || [];
+      for (const stmt of body) {
+        const result = await this.executeNode(stmt, context);
+        if (context.shouldReturn) {
+          return result;
+        }
+      }
+
+      return undefined;
+    } finally {
+      // 성능 메트릭 종료
+      const endTime = performance.now();
+      const memoryAfter = process.memoryUsage().heapUsed;
+
+      const executionTime = endTime - startTime;
+      const memoryUsed = memoryAfter - memoryBefore;
+
+      const metrics: PerformanceMetrics = {
+        startTime,
+        endTime,
+        executionTime,
+        memoryBefore,
+        memoryAfter,
+        memoryUsed,
+      };
+
+      if (!context.performanceMetrics) {
+        context.performanceMetrics = [];
+      }
+      context.performanceMetrics.push(metrics);
+
+      logger.debug('executePerf finished', {
+        executionTime: `${executionTime.toFixed(2)}ms`,
+        memoryUsed: `${(memoryUsed / 1024).toFixed(2)}KB`,
+      });
+    }
+  }
+
+  /**
+   * LAZY 지연 평가 실행
+   *
+   * 변수에 지연 평가 값을 할당합니다.
+   * - 할당 시점에는 표현식을 평가하지 않음
+   * - 변수 접근 시점에 평가 (force)
+   *
+   * @param node - LazyStatement { varName, value }
+   * @param context - 실행 컨텍스트
+   * @returns undefined
+   *
+   * @example
+   * LAZY x = expensiveFunc()
+   * PRINT "Before force"
+   * SET result = x  // 이 시점에 expensiveFunc() 계산
+   */
+  private async executeLazy(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const varName = (node as any).varName;
+    const valueExpr = (node as any).value;
+    const logger = context.logger || this.logger;
+
+    logger.debug('executeLazy assignment', { varName });
+
+    if (!context.lazyValues) {
+      context.lazyValues = new Map();
+    }
+
+    // Thunk: 값을 평가하는 함수
+    const thunk = async () => {
+      logger.trace('executeLazy force evaluating', { varName });
+      return await this.evaluateExpression(valueExpr, context);
+    };
+
+    // LazyValue 생성 및 저장
+    const lazyValue = new LazyValue(thunk);
+    context.lazyValues.set(varName, lazyValue);
+
+    // 변수에도 LazyValue 래퍼 저장 (직접 접근 시 평가)
+    context.variables.set(varName, {
+      __lazy: true,
+      __lazyValue: lazyValue,
+      async force() {
+        return await lazyValue.force();
+      },
+    });
+
+    logger.trace('executeLazy wrapped variable', { varName, isLazy: true });
+    return undefined;
   }
 
   /**

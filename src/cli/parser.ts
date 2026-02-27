@@ -170,6 +170,21 @@ export class Parser {
       return this.parseMutexStatement();
     }
 
+    // STREAM 스트리밍: STREAM data { ... }
+    if (this.match('KEYWORD', 'STREAM')) {
+      return this.parseStreamStatement();
+    }
+
+    // PERF 성능 모니터링: PERF { ... }
+    if (this.match('KEYWORD', 'PERF')) {
+      return this.parsePerfStatement();
+    }
+
+    // LAZY 지연 평가: LAZY x = expensiveFunc()
+    if (this.match('KEYWORD', 'LAZY')) {
+      return this.parseLazyStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -365,6 +380,85 @@ export class Parser {
     return {
       type: 'MutexStatement',
       body,
+    };
+  }
+
+  /**
+   * STREAM 스트리밍 파싱: STREAM source { ... }
+   *
+   * @example
+   * STREAM data {
+   *   SET result = AWAIT process(chunk)
+   * }
+   */
+  private parseStreamStatement(): ASTNode {
+    this.expect('KEYWORD', 'STREAM');
+
+    // 스트림 소스 파싱
+    const source = this.expect(TokenType.IDENTIFIER).value;
+
+    // 옵션 파싱 (선택사항)
+    const options: any = {
+      chunkSize: 10,  // 기본값
+    };
+
+    // chunkSize=... 파싱
+    if (this.check(TokenType.IDENTIFIER) && this.current().value === 'chunkSize') {
+      this.advance();
+      this.expect(TokenType.ASSIGN);
+      const sizeExpr = this.parseExpression();
+      if (sizeExpr.type === 'NumberLiteral') {
+        options.chunkSize = sizeExpr.value;
+      }
+    }
+
+    const body = this.parseBlock();
+
+    return {
+      type: 'StreamStatement',
+      source,
+      chunkSize: options.chunkSize,
+      body,
+    };
+  }
+
+  /**
+   * PERF 성능 모니터링 파싱: PERF { ... }
+   *
+   * @example
+   * PERF {
+   *   SET result = AWAIT heavyComputation()
+   * }
+   */
+  private parsePerfStatement(): ASTNode {
+    this.expect('KEYWORD', 'PERF');
+
+    const body = this.parseBlock();
+
+    return {
+      type: 'PerfStatement',
+      body,
+    };
+  }
+
+  /**
+   * LAZY 지연 평가 파싱: LAZY varName = expression
+   *
+   * @example
+   * LAZY x = expensiveFunc()
+   * PRINT x  // 이 시점에 계산됨
+   */
+  private parseLazyStatement(): ASTNode {
+    this.expect('KEYWORD', 'LAZY');
+
+    const varName = this.expect(TokenType.IDENTIFIER).value;
+    this.expect(TokenType.ASSIGN);
+    const value = this.parseExpression();
+
+    return {
+      type: 'LazyStatement',
+      varName,
+      value,
     };
   }
 
