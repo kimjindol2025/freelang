@@ -160,6 +160,16 @@ export class Parser {
       return this.parseRetryStatement();
     }
 
+    // SEMAPHORE 동시성 제어: SEMAPHORE poolSize=3 { ... }
+    if (this.match('KEYWORD', 'SEMAPHORE')) {
+      return this.parseSemaphoreStatement();
+    }
+
+    // MUTEX 뮤텍스: MUTEX { ... }
+    if (this.match('KEYWORD', 'MUTEX')) {
+      return this.parseMutexStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -299,6 +309,61 @@ export class Parser {
       maxAttempts: options.maxAttempts,
       backoff: options.backoff,  // 'linear' | 'exponential' | 'fixed'
       initialDelay: options.initialDelay,
+      body,
+    };
+  }
+
+  /**
+   * SEMAPHORE 세마포어 파싱: SEMAPHORE poolSize=N { ... }
+   *
+   * @example
+   * SEMAPHORE poolSize=3 {
+   *   SET result = AWAIT someAsyncTask()
+   * }
+   */
+  private parseSemaphoreStatement(): ASTNode {
+    this.expect('KEYWORD', 'SEMAPHORE');
+
+    // poolSize 옵션 파싱
+    const options: any = {
+      poolSize: 1,  // 기본값: 1개 슬롯
+    };
+
+    // poolSize=3
+    if (this.check(TokenType.IDENTIFIER) && this.current().value === 'poolSize') {
+      this.advance();
+      this.expect(TokenType.ASSIGN);  // =
+      const poolSizeExpr = this.parseExpression();
+
+      if (poolSizeExpr.type === 'NumberLiteral') {
+        options.poolSize = poolSizeExpr.value;
+      }
+    }
+
+    const body = this.parseBlock();
+
+    return {
+      type: 'SemaphoreStatement',
+      poolSize: options.poolSize,
+      body,
+    };
+  }
+
+  /**
+   * MUTEX 뮤텍스 파싱: MUTEX { ... }
+   *
+   * @example
+   * MUTEX {
+   *   SET counter = counter + 1
+   * }
+   */
+  private parseMutexStatement(): ASTNode {
+    this.expect('KEYWORD', 'MUTEX');
+
+    const body = this.parseBlock();
+
+    return {
+      type: 'MutexStatement',
       body,
     };
   }

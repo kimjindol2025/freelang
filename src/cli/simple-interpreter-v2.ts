@@ -50,6 +50,98 @@ class Logger {
 }
 
 /**
+ * 세마포어 (N개 동시 리소스 허용)
+ *
+ * 메커니즘:
+ * - permits: 사용 가능 슬롯 (0 ~ maxPermits)
+ * - waitQueue: 대기 중인 resolve 콜백들
+ * - acquire(): 슬롯 획득 (없으면 대기)
+ * - release(): 슬롯 반환 (다음 대기 작업 깨우기)
+ */
+class Semaphore {
+  private permits: number;
+  private maxPermits: number;
+  private waitQueue: (() => void)[] = [];
+
+  constructor(poolSize: number) {
+    this.permits = poolSize;
+    this.maxPermits = poolSize;
+  }
+
+  /**
+   * 세마포어 슬롯 획득
+   * 슬롯이 있으면 즉시 반환, 없으면 Promise로 대기
+   */
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return;
+    }
+
+    // 슬롯이 없으면 대기
+    await new Promise<void>((resolve) => {
+      this.waitQueue.push(resolve);
+    });
+  }
+
+  /**
+   * 세마포어 슬롯 반환
+   * 대기 중인 작업이 있으면 깨우기
+   */
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      const resolve = this.waitQueue.shift()!;
+      resolve();
+    } else {
+      this.permits++;
+    }
+  }
+}
+
+/**
+ * 뮤텍스 (1개 리소스만 허용)
+ *
+ * 메커니즘:
+ * - locked: 현재 잠김 상태
+ * - waitQueue: 대기 중인 resolve 콜백들
+ * - lock(): 락 획득 (없으면 대기)
+ * - unlock(): 락 반환 (다음 대기 작업 깨우기)
+ */
+class Mutex {
+  private locked: boolean = false;
+  private waitQueue: (() => void)[] = [];
+
+  /**
+   * 뮤텍스 락 획득
+   * 락이 없으면 즉시 반환, 있으면 Promise로 대기
+   */
+  async lock(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true;
+      return;
+    }
+
+    // 락이 있으면 대기
+    await new Promise<void>((resolve) => {
+      this.waitQueue.push(resolve);
+    });
+  }
+
+  /**
+   * 뮤텍스 락 반환
+   * 대기 중인 작업이 있으면 깨우기
+   */
+  unlock(): void {
+    if (this.waitQueue.length > 0) {
+      const resolve = this.waitQueue.shift()!;
+      resolve();  // 다음 작업이 실행되면서 자동으로 locked=true 유지
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
+/**
  * 실행 컨텍스트
  *
  * 변수, 함수, 클래스, 모듈을 관리하는 스코프
@@ -66,6 +158,8 @@ interface ExecutionContext {
   functions: Map<string, any>;  // ASTNode & { isAsync?: boolean }
   classes: Map<string, ASTNode>;
   modules: Map<string, any>;  // IMPORT된 모듈 저장
+  semaphores?: Map<string, Semaphore>;  // 글로벌 세마포어 레지스트리
+  mutexes?: Map<string, Mutex>;  // 글로벌 뮤텍스 레지스트리
   returnValue?: any;
   shouldReturn: boolean;
   logger?: Logger;
@@ -87,6 +181,8 @@ export class SimpleInterpreter {
     functions: new Map(),
     classes: new Map(),
     modules: new Map(),
+    semaphores: new Map(),  // 글로벌 세마포어 레지스트리
+    mutexes: new Map(),  // 글로벌 뮤텍스 레지스트리
     shouldReturn: false,
     logger: new Logger(),
   };
@@ -180,6 +276,12 @@ export class SimpleInterpreter {
 
       case 'RetryStatement':
         return await this.executeRetry(node, context);
+
+      case 'SemaphoreStatement':
+        return await this.executeSemaphore(node, context);
+
+      case 'MutexStatement':
+        return await this.executeMutex(node, context);
 
       default:
         return await this.evaluateExpression(node, context);
@@ -514,6 +616,127 @@ export class SimpleInterpreter {
     // 도달 불가능한 코드지만, 타입 안정성을 위해
     if (lastError) throw lastError;
     return undefined;
+  }
+
+  /**
+   * SEMAPHORE 동시성 제어 실행
+   *
+   * N개의 리소스에 동시 접근을 제한합니다.
+   * - acquire(): 슬롯 획득 (없으면 대기)
+   * - 본체 실행
+   * - release(): 슬롯 반환
+   *
+   * @param node - SemaphoreStatement { poolSize, body }
+   * @param context - 실행 컨텍스트
+   * @returns 블록 실행 결과
+   *
+   * @example
+   * SEMAPHORE poolSize=3 {
+   *   SET result = AWAIT someTask()
+   * }
+   */
+  private async executeSemaphore(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const poolSize = (node as any).poolSize || 1;
+    const logger = context.logger || this.logger;
+
+    logger.debug('executeSemaphore start', { poolSize });
+
+    // 글로벌 세마포어 레지스트리 초기화
+    if (!context.semaphores) {
+      context.semaphores = new Map();
+    }
+
+    // 세마포어 ID: "semaphore_0", "semaphore_1", ...
+    const semaphoreId = `semaphore_${context.semaphores.size}`;
+    let semaphore = context.semaphores.get(semaphoreId);
+
+    if (!semaphore) {
+      semaphore = new Semaphore(poolSize);
+      context.semaphores.set(semaphoreId, semaphore);
+      logger.trace('executeSemaphore created', { semaphoreId, poolSize });
+    }
+
+    // 슬롯 획득 (동시성 제어)
+    logger.trace('executeSemaphore acquiring slot', { semaphoreId });
+    await semaphore.acquire();
+    logger.trace('executeSemaphore slot acquired', { semaphoreId });
+
+    try {
+      // 본체 실행
+      const body = (node as any).body || [];
+      for (const stmt of body) {
+        const result = await this.executeNode(stmt, context);
+        if (context.shouldReturn) {
+          return result;
+        }
+      }
+      logger.debug('executeSemaphore body finished', { semaphoreId });
+      return undefined;
+    } finally {
+      // 슬롯 반환 (다음 대기 작업 깨우기)
+      semaphore.release();
+      logger.trace('executeSemaphore slot released', { semaphoreId });
+    }
+  }
+
+  /**
+   * MUTEX 뮤텍스 실행
+   *
+   * 1개의 리소스만 허용 (상호 배제, Mutual Exclusion)
+   * - lock(): 락 획득 (없으면 대기)
+   * - 본체 실행
+   * - unlock(): 락 반환
+   *
+   * @param node - MutexStatement { body }
+   * @param context - 실행 컨텍스트
+   * @returns 블록 실행 결과
+   *
+   * @example
+   * MUTEX {
+   *   SET counter = counter + 1
+   * }
+   */
+  private async executeMutex(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const logger = context.logger || this.logger;
+
+    logger.debug('executeMutex start');
+
+    // 글로벌 뮤텍스 레지스트리 초기화
+    if (!context.mutexes) {
+      context.mutexes = new Map();
+    }
+
+    // 뮤텍스 ID: 하나의 글로벌 뮤텍스 사용
+    const mutexId = 'global_mutex';
+    let mutex = context.mutexes.get(mutexId);
+
+    if (!mutex) {
+      mutex = new Mutex();
+      context.mutexes.set(mutexId, mutex);
+      logger.trace('executeMutex created', { mutexId });
+    }
+
+    // 락 획득 (상호 배제)
+    logger.trace('executeMutex acquiring lock', { mutexId });
+    await mutex.lock();
+    logger.trace('executeMutex lock acquired', { mutexId });
+
+    try {
+      // 본체 실행
+      const body = (node as any).body || [];
+      for (const stmt of body) {
+        const result = await this.executeNode(stmt, context);
+        if (context.shouldReturn) {
+          return result;
+        }
+      }
+      logger.debug('executeMutex body finished', { mutexId });
+      return undefined;
+    } finally {
+      // 락 반환 (다음 대기 작업 깨우기)
+      mutex.unlock();
+      logger.trace('executeMutex lock released', { mutexId });
+    }
   }
 
   /**

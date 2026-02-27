@@ -101,6 +101,10 @@ const KEYWORDS = new Set([
   // 재시도
   'RETRY',
 
+  // 동시성 제어
+  'SEMAPHORE',
+  'MUTEX',
+
   // 기타
   'AND',
   'OR',
