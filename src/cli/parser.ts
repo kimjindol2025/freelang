@@ -185,6 +185,22 @@ export class Parser {
       return this.parseLazyStatement();
     }
 
+    // ASSERT 단언: ASSERT condition, "message"
+    if (this.match('KEYWORD', 'ASSERT')) {
+      return this.parseAssertStatement();
+    }
+
+    // DEBUG/INFO/WARN/ERROR 로깅: DEBUG "message", { data }
+    if (this.match('KEYWORD', 'DEBUG') || this.match('KEYWORD', 'INFO') ||
+        this.match('KEYWORD', 'WARN') || this.match('KEYWORD', 'ERROR')) {
+      return this.parseLogStatement();
+    }
+
+    // HEALTH 헬스 체크: HEALTH { CHECK condition }
+    if (this.match('KEYWORD', 'HEALTH')) {
+      return this.parseHealthStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -459,6 +475,107 @@ export class Parser {
       type: 'LazyStatement',
       varName,
       value,
+    };
+  }
+
+  /**
+   * ASSERT 단언 파싱: ASSERT condition, "message"
+   *
+   * @example
+   * ASSERT x > 0, "x must be positive"
+   * ASSERT array.length > 0, "Empty array"
+   */
+  private parseAssertStatement(): ASTNode {
+    this.expect('KEYWORD', 'ASSERT');
+
+    // 조건 파싱
+    const condition = this.parseExpression();
+
+    // 메시지 파싱 (선택사항)
+    let message = 'Assertion failed';
+    if (this.check(TokenType.COMMA)) {
+      this.advance();
+      const msgExpr = this.parseExpression();
+      if (msgExpr.type === 'StringLiteral') {
+        message = msgExpr.value;
+      }
+    }
+
+    return {
+      type: 'AssertStatement',
+      condition,
+      message,
+    };
+  }
+
+  /**
+   * LOG 로깅 파싱: DEBUG/INFO/WARN/ERROR "message", { data }
+   *
+   * @example
+   * DEBUG "Starting process"
+   * INFO "Computation done", { result: 42 }
+   * WARN "Memory high"
+   * ERROR "Operation failed"
+   */
+  private parseLogStatement(): ASTNode {
+    const levelToken = this.current();
+    const level = levelToken.value.toLowerCase();  // debug, info, warn, error
+    this.advance();
+
+    // 메시지 파싱
+    const message = this.parseExpression();
+
+    // 데이터 파싱 (선택사항)
+    let data = null;
+    if (this.check(TokenType.COMMA)) {
+      this.advance();
+      data = this.parseExpression();
+    }
+
+    return {
+      type: 'LogStatement',
+      level,  // 'debug' | 'info' | 'warn' | 'error'
+      message,
+      data,
+    };
+  }
+
+  /**
+   * HEALTH 헬스 체크 파싱: HEALTH { CHECK condition }
+   *
+   * @example
+   * HEALTH {
+   *   CHECK x > 0
+   *   CHECK array.length > 0
+   * }
+   */
+  private parseHealthStatement(): ASTNode {
+    this.expect('KEYWORD', 'HEALTH');
+
+    const checks: any[] = [];
+
+    this.expect(TokenType.LBRACE);
+
+    while (!this.check(TokenType.RBRACE) && !this.isEOF()) {
+      if (this.match('KEYWORD', 'CHECK')) {
+        this.advance();
+        const condition = this.parseExpression();
+        checks.push({
+          type: 'HealthCheck',
+          condition,
+        });
+      }
+
+      if (this.check(TokenType.SEMICOLON)) {
+        this.advance();
+      }
+    }
+
+    this.expect(TokenType.RBRACE);
+
+    return {
+      type: 'HealthStatement',
+      checks,
     };
   }
 

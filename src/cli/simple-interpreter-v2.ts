@@ -253,9 +253,25 @@ interface ExecutionContext {
   mutexes?: Map<string, Mutex>;  // 글로벌 뮤텍스 레지스트리
   lazyValues?: Map<string, LazyValue<any>>;  // 지연 평가 값 레지스트리
   performanceMetrics?: PerformanceMetrics[];  // 성능 메트릭 기록
+  assertions?: { condition: boolean; message: string; passed: boolean }[];  // Phase 10-B 단언 기록
+  logs?: LogEntry[];  // Phase 10-C 로그 기록
+  healthChecks?: HealthCheckResult[];  // Phase 10-D 헬스 체크 결과
   returnValue?: any;
   shouldReturn: boolean;
   logger?: Logger;
+}
+
+interface LogEntry {
+  timestamp: number;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  message: string;
+  data?: any;
+}
+
+interface HealthCheckResult {
+  condition: boolean;
+  message: string;
+  passed: boolean;
 }
 
 /**
@@ -386,6 +402,15 @@ export class SimpleInterpreter {
 
       case 'LazyStatement':
         return await this.executeLazy(node, context);
+
+      case 'AssertStatement':
+        return await this.executeAssert(node, context);
+
+      case 'LogStatement':
+        return await this.executeLog(node, context);
+
+      case 'HealthStatement':
+        return await this.executeHealth(node, context);
 
       default:
         return await this.evaluateExpression(node, context);
@@ -2262,6 +2287,109 @@ export class SimpleInterpreter {
     } catch (error: any) {
       throw new Error(`Failed to load module from ${modulePath}: ${error.message}`);
     }
+  }
+
+  /**
+   * ASSERT 문 실행 (Phase 10-B)
+   *
+   * @param node - AssertStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeAssert(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const condition = await this.evaluateExpression(node.condition, context);
+    const message = node.message || 'Assertion failed';
+    const passed = this.isTruthy(condition);
+
+    // 단언 기록
+    if (!context.assertions) {
+      context.assertions = [];
+    }
+    context.assertions.push({ condition: this.isTruthy(condition), message, passed });
+
+    if (!passed) {
+      console.error(`[ASSERT FAILED] ${message}`);
+      throw new Error(`AssertionError: ${message}`);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * LOG 문 실행 (Phase 10-C)
+   *
+   * DEBUG, INFO, WARN, ERROR 로그 레벨 처리
+   *
+   * @param node - LogStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeLog(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const level = node.level || 'info';
+    const message = node.message ? await this.evaluateExpression(node.message, context) : '';
+    const data = node.data ? await this.evaluateExpression(node.data, context) : undefined;
+
+    // 로그 기록
+    if (!context.logs) {
+      context.logs = [];
+    }
+    const logEntry: LogEntry = {
+      timestamp: Date.now(),
+      level: level as 'debug' | 'info' | 'warn' | 'error',
+      message: String(message),
+      data
+    };
+    context.logs.push(logEntry);
+
+    // 콘솔 출력
+    const prefix = `[${level.toUpperCase()}]`;
+    if (data !== undefined) {
+      console.log(`${prefix} ${message}`, data);
+    } else {
+      console.log(`${prefix} ${message}`);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * HEALTH 문 실행 (Phase 10-D)
+   *
+   * CHECK 조건들을 평가하고 건강 상태를 판정
+   *
+   * @param node - HealthStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeHealth(node: ASTNode, context: ExecutionContext): Promise<any> {
+    if (!context.healthChecks) {
+      context.healthChecks = [];
+    }
+
+    const checks = node.checks || [];
+    const results: HealthCheckResult[] = [];
+    let allPassed = true;
+
+    for (const check of checks) {
+      const condition = await this.evaluateExpression(check, context);
+      const passed = this.isTruthy(condition);
+
+      const result: HealthCheckResult = {
+        condition: passed,
+        message: `CHECK: ${check.type || 'expression'}`,
+        passed
+      };
+
+      results.push(result);
+      context.healthChecks.push(result);
+
+      if (!passed) {
+        allPassed = false;
+      }
+    }
+
+    // 헬스 상태 판정
+    const status = allPassed ? 'HEALTHY' : 'DEGRADED';
+    console.log(`[HEALTH] Status: ${status} (${results.length} checks, ${results.filter(r => r.passed).length} passed)`);
+
+    return { status, checks: results.length, passed: results.filter(r => r.passed).length };
   }
 
   /**

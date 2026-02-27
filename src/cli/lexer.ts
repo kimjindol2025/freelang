@@ -110,6 +110,15 @@ const KEYWORDS = new Set([
   'PERF',
   'LAZY',
 
+  // 프로덕션 견고화
+  'ASSERT',
+  'DEBUG',
+  'INFO',
+  'WARN',
+  'ERROR',
+  'HEALTH',
+  'CHECK',
+
   // 기타
   'AND',
   'OR',
