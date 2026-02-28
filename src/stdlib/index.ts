@@ -63,6 +63,9 @@ export * as udp from './udp';
 export * as tls from './tls';
 export * as http2 from './http2';
 
+// Re-export Round 5 modules (Phase 7 - Database)
+export * as db from './db.sqlite';
+
 /**
  * Standard Library namespace
  *
@@ -131,6 +134,7 @@ import * as dnsModule from './dns';
 import * as udpModule from './udp';
 import * as tlsModule from './tls';
 import * as http2Module from './http2';
+import * as dbModule from './db.sqlite';
 
 const std = {
   // Phase 1 modules
@@ -180,7 +184,9 @@ const std = {
   dns: dnsModule,
   udp: udpModule,
   tls: tlsModule,
-  http2: http2Module
+  http2: http2Module,
+  // Phase 7 modules (Round 5 - Database)
+  db: dbModule
 };
 
 export default std;
