@@ -68,7 +68,7 @@ int fl_http_headers_set(fl_http_headers_t *headers, const char *name,
     if (strcmp(headers->names[i], name) == 0) {
       free(headers->values[i]);
       headers->values[i] = (char*)malloc(strlen(value) + 1);
-      SAFE_STRCPY(headers->values[i], value);
+      strcpy(headers->values[i], value);
       return 0;
     }
   }
@@ -88,8 +88,8 @@ int fl_http_headers_set(fl_http_headers_t *headers, const char *name,
 
   headers->names[headers->count] = (char*)malloc(strlen(name) + 1);
   headers->values[headers->count] = (char*)malloc(strlen(value) + 1);
-  SAFE_STRCPY(headers->names[headers->count], name);
-  SAFE_STRCPY(headers->values[headers->count], value);
+  strcpy(headers->names[headers->count], name);
+  strcpy(headers->values[headers->count], value);
   headers->count++;
 
   fprintf(stderr, "[http] Header set: %s: %s\n", name, value);
@@ -122,7 +122,7 @@ fl_http_request_t* fl_http_request_create(fl_http_method_t method, const char *u
 
   req->method = method;
   req->uri = (char*)malloc(strlen(uri) + 1);
-  SAFE_STRCPY(req->uri, uri);
+  strcpy(req->uri, uri);
   req->path = NULL;
   req->query = NULL;
   req->fragment = NULL;
@@ -153,7 +153,7 @@ fl_http_request_t* fl_http_request_create(fl_http_method_t method, const char *u
 
   if (hash) {
     req->fragment = (char*)malloc(strlen(hash + 1) + 1);
-    SAFE_STRCPY(req->fragment, hash + 1);
+    strcpy(req->fragment, hash + 1);
   }
 
   fprintf(stderr, "[http] Request created: %s %s\n",
@@ -236,7 +236,7 @@ fl_http_response_t* fl_http_response_create(int status_code) {
 
   resp->status_code = status_code;
   resp->status_message = (char*)malloc(strlen(fl_http_status_to_message(status_code)) + 1);
-  SAFE_STRCPY(resp->status_message, fl_http_status_to_message(status_code));
+  strcpy(resp->status_message, fl_http_status_to_message(status_code));
   resp->headers = fl_http_headers_create(20);
   resp->body = NULL;
   resp->body_size = 0;
@@ -312,7 +312,7 @@ fl_http_client_t* fl_http_client_create(const char *host, uint16_t port,
   if (!client) return NULL;
 
   client->host = (char*)malloc(strlen(host) + 1);
-  SAFE_STRCPY(client->host, host);
+  strcpy(client->host, host);
   client->port = port;
   client->use_ssl = use_ssl;
   client->socket_fd = -1;
