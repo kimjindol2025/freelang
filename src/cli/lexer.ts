@@ -119,6 +119,14 @@ const KEYWORDS = new Set([
   'HEALTH',
   'CHECK',
 
+  // 암호화 (Phase 11)
+  'HASH',
+  'ENCRYPT',
+  'DECRYPT',
+  'SIGN',
+  'VERIFY',
+  'KEYGEN',
+
   // 기타
   'AND',
   'OR',

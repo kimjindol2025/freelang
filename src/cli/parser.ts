@@ -201,6 +201,36 @@ export class Parser {
       return this.parseHealthStatement();
     }
 
+    // HASH 해시: HASH data, "SHA256"
+    if (this.match('KEYWORD', 'HASH')) {
+      return this.parseHashStatement();
+    }
+
+    // ENCRYPT 암호화: ENCRYPT data, key, "AES-256"
+    if (this.match('KEYWORD', 'ENCRYPT')) {
+      return this.parseEncryptStatement();
+    }
+
+    // DECRYPT 복호화: DECRYPT data, key, "AES-256"
+    if (this.match('KEYWORD', 'DECRYPT')) {
+      return this.parseDecryptStatement();
+    }
+
+    // SIGN 서명: SIGN message, privateKey, "RSA"
+    if (this.match('KEYWORD', 'SIGN')) {
+      return this.parseSignStatement();
+    }
+
+    // VERIFY 검증: VERIFY message, signature, publicKey, "RSA"
+    if (this.match('KEYWORD', 'VERIFY')) {
+      return this.parseVerifyStatement();
+    }
+
+    // KEYGEN 키 생성: KEYGEN "RSA", 2048
+    if (this.match('KEYWORD', 'KEYGEN')) {
+      return this.parseKeygenStatement();
+    }
+
     // 그 외: 스킵
     this.advance();
     return null;
@@ -1042,6 +1072,122 @@ export class Parser {
     }
 
     return this.advance();
+  }
+
+  /**
+   * HASH 문 파싱: HASH data, "SHA256"
+   */
+  private parseHashStatement(): ASTNode {
+    this.expect('KEYWORD', 'HASH');
+    const data = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const algorithm = this.parseExpression();
+
+    return {
+      type: 'HashStatement',
+      data,
+      algorithm,
+    };
+  }
+
+  /**
+   * ENCRYPT 문 파싱: ENCRYPT data, key, "AES-256"
+   */
+  private parseEncryptStatement(): ASTNode {
+    this.expect('KEYWORD', 'ENCRYPT');
+    const data = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const key = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const algorithm = this.parseExpression();
+
+    return {
+      type: 'EncryptStatement',
+      data,
+      key,
+      algorithm,
+    };
+  }
+
+  /**
+   * DECRYPT 문 파싱: DECRYPT data, key, "AES-256"
+   */
+  private parseDecryptStatement(): ASTNode {
+    this.expect('KEYWORD', 'DECRYPT');
+    const data = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const key = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const algorithm = this.parseExpression();
+
+    return {
+      type: 'DecryptStatement',
+      data,
+      key,
+      algorithm,
+    };
+  }
+
+  /**
+   * SIGN 문 파싱: SIGN message, privateKey, "RSA"
+   */
+  private parseSignStatement(): ASTNode {
+    this.expect('KEYWORD', 'SIGN');
+    const message = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const privateKey = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const algorithm = this.parseExpression();
+
+    return {
+      type: 'SignStatement',
+      message,
+      privateKey,
+      algorithm,
+    };
+  }
+
+  /**
+   * VERIFY 문 파싱: VERIFY message, signature, publicKey, "RSA"
+   */
+  private parseVerifyStatement(): ASTNode {
+    this.expect('KEYWORD', 'VERIFY');
+    const message = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const signature = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const publicKey = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const algorithm = this.parseExpression();
+
+    return {
+      type: 'VerifyStatement',
+      message,
+      signature,
+      publicKey,
+      algorithm,
+    };
+  }
+
+  /**
+   * KEYGEN 문 파싱: KEYGEN "RSA", 2048
+   */
+  private parseKeygenStatement(): ASTNode {
+    this.expect('KEYWORD', 'KEYGEN');
+    const algorithm = this.parseExpression();
+
+    // 옵션: KEYGEN "algorithm", size
+    let size: ASTNode | undefined = undefined;
+    if (this.check(TokenType.COMMA)) {
+      this.advance();
+      size = this.parseExpression();
+    }
+
+    return {
+      type: 'KeygenStatement',
+      algorithm,
+      size,
+    };
   }
 
   private isEOF(): boolean {

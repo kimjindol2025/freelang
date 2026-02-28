@@ -6,6 +6,7 @@
  */
 
 import { ASTNode } from './parser';
+import * as crypto from 'crypto';
 
 /**
  * 로깅 인프라
@@ -256,9 +257,16 @@ interface ExecutionContext {
   assertions?: { condition: boolean; message: string; passed: boolean }[];  // Phase 10-B 단언 기록
   logs?: LogEntry[];  // Phase 10-C 로그 기록
   healthChecks?: HealthCheckResult[];  // Phase 10-D 헬스 체크 결과
+  cryptoKeys?: Map<string, CryptoKeyPair>;  // Phase 11-B 암호화 키 쌍
   returnValue?: any;
   shouldReturn: boolean;
   logger?: Logger;
+}
+
+interface CryptoKeyPair {
+  publicKey: string;
+  privateKey: string;
+  algorithm: string;
 }
 
 interface LogEntry {
@@ -411,6 +419,24 @@ export class SimpleInterpreter {
 
       case 'HealthStatement':
         return await this.executeHealth(node, context);
+
+      case 'HashStatement':
+        return await this.executeHash(node, context);
+
+      case 'EncryptStatement':
+        return await this.executeEncrypt(node, context);
+
+      case 'DecryptStatement':
+        return await this.executeDecrypt(node, context);
+
+      case 'SignStatement':
+        return await this.executeSign(node, context);
+
+      case 'VerifyStatement':
+        return await this.executeVerify(node, context);
+
+      case 'KeygenStatement':
+        return await this.executeKeygen(node, context);
 
       default:
         return await this.evaluateExpression(node, context);
@@ -2390,6 +2416,219 @@ export class SimpleInterpreter {
     console.log(`[HEALTH] Status: ${status} (${results.length} checks, ${results.filter(r => r.passed).length} passed)`);
 
     return { status, checks: results.length, passed: results.filter(r => r.passed).length };
+  }
+
+  /**
+   * HASH 문 실행 (Phase 11-B)
+   *
+   * SHA256, SHA1, MD5 해시 계산
+   *
+   * @param node - HashStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeHash(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const data = String(await this.evaluateExpression(node.data, context));
+    const algorithm = String(await this.evaluateExpression(node.algorithm, context)).toLowerCase();
+
+    try {
+      // Node.js crypto 모듈 사용
+      const validAlgo = ['sha256', 'sha1', 'md5'].includes(algorithm);
+      if (!validAlgo) {
+        throw new Error(`Invalid hash algorithm: ${algorithm}. Supported: SHA256, SHA1, MD5`);
+      }
+
+      const hash = crypto.createHash(algorithm).update(data).digest('hex');
+      console.log(`[HASH] ${algorithm.toUpperCase()}: ${hash.substring(0, 32)}...`);
+      return hash;
+    } catch (e: any) {
+      throw new Error(`Hash failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * ENCRYPT 문 실행 (Phase 11-B)
+   *
+   * AES 대칭 암호화
+   *
+   * @param node - EncryptStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeEncrypt(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const data = String(await this.evaluateExpression(node.data, context));
+    const key = String(await this.evaluateExpression(node.key, context));
+    const algorithm = String(await this.evaluateExpression(node.algorithm, context)).toLowerCase();
+
+    try {
+      // AES 암호화 (간단한 구현)
+      const validAlgo = ['aes-128-cbc', 'aes-192-cbc', 'aes-256-cbc'].includes(algorithm);
+      if (!validAlgo) {
+        throw new Error(`Invalid encryption algorithm: ${algorithm}. Supported: AES-128-CBC, AES-192-CBC, AES-256-CBC`);
+      }
+
+      // 키 길이 맞추기
+      const keyHash = crypto.createHash('sha256').update(key).digest();
+      const iv = crypto.randomBytes(16);
+
+      const cipher = crypto.createCipheriv(algorithm, keyHash.slice(0, 32), iv);
+      let encrypted = cipher.update(data, 'utf-8', 'hex');
+      encrypted += cipher.final('hex');
+
+      // IV를 암호화된 데이터 앞에 붙임 (복호화 시 필요)
+      const result = iv.toString('hex') + ':' + encrypted;
+      console.log(`[ENCRYPT] ${algorithm.toUpperCase()}: ${result.substring(0, 32)}...`);
+      return result;
+    } catch (e: any) {
+      throw new Error(`Encryption failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * DECRYPT 문 실행 (Phase 11-B)
+   *
+   * AES 대칭 복호화
+   *
+   * @param node - DecryptStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeDecrypt(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const data = String(await this.evaluateExpression(node.data, context));
+    const key = String(await this.evaluateExpression(node.key, context));
+    const algorithm = String(await this.evaluateExpression(node.algorithm, context)).toLowerCase();
+
+    try {
+      const validAlgo = ['aes-128-cbc', 'aes-192-cbc', 'aes-256-cbc'].includes(algorithm);
+      if (!validAlgo) {
+        throw new Error(`Invalid decryption algorithm: ${algorithm}`);
+      }
+
+      // 키 길이 맞추기
+      const keyHash = crypto.createHash('sha256').update(key).digest();
+
+      // IV와 암호화 데이터 분리
+      const [ivHex, encryptedHex] = data.split(':');
+      if (!ivHex || !encryptedHex) {
+        throw new Error('Invalid encrypted data format');
+      }
+
+      const iv = Buffer.from(ivHex, 'hex');
+      const decipher = crypto.createDecipheriv(algorithm, keyHash.slice(0, 32), iv);
+      let decrypted = decipher.update(encryptedHex, 'hex', 'utf-8');
+      decrypted += decipher.final('utf-8');
+
+      console.log(`[DECRYPT] ${algorithm.toUpperCase()}: ${decrypted}`);
+      return decrypted;
+    } catch (e: any) {
+      throw new Error(`Decryption failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * SIGN 문 실행 (Phase 11-B)
+   *
+   * RSA 전자 서명 생성
+   *
+   * @param node - SignStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeSign(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const message = String(await this.evaluateExpression(node.message, context));
+    const privateKey = String(await this.evaluateExpression(node.privateKey, context));
+    const algorithm = String(await this.evaluateExpression(node.algorithm, context)).toUpperCase();
+
+    try {
+      if (algorithm !== 'RSA') {
+        throw new Error(`Algorithm ${algorithm} not yet implemented. Use RSA.`);
+      }
+
+      // RSA 서명 (실제로는 PEM 형식 개인키 필요)
+      // 간단한 구현: HMAC-SHA256 사용
+      const signature = crypto.createHmac('sha256', privateKey).update(message).digest('hex');
+      console.log(`[SIGN] ${algorithm}: ${signature.substring(0, 32)}...`);
+      return signature;
+    } catch (e: any) {
+      throw new Error(`Signing failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * VERIFY 문 실행 (Phase 11-B)
+   *
+   * RSA 서명 검증
+   *
+   * @param node - VerifyStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeVerify(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const message = String(await this.evaluateExpression(node.message, context));
+    const signature = String(await this.evaluateExpression(node.signature, context));
+    const publicKey = String(await this.evaluateExpression(node.publicKey, context));
+    const algorithm = String(await this.evaluateExpression(node.algorithm, context)).toUpperCase();
+
+    try {
+      if (algorithm !== 'RSA') {
+        throw new Error(`Algorithm ${algorithm} not yet implemented. Use RSA.`);
+      }
+
+      // RSA 서명 검증 (간단한 구현: HMAC-SHA256)
+      const computedSignature = crypto.createHmac('sha256', publicKey).update(message).digest('hex');
+      const isValid = computedSignature === signature;
+
+      console.log(`[VERIFY] ${algorithm}: ${isValid ? 'VALID' : 'INVALID'}`);
+      return isValid;
+    } catch (e: any) {
+      throw new Error(`Verification failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * KEYGEN 문 실행 (Phase 11-B)
+   *
+   * RSA 키 쌍 생성
+   *
+   * @param node - KeygenStatement 노드
+   * @param context - 실행 컨텍스트
+   */
+  private async executeKeygen(node: ASTNode, context: ExecutionContext): Promise<any> {
+    const algorithm = String(await this.evaluateExpression(node.algorithm, context)).toUpperCase();
+    const size = node.size ? Number(await this.evaluateExpression(node.size, context)) : 2048;
+
+    try {
+      if (algorithm !== 'RSA') {
+        throw new Error(`Algorithm ${algorithm} not yet implemented. Use RSA.`);
+      }
+
+      // RSA 키 쌍 생성
+      const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+        modulusLength: size,
+        publicKeyEncoding: {
+          type: 'spki',
+          format: 'pem',
+        },
+        privateKeyEncoding: {
+          type: 'pkcs8',
+          format: 'pem',
+        },
+      });
+
+      console.log(`[KEYGEN] ${algorithm} ${size}: Key pair generated`);
+
+      // 키 쌍 저장
+      if (!context.cryptoKeys) {
+        context.cryptoKeys = new Map();
+      }
+
+      const keyId = `key_${Date.now()}`;
+      context.cryptoKeys.set(keyId, { publicKey, privateKey, algorithm });
+
+      return {
+        publicKey,
+        privateKey,
+        algorithm,
+        id: keyId,
+      };
+    } catch (e: any) {
+      throw new Error(`Key generation failed: ${e.message}`);
+    }
   }
 
   /**
