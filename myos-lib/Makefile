@@ -18,7 +18,7 @@ all: build test
 dirs:
 	@mkdir -p $(BUILD_DIR) $(BIN_DIR)
 
-build: dirs $(BIN_DIR)/test_memory $(BIN_DIR)/test_string $(BIN_DIR)/test_array
+build: dirs $(BIN_DIR)/test_memory $(BIN_DIR)/test_string $(BIN_DIR)/test_array $(BIN_DIR)/test_hashmap
 
 $(BUILD_DIR)/syscall.o: $(ARCH_DIR)/syscall.c
 	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
@@ -32,6 +32,12 @@ $(BUILD_DIR)/string.o: $(SRC_DIR)/string.c
 $(BUILD_DIR)/array.o: $(SRC_DIR)/array.c
 	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
+$(BUILD_DIR)/hash.o: $(SRC_DIR)/hash.c
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+
+$(BUILD_DIR)/hashmap.o: $(SRC_DIR)/hashmap.c
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+
 $(BUILD_DIR)/test_memory.o: $(TEST_DIR)/test_memory.c
 	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
@@ -39,6 +45,9 @@ $(BUILD_DIR)/test_string.o: $(TEST_DIR)/test_string.c
 	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
 $(BUILD_DIR)/test_array.o: $(TEST_DIR)/test_array.c
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+
+$(BUILD_DIR)/test_hashmap.o: $(TEST_DIR)/test_hashmap.c
 	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
 $(BIN_DIR)/test_memory: $(BUILD_DIR)/syscall.o $(BUILD_DIR)/memory.o $(BUILD_DIR)/test_memory.o
@@ -50,7 +59,10 @@ $(BIN_DIR)/test_string: $(BUILD_DIR)/syscall.o $(BUILD_DIR)/memory.o $(BUILD_DIR
 $(BIN_DIR)/test_array: $(BUILD_DIR)/syscall.o $(BUILD_DIR)/memory.o $(BUILD_DIR)/array.o $(BUILD_DIR)/test_array.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
-test: $(BIN_DIR)/test_memory $(BIN_DIR)/test_string $(BIN_DIR)/test_array
+$(BIN_DIR)/test_hashmap: $(BUILD_DIR)/syscall.o $(BUILD_DIR)/memory.o $(BUILD_DIR)/string.o $(BUILD_DIR)/hash.o $(BUILD_DIR)/hashmap.o $(BUILD_DIR)/test_hashmap.o
+	$(CC) $(LDFLAGS) -o $@ $^
+
+test: $(BIN_DIR)/test_memory $(BIN_DIR)/test_string $(BIN_DIR)/test_array $(BIN_DIR)/test_hashmap
 	@echo "╔════════════════════════════════════════╗"
 	@echo "║  MyOS_Lib Phase 8.1 Memory Tests      ║"
 	@echo "╚════════════════════════════════════════╝"
@@ -68,6 +80,12 @@ test: $(BIN_DIR)/test_memory $(BIN_DIR)/test_string $(BIN_DIR)/test_array
 	@echo "╚════════════════════════════════════════╝"
 	@echo ""
 	@$(BIN_DIR)/test_array
+	@echo ""
+	@echo "╔════════════════════════════════════════╗"
+	@echo "║  MyOS_Lib Phase 8.4 HashMap Tests     ║"
+	@echo "╚════════════════════════════════════════╝"
+	@echo ""
+	@$(BIN_DIR)/test_hashmap
 	@echo ""
 
 clean:
