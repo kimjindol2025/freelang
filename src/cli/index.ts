@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { interactiveMode } from './interactive';
 import { batchMode } from './batch';
+import { ProgramRunner } from './runner';
 
 /**
  * 도움말 표시
@@ -277,9 +278,21 @@ async function main(): Promise<void> {
         break;
 
       default:
-        console.error(`❌ Unknown option: ${arg}`);
-        showUsage();
-        process.exit(1);
+        // .free 파일 직접 실행 지원 (Phase 3)
+        if (!arg.startsWith('-') && arg.endsWith('.free')) {
+          try {
+            const runner = new ProgramRunner();
+            runner.runFile(arg);
+            process.exit(0);
+          } catch (error) {
+            console.error(`❌ Failed to run ${arg}:`, error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          }
+        } else {
+          console.error(`❌ Unknown option: ${arg}`);
+          showUsage();
+          process.exit(1);
+        }
     }
   }
 
