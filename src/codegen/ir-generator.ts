@@ -299,6 +299,7 @@ export class IRGenerator {
 
       // ── Binary Operations ───────────────────────────────────
       case 'BinaryOp':
+      case 'binary':
         this.traverse(node.left, out);
         this.traverse(node.right, out);
 
@@ -349,8 +350,27 @@ export class IRGenerator {
         break;
 
       case 'Assignment':
+      case 'assignment':
+        // Support both old (node.name) and new (node.target) formats
+        let varName: string;
+        if (node.target) {
+          // New format: { type: 'assignment', target: identifier, value: expr }
+          if (node.target.type === 'identifier' && node.target.name) {
+            varName = node.target.name;
+          } else {
+            throw new Error('Assignment target must be an identifier');
+          }
+        } else if (node.name) {
+          // Old format: { type: 'assignment', name: string, value: expr }
+          varName = node.name;
+        } else {
+          throw new Error('Assignment must have a target or name');
+        }
+
+        // Evaluate the value expression
         this.traverse(node.value, out);
-        out.push({ op: Op.STORE, arg: node.name });
+        // Store in variable
+        out.push({ op: Op.STORE, arg: varName });
         break;
 
       // ── Member Expression (obj.property, obj[index]) ──────────

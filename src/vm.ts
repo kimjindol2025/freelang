@@ -12,7 +12,7 @@ import { NativeFunctionRegistry, NativeFunctionConfig } from './vm/native-functi
 import { IRGenerator } from './codegen/ir-generator';
 import { registerStdlibFunctions } from './stdlib-builtins';
 import { registerTCPFunctions } from './stdlib/net/tcp-native';
-// import { trackFunctionCall, isHotFunction } from './phase-jit/hotspot-detector';
+import { trackFunctionCall, isHotFunction, generateHotspotReport } from './phase-jit/hotspot-detector';
 
 const MAX_CYCLES = 100_000;
 const MAX_STACK  = 10_000;
@@ -471,7 +471,7 @@ export class VM {
           }
           this.functionRegistry!.trackCall(funcName);
           // Phase 4: Track function call for JIT hotspot detection
-          // trackFunctionCall(funcName);
+          trackFunctionCall(funcName);
           this.pc++;
         }
         // Phase 3 FFI: Try native function (C FFI)
@@ -506,6 +506,8 @@ export class VM {
             const err = e instanceof Error ? e.message : String(e);
             throw new Error('native_call_error:' + err);
           }
+          // Phase 4: Track native function call for JIT hotspot detection
+          trackFunctionCall(funcName);
           this.pc++;
         }
         else if (inst.sub) {
@@ -851,6 +853,21 @@ export class VM {
    */
   listNativeFunctions(): string[] {
     return this.nativeFunctionRegistry.listAll();
+  }
+
+  // ── Phase 4: JIT Hotspot Detection ──
+  /**
+   * Get hotspot detection report
+   */
+  getHotspotReport(): string {
+    return generateHotspotReport();
+  }
+
+  /**
+   * Check if a function is "hot" (called >= 100 times)
+   */
+  isHotFunction(funcName: string): boolean {
+    return isHotFunction(funcName);
   }
 
   // ── State inspection (for AI) ──

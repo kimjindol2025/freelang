@@ -464,8 +464,28 @@ export class Parser {
       return this.parseMatch();
     }
 
-    // 기본 표현식 + 이항 연산
-    return this.parseComparison();
+    // Assignment 표현식 (=)
+    return this.parseAssignment();
+  }
+
+  /**
+   * Assignment 표현식 파싱 (우측 결합)
+   * x = y = z → x = (y = z)
+   */
+  private parseAssignment(): Expression {
+    let left = this.parseComparison();
+
+    if (this.check(TokenType.ASSIGN)) {
+      this.advance(); // consume =
+      const right = this.parseAssignment(); // 우측 결합
+      return {
+        type: 'assignment',
+        target: left,
+        value: right
+      } as any;
+    }
+
+    return left;
   }
 
   /**
