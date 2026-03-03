@@ -565,9 +565,16 @@ export class Compiler {
         this.compileIdent(expr);
         break;
 
-      case "binary":
-        this.compileBinary(expr);
+      case "binary": {
+        // 상수 폴딩: 두 피연산자가 모두 리터럴이면 컴파일 시 계산
+        const folded = this.tryConstantFold(expr);
+        if (folded !== null) {
+          this.compileLiteral(folded, expr.line);
+        } else {
+          this.compileBinary(expr);
+        }
         break;
+      }
 
       case "unary":
         this.compileUnary(expr);
@@ -645,13 +652,15 @@ export class Compiler {
   }
 
   private compileBinary(expr: Expr & { kind: "binary" }): void {
+    // f64 판별: 두 피연산자 중 하나라도 float_lit이면 f64 opcode 사용
+    const isFloat = (expr.left.kind === "float_lit") || (expr.right.kind === "float_lit");
+
     // 문자열 + 문자열
     if (expr.op === "+") {
       this.compileExpr(expr.left);
       this.compileExpr(expr.right);
-      // VM이 런타임에 타입 보고 ADD_I32/ADD_F64/STR_CONCAT 결정
-      // 여기서는 일반 ADD로 emit
-      this.chunk.emit(Op.ADD_I32, expr.line);
+      // f64 포함 시 ADD_F64, 아니면 ADD_I32
+      this.chunk.emit(isFloat ? Op.ADD_F64 : Op.ADD_I32, expr.line);
       return;
     }
 
@@ -659,10 +668,10 @@ export class Compiler {
     this.compileExpr(expr.right);
 
     switch (expr.op) {
-      case "-": this.chunk.emit(Op.SUB_I32, expr.line); break;
-      case "*": this.chunk.emit(Op.MUL_I32, expr.line); break;
-      case "/": this.chunk.emit(Op.DIV_I32, expr.line); break;
-      case "%": this.chunk.emit(Op.MOD_I32, expr.line); break;
+      case "-": this.chunk.emit(isFloat ? Op.SUB_F64 : Op.SUB_I32, expr.line); break;
+      case "*": this.chunk.emit(isFloat ? Op.MUL_F64 : Op.MUL_I32, expr.line); break;
+      case "/": this.chunk.emit(isFloat ? Op.DIV_F64 : Op.DIV_I32, expr.line); break;
+      case "%": this.chunk.emit(isFloat ? Op.MOD_F64 : Op.MOD_I32, expr.line); break;
       case "==": this.chunk.emit(Op.EQ, expr.line); break;
       case "!=": this.chunk.emit(Op.NEQ, expr.line); break;
       case "<": this.chunk.emit(Op.LT, expr.line); break;
@@ -674,9 +683,92 @@ export class Compiler {
     }
   }
 
+  // 상수 폴딩: 리터럴 연산을 컴파일 시간에 계산
+  private tryConstantFold(expr: Expr & { kind: "binary" }): Expr | null {
+    const { left, right, op } = expr;
+
+    // i32 + i32
+    if (left.kind === "int_lit" && right.kind === "int_lit") {
+      let val: number;
+      try {
+        switch (op) {
+          case "+": val = left.value + right.value; break;
+          case "-": val = left.value - right.value; break;
+          case "*": val = left.value * right.value; break;
+          case "/":
+            if (right.value === 0) return null;  // 0으로 나누면 폴딩 안 함
+            val = Math.trunc(left.value / right.value); break;
+          case "%":
+            if (right.value === 0) return null;
+            val = left.value % right.value; break;
+          default: return null;
+        }
+        return { kind: "int_lit", value: val, line: expr.line, col: expr.col };
+      } catch {
+        return null;
+      }
+    }
+
+    // f64 + f64
+    if (left.kind === "float_lit" && right.kind === "float_lit") {
+      let val: number;
+      try {
+        switch (op) {
+          case "+": val = left.value + right.value; break;
+          case "-": val = left.value - right.value; break;
+          case "*": val = left.value * right.value; break;
+          case "/": val = left.value / right.value; break;  // f64은 Infinity 허용
+          case "%": val = left.value % right.value; break;
+          default: return null;
+        }
+        return { kind: "float_lit", value: val, line: expr.line, col: expr.col };
+      } catch {
+        return null;
+      }
+    }
+
+    // i32 + f64 또는 f64 + i32: f64로 변환 후 폴딩
+    const leftVal = left.kind === "int_lit" ? left.value : left.kind === "float_lit" ? left.value : null;
+    const rightVal = right.kind === "int_lit" ? right.value : right.kind === "float_lit" ? right.value : null;
+
+    if (leftVal !== null && rightVal !== null && (left.kind !== right.kind)) {
+      let val: number;
+      try {
+        switch (op) {
+          case "+": val = leftVal + rightVal; break;
+          case "-": val = leftVal - rightVal; break;
+          case "*": val = leftVal * rightVal; break;
+          case "/": val = leftVal / rightVal; break;
+          case "%": val = leftVal % rightVal; break;
+          default: return null;
+        }
+        return { kind: "float_lit", value: val, line: expr.line, col: expr.col };
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  // 폴딩된 리터럴 emit
+  private compileLiteral(expr: Expr, line: number): void {
+    if (expr.kind === "int_lit") {
+      this.chunk.emit(Op.PUSH_I32, line);
+      this.chunk.emitI32((expr as any).value, line);
+    } else if (expr.kind === "float_lit") {
+      this.chunk.emit(Op.PUSH_F64, line);
+      this.chunk.emitF64((expr as any).value, line);
+    }
+  }
+
   private compileUnary(expr: Expr & { kind: "unary" }): void {
     this.compileExpr(expr.operand);
-    if (expr.op === "-") this.chunk.emit(Op.NEG_I32, expr.line);
+    if (expr.op === "-") {
+      // 피연산자가 float_lit이면 NEG_F64, 아니면 NEG_I32
+      const isFloat = expr.operand.kind === "float_lit";
+      this.chunk.emit(isFloat ? Op.NEG_F64 : Op.NEG_I32, expr.line);
+    }
     if (expr.op === "!") this.chunk.emit(Op.NOT, expr.line);
   }
 
