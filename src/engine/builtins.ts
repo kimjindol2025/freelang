@@ -2381,6 +2381,49 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     headers: ['math.h'],
     impl: Math.exp,
   },
+
+  // ────────────────────────────────────────
+  // Binary File Operations (Level 7A)
+  // ────────────────────────────────────────
+
+  file_write_binary: {
+    name: 'file_write_binary',
+    params: [
+      { name: 'path', type: 'string' },
+      { name: 'bytes', type: 'array<number>' },
+    ],
+    return_type: 'number',
+    c_name: 'freelang_file_write_binary',
+    headers: ['freelang_file.h'],
+    impl: (path: string, bytes: number[]) => {
+      try {
+        const fs = require('fs');
+        const buf = Buffer.from(bytes.map((b: number) => b & 0xFF));
+        fs.writeFileSync(path, buf);
+        return 1;
+      } catch (e) {
+        return 0;
+      }
+    },
+  },
+
+  pushBytes: {
+    name: 'pushBytes',
+    params: [
+      { name: 'arr', type: 'array<number>' },
+      { name: 'val', type: 'number' },
+    ],
+    return_type: 'number',
+    c_name: 'push_byte',
+    headers: ['stdlib.h'],
+    impl: (arr: number[], val: number) => {
+      if (Array.isArray(arr)) {
+        arr.push(val & 0xFF);
+        return 1;
+      }
+      return 0;
+    },
+  },
 };
 
 // ────────────────────────────────────────
