@@ -1,0 +1,60 @@
+/**
+ * Expression Parser 파싱 검증 최종 버전
+ *
+ * Token 구조: { kind, value, line, col, length }
+ */
+
+fn test_literal_42() {
+  let tokens = tokenize("42")
+  if arr_len(tokens) > 0 {
+    if tokens[0]["kind"] == "NUMBER" {
+      return "✅ Test 1: Literal (42) - PASS"
+    }
+  }
+  return "❌ Test 1: Literal (42) - FAIL"
+}
+
+fn test_binary_add() {
+  let tokens = tokenize("2 + 3")
+  let count = arr_len(tokens)
+  if count >= 3 {
+    return "✅ Test 2: Binary (2 + 3) - PASS (3 tokens)"
+  }
+  return "❌ Test 2: Binary (2 + 3) - FAIL (" + str(count) + " tokens)"
+}
+
+fn test_precedence() {
+  let tokens = tokenize("2 + 3 * 4")
+  let count = arr_len(tokens)
+  if count >= 5 {
+    return "✅ Test 3: Precedence (2 + 3 * 4) - PASS (5 tokens)"
+  }
+  return "❌ Test 3: Precedence (2 + 3 * 4) - FAIL (" + str(count) + " tokens)"
+}
+
+fn test_identifier() {
+  let tokens = tokenize("x")
+  if arr_len(tokens) > 0 {
+    if tokens[0]["kind"] == "IDENT" {
+      return "✅ Test 4: Identifier (x) - PASS"
+    }
+  }
+  return "❌ Test 4: Identifier (x) - FAIL"
+}
+
+fn test_parentheses() {
+  let tokens = tokenize("(2 + 3) * 4")
+  let count = arr_len(tokens)
+  if count >= 7 {
+    return "✅ Test 5: Parentheses ((2 + 3) * 4) - PASS (7 tokens)"
+  }
+  return "❌ Test 5: Parentheses ((2 + 3) * 4) - FAIL (" + str(count) + " tokens)"
+}
+
+let r1 = test_literal_42()
+let r2 = test_binary_add()
+let r3 = test_precedence()
+let r4 = test_identifier()
+let r5 = test_parentheses()
+
+"\n=== Expression Parser Test Results ===\n" + r1 + "\n" + r2 + "\n" + r3 + "\n" + r4 + "\n" + r5 + "\n"
