@@ -12,7 +12,6 @@
  */
 
 import { NativeFunctionRegistry } from './vm/native-function-registry';
-import { RuntimeValue } from './vm/runtime-value';
 
 export function registerCollectionExtendedFunctions(registry: NativeFunctionRegistry): void {
   // ============================================

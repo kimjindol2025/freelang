@@ -19,51 +19,45 @@
  */
 
 // ============================================
-// 1. AST 구조체 정의
+// 1. 데이터 구조 정의 (Map 기반)
 // ============================================
 
 /**
- * 추상 구문 트리 노드
+ * 추상 구문 트리 노드 (ASTNode)
+ *
+ * FreeLang은 map 기반으로 동작하므로 struct 대신 map literal 사용
  *
  * type: 노드 타입 ("BinaryOp", "Call", "Identifier", "Literal" 등)
  * value: 노드 값 (연산자, 함수명, 리터럴 값 등)
  * children: 자식 노드 배열 (포인터 대신 배열 사용)
  * line: 토큰이 시작된 줄번호
  * col: 토큰이 시작된 열번호
+ *
+ * 사용 예시:
+ *   let node = { type: "Literal", value: "42", children: [], line: 1, col: 1 }
  */
-struct ASTNode {
-  type: string,
-  value: string,
-  children: array,
-  line: int,
-  col: int
-}
 
 /**
- * 파서 상태
+ * 파서 상태 (ParserState)
  *
  * tokens: Token 배열 (lexer 출력)
  * pos: 현재 위치
  * errors: ParseError 배열
+ *
+ * 사용 예시:
+ *   let p = { tokens: tokens, pos: 0, errors: [] }
  */
-struct ParserState {
-  tokens: array,
-  pos: int,
-  errors: array
-}
 
 /**
- * 파싱 에러
+ * 파싱 에러 (ParseError)
  *
  * msg: 에러 메시지
  * line: 에러 발생 줄
  * col: 에러 발생 열
+ *
+ * 사용 예시:
+ *   let err = { msg: "Unexpected token", line: 1, col: 5 }
  */
-struct ParseError {
-  msg: string,
-  line: int,
-  col: int
-}
 
 // ============================================
 // 2. 헬퍼 함수

@@ -24,7 +24,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_mkdir',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -40,7 +39,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_rmdir',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -56,7 +54,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_rmdir_recursive',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -72,7 +69,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_ls',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -88,7 +84,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_ls_recursive',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -118,7 +113,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_copy',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const src = String(args[0]);
@@ -135,7 +129,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_move',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const src = String(args[0]);
@@ -152,7 +145,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_symlink',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const target = String(args[0]);
@@ -169,7 +161,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_readlink',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const linkPath = String(args[0]);
@@ -185,7 +176,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_realpath',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -201,7 +191,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_stat',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -227,7 +216,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_lstat',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -248,7 +236,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_chmod',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -265,7 +252,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_chown',
     module: 'fs',
-    arity: 3,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -283,7 +269,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_touch',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -304,7 +289,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_glob',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const pattern = String(args[0]);
@@ -326,7 +310,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_watch',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -344,7 +327,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_unwatch',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         // 감시 해제 구현
@@ -359,7 +341,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_truncate',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -376,7 +357,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_link',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const existingPath = String(args[0]);
@@ -393,7 +373,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_rename',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const oldPath = String(args[0]);
@@ -410,7 +389,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_dir_exists',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const dirPath = String(args[0]);
       try {
@@ -426,7 +404,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_is_file',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const filePath = String(args[0]);
       try {
@@ -442,7 +419,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_is_dir',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const dirPath = String(args[0]);
       try {
@@ -458,7 +434,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_is_symlink',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const filePath = String(args[0]);
       try {
@@ -474,7 +449,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_find',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -509,7 +483,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_find_files',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -543,7 +516,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_find_dirs',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -578,7 +550,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_disk_usage',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       try {
         const dirPath = String(args[0]);
@@ -610,7 +581,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_free_space',
     module: 'fs',
-    arity: 0,
     executor: (args) => {
       try {
         // 실제로는 os 모듈이나 외부 명령어 필요
@@ -625,7 +595,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_temp_dir',
     module: 'fs',
-    arity: 0,
     executor: (args) => {
       return { success: true, path: os.tmpdir() };
     }
@@ -635,7 +604,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_temp_file',
     module: 'fs',
-    arity: 0,
     executor: (args) => {
       try {
         const tempDir = os.tmpdir();
@@ -653,7 +621,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_temp_dir_create',
     module: 'fs',
-    arity: 0,
     executor: (args) => {
       try {
         const tempDir = os.tmpdir();
@@ -671,7 +638,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_cwd',
     module: 'fs',
-    arity: 0,
     executor: (args) => {
       return { success: true, cwd: process.cwd() };
     }
@@ -681,7 +647,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_resolve',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const filePath = String(args[0]);
       return { success: true, resolved: path.resolve(filePath) };
@@ -692,7 +657,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_basename',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const filePath = String(args[0]);
       return { success: true, basename: path.basename(filePath) };
@@ -703,7 +667,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_dirname',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const filePath = String(args[0]);
       return { success: true, dirname: path.dirname(filePath) };
@@ -714,7 +677,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_extname',
     module: 'fs',
-    arity: 1,
     executor: (args) => {
       const filePath = String(args[0]);
       return { success: true, extname: path.extname(filePath) };
@@ -725,7 +687,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_join',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       const part1 = String(args[0]);
       const part2 = String(args[1]);
@@ -737,7 +698,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'fs_relative',
     module: 'fs',
-    arity: 2,
     executor: (args) => {
       const from = String(args[0]);
       const to = String(args[1]);
@@ -751,7 +711,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_readable',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -767,7 +726,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_writable',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -783,7 +741,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_transform',
     module: 'stream',
-    arity: 0,
     executor: (args) => {
       const transformer = new stream.Transform({
         transform(chunk, encoding, callback) {
@@ -798,7 +755,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_passthrough',
     module: 'stream',
-    arity: 0,
     executor: (args) => {
       const passthrough = new stream.PassThrough();
       return { success: true, streamId: Math.random() };
@@ -809,7 +765,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_pipe',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         // 스트림 ID를 기반으로 pipe 처리 필요
@@ -824,7 +779,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_unpipe',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         return { success: true };
@@ -838,7 +792,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_read',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const size = Number(args[0]);
@@ -853,7 +806,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_write',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -868,7 +820,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_end',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true };
@@ -882,7 +833,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_destroy',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true };
@@ -896,7 +846,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_on',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const event = String(args[0]);
@@ -912,7 +861,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_off',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const event = String(args[0]);
@@ -927,7 +875,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_once',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const event = String(args[0]);
@@ -942,7 +889,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_emit',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const event = String(args[0]);
@@ -957,7 +903,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_alloc',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const size = Number(args[0]);
@@ -973,7 +918,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_from',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -989,7 +933,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_concat',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         // 버퍼 ID 배열 처리 필요
@@ -1004,7 +947,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_copy',
     module: 'stream',
-    arity: 3,
     executor: (args) => {
       try {
         // 버퍼 복사 처리
@@ -1019,7 +961,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_slice',
     module: 'stream',
-    arity: 3,
     executor: (args) => {
       try {
         const start = Number(args[0]);
@@ -1035,7 +976,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_to_string',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         // 버퍼 ID를 기반으로 문자열 변환
@@ -1050,7 +990,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_to_base64',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -1066,7 +1005,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_from_base64',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const encoded = String(args[0]);
@@ -1082,7 +1020,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_compare',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         return { success: true, result: 0 };
@@ -1096,7 +1033,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_write_int',
     module: 'stream',
-    arity: 3,
     executor: (args) => {
       try {
         const value = Number(args[0]);
@@ -1112,7 +1048,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_read_int',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const offset = Number(args[0]);
@@ -1127,7 +1062,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_write_float',
     module: 'stream',
-    arity: 3,
     executor: (args) => {
       try {
         const value = Number(args[0]);
@@ -1143,7 +1077,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_read_float',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const offset = Number(args[0]);
@@ -1158,7 +1091,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_read_line',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true, line: '' };
@@ -1172,7 +1104,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'buffer_read_until',
     module: 'stream',
-    arity: 2,
     executor: (args) => {
       try {
         const delimiter = String(args[0]);
@@ -1187,7 +1118,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'stream_readline',
     module: 'stream',
-    arity: 1,
     executor: (args) => {
       try {
         const filePath = String(args[0]);
@@ -1207,7 +1137,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'gzip_compress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -1223,7 +1152,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'gzip_decompress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         // 압축된 데이터 처리
@@ -1238,7 +1166,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'brotli_compress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -1254,7 +1181,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'brotli_decompress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true, decompressed: '' };
@@ -1268,7 +1194,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'deflate_compress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -1284,7 +1209,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'deflate_inflate',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true, decompressed: '' };
@@ -1298,7 +1222,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zip_create',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const zipPath = String(args[0]);
@@ -1313,7 +1236,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zip_add_file',
     module: 'compression',
-    arity: 3,
     executor: (args) => {
       try {
         const zipPath = String(args[0]);
@@ -1330,7 +1252,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zip_extract',
     module: 'compression',
-    arity: 2,
     executor: (args) => {
       try {
         const zipPath = String(args[0]);
@@ -1346,7 +1267,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zip_list',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const zipPath = String(args[0]);
@@ -1361,7 +1281,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zip_read_file',
     module: 'compression',
-    arity: 2,
     executor: (args) => {
       try {
         const zipPath = String(args[0]);
@@ -1377,7 +1296,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'tar_create',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const tarPath = String(args[0]);
@@ -1392,7 +1310,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'tar_extract',
     module: 'compression',
-    arity: 2,
     executor: (args) => {
       try {
         const tarPath = String(args[0]);
@@ -1408,7 +1325,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'tar_list',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const tarPath = String(args[0]);
@@ -1423,7 +1339,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'tar_read_file',
     module: 'compression',
-    arity: 2,
     executor: (args) => {
       try {
         const tarPath = String(args[0]);
@@ -1439,7 +1354,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'tar_add_file',
     module: 'compression',
-    arity: 3,
     executor: (args) => {
       try {
         const tarPath = String(args[0]);
@@ -1456,7 +1370,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'lz4_compress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -1471,7 +1384,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'lz4_decompress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true, decompressed: '' };
@@ -1485,7 +1397,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zstd_compress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         const data = String(args[0]);
@@ -1500,7 +1411,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'zstd_decompress',
     module: 'compression',
-    arity: 1,
     executor: (args) => {
       try {
         return { success: true, decompressed: '' };
@@ -1516,7 +1426,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_spawn',
     module: 'process',
-    arity: 2,
     executor: (args) => {
       try {
         const command = String(args[0]);
@@ -1533,7 +1442,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_exec',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const command = String(args[0]);
@@ -1551,7 +1459,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_exec_sync',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const command = String(args[0]);
@@ -1567,7 +1474,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_kill',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const pid = Number(args[0]);
@@ -1583,7 +1489,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_pid',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       return { success: true, pid: process.pid };
     }
@@ -1593,7 +1498,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_ppid',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       return { success: true, ppid: process.ppid };
     }
@@ -1603,7 +1507,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_argv',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       return { success: true, argv: process.argv };
     }
@@ -1613,7 +1516,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_env_get',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       const key = String(args[0]);
       return { success: true, value: process.env[key] || null };
@@ -1624,7 +1526,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_env_set',
     module: 'process',
-    arity: 2,
     executor: (args) => {
       const key = String(args[0]);
       const value = String(args[1]);
@@ -1637,7 +1538,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_env_all',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       return { success: true, env: process.env };
     }
@@ -1647,7 +1547,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_cwd',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       return { success: true, cwd: process.cwd() };
     }
@@ -1657,7 +1556,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_chdir',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const dir = String(args[0]);
@@ -1673,7 +1571,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_exit',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       const code = Number(args[0]);
       process.exit(code);
@@ -1685,7 +1582,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_on_exit',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         process.on('exit', (code) => {
@@ -1702,7 +1598,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_signal',
     module: 'process',
-    arity: 2,
     executor: (args) => {
       try {
         const signal = String(args[0]);
@@ -1720,7 +1615,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_send',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const message = String(args[0]);
@@ -1738,7 +1632,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_on_message',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         process.on('message', (msg) => {
@@ -1755,7 +1648,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_fork',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const scriptPath = String(args[0]);
@@ -1771,7 +1663,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'child_stdin_write',
     module: 'process',
-    arity: 2,
     executor: (args) => {
       try {
         const childPid = Number(args[0]);
@@ -1787,7 +1678,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'child_stdout_read',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const childPid = Number(args[0]);
@@ -1802,7 +1692,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'child_stderr_read',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const childPid = Number(args[0]);
@@ -1817,7 +1706,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'child_wait',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const childPid = Number(args[0]);
@@ -1832,7 +1720,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'child_is_running',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const childPid = Number(args[0]);
@@ -1847,7 +1734,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'child_kill',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         const childPid = Number(args[0]);
@@ -1863,7 +1749,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_uptime',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       return { success: true, uptime: process.uptime() };
     }
@@ -1873,7 +1758,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_memory',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       const memUsage = process.memoryUsage();
       return {
@@ -1890,7 +1774,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_cpu',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       const usage = process.cpuUsage();
       return {
@@ -1905,7 +1788,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_hrtime',
     module: 'process',
-    arity: 0,
     executor: (args) => {
       const hrtime = process.hrtime();
       return {
@@ -1920,7 +1802,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_nextTick',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         process.nextTick(() => {
@@ -1937,7 +1818,6 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
   registry.register({
     name: 'process_setImmediate',
     module: 'process',
-    arity: 1,
     executor: (args) => {
       try {
         setImmediate(() => {

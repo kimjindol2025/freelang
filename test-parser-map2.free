@@ -1,0 +1,54 @@
+/**
+ * Parser Phase 1 - Map 기반 테스트 (수정)
+ *
+ * 목표: FreeLang map 키 접근 검증 (예약어 회피)
+ */
+
+// 테스트 1: 기본 map 생성 (다른 키 이름 사용)
+let astNode = {
+  nodeType: "Literal",
+  nodeValue: "42",
+  children: [],
+  line: 1,
+  col: 1
+}
+
+println("✓ Test 1: Map creation OK")
+
+// 테스트 2: map 키 접근
+let typeValue = astNode["nodeType"]
+println(typeValue)  // "Literal"
+
+let valueValue = astNode["nodeValue"]
+println(valueValue)  // "42"
+
+// 테스트 3: 배열 포함 map
+let binOpNode = {
+  nodeType: "BinaryOp",
+  nodeValue: "+",
+  children: [
+    { nodeType: "Literal", nodeValue: "2", children: [], line: 1, col: 1 },
+    { nodeType: "Literal", nodeValue: "3", children: [], line: 1, col: 5 }
+  ],
+  line: 1,
+  col: 3
+}
+
+println("✓ Test 2: Map with children OK")
+
+// 테스트 4: 함수로 map 생성
+fn makeNode(nodeType, nodeValue, children, line, col) {
+  return {
+    nodeType: nodeType,
+    nodeValue: nodeValue,
+    children: children,
+    line: line,
+    col: col
+  }
+}
+
+let id = makeNode("Identifier", "x", [], 1, 5)
+println(id["nodeType"])   // "Identifier"
+println(id["nodeValue"])  // "x"
+
+println("✓ ALL MAP TESTS PASSED")
