@@ -1835,5 +1835,208 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
     }
   });
 
+  // ────────────────────────────────────────────────────────────
+  // Phase E: 네트워크 함수 (HTTP, WebSocket)
+  // ────────────────────────────────────────────────────────────
+
+  registry.register({
+    name: 'fetch',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      const options = args[1] || {};
+      return fetch(url, options as any).then(res => ({
+        status: res.status,
+        headers: Object.fromEntries(res.headers),
+        body: res.text()
+      }));
+    }
+  });
+
+  registry.register({
+    name: 'fetch_json',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      return fetch(url).then(res => res.json());
+    }
+  });
+
+  registry.register({
+    name: 'http_get',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      return fetch(url, { method: 'GET' }).then(res => res.text());
+    }
+  });
+
+  registry.register({
+    name: 'http_post',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      const body = String(args[1]);
+      return fetch(url, { method: 'POST', body }).then(res => res.text());
+    }
+  });
+
+  registry.register({
+    name: 'http_put',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      const body = String(args[1]);
+      return fetch(url, { method: 'PUT', body }).then(res => res.text());
+    }
+  });
+
+  registry.register({
+    name: 'http_delete',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      return fetch(url, { method: 'DELETE' }).then(res => res.text());
+    }
+  });
+
+  registry.register({
+    name: 'http_patch',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      const body = String(args[1]);
+      return fetch(url, { method: 'PATCH', body }).then(res => res.text());
+    }
+  });
+
+  registry.register({
+    name: 'http_head',
+    module: 'http',
+    executor: (args) => {
+      const url = String(args[0]);
+      return fetch(url, { method: 'HEAD' }).then(res => ({
+        status: res.status,
+        headers: Object.fromEntries(res.headers)
+      }));
+    }
+  });
+
+  registry.register({
+    name: 'http_timeout',
+    module: 'http',
+    executor: (args) => {
+      const ms = args[0] as number;
+      return new Promise((resolve, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), ms);
+      });
+    }
+  });
+
+  registry.register({
+    name: 'http_retry',
+    module: 'http',
+    executor: (args) => {
+      const fn = args[0] as Function;
+      const attempts = (args[1] as number) || 3;
+      let lastError: any;
+      for (let i = 0; i < attempts; i++) {
+        try {
+          return fn();
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      throw lastError;
+    }
+  });
+
+  registry.register({
+    name: 'http_gzip',
+    module: 'http',
+    executor: (args) => {
+      return { 'Accept-Encoding': 'gzip, deflate' };
+    }
+  });
+
+  registry.register({
+    name: 'http_auth_basic',
+    module: 'http',
+    executor: (args) => {
+      const user = String(args[0]);
+      const pass = String(args[1]);
+      const encoded = Buffer.from(`${user}:${pass}`).toString('base64');
+      return { 'Authorization': `Basic ${encoded}` };
+    }
+  });
+
+  registry.register({
+    name: 'http_auth_bearer',
+    module: 'http',
+    executor: (args) => {
+      const token = String(args[0]);
+      return { 'Authorization': `Bearer ${token}` };
+    }
+  });
+
+  registry.register({
+    name: 'ws_connect',
+    module: 'websocket',
+    executor: (args) => {
+      const url = String(args[0]);
+      return new Promise((resolve, reject) => {
+        try {
+          const ws = new (require('ws'))(url);
+          ws.on('open', () => resolve(ws));
+          ws.on('error', reject);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+  });
+
+  registry.register({
+    name: 'ws_send',
+    module: 'websocket',
+    executor: (args) => {
+      const ws = args[0] as any;
+      const data = String(args[1]);
+      ws.send(data);
+      return null;
+    }
+  });
+
+  registry.register({
+    name: 'ws_on',
+    module: 'websocket',
+    executor: (args) => {
+      const ws = args[0] as any;
+      const event = String(args[1]);
+      const callback = args[2] as Function;
+      ws.on(event, callback);
+      return null;
+    }
+  });
+
+  registry.register({
+    name: 'ws_close',
+    module: 'websocket',
+    executor: (args) => {
+      const ws = args[0] as any;
+      ws.close();
+      return null;
+    }
+  });
+
+  registry.register({
+    name: 'ws_is_open',
+    module: 'websocket',
+    executor: (args) => {
+      const ws = args[0] as any;
+      return ws.readyState === 1; // OPEN state
+    }
+  });
+
   // Silent registration (no console output)
 }

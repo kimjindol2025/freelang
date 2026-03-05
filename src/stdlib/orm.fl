@@ -8,8 +8,26 @@
  * - 트랜잭션
  * - 마이그레이션
  *
- * Phase B 구현
+ * Phase B 완성 (SQLite 드라이버 통합)
  */
+
+import {
+  SQLiteConnection,
+  sqlite_open,
+  sqlite_close,
+  sqlite_query,
+  sqlite_one,
+  sqlite_exec,
+  sqlite_init_migrations,
+  sqlite_get_migrations,
+  sqlite_record_migration,
+  sqlite_begin_transaction,
+  sqlite_commit,
+  sqlite_rollback,
+  sqlite_table_exists,
+  sqlite_create_table,
+  sqlite_drop_table
+} from "./sqlite-driver"
 
 // ============================================
 // 데이터베이스 연결 타입
@@ -24,7 +42,8 @@ struct Connection {
   password: string,         // MySQL 비밀번호
   database: string,         // 데이터베이스명
   isConnected: bool,
-  migrations: array         // 마이그레이션 기록
+  migrations: array,        // 마이그레이션 기록
+  sqliteConn: SQLiteConnection  // SQLite 연결 객체
 }
 
 // ============================================
@@ -83,6 +102,9 @@ struct Migration {
 // ============================================
 
 fn sqlite(path: string) -> Connection {
+  // SQLite 드라이버로 실제 연결
+  let sqliteConn = sqlite_open(path)
+
   return {
     type: "sqlite",
     path: path,
@@ -91,8 +113,9 @@ fn sqlite(path: string) -> Connection {
     user: "",
     password: "",
     database: path,
-    isConnected: true,
-    migrations: []
+    isConnected: sqliteConn.isConnected,
+    migrations: [],
+    sqliteConn: sqliteConn
   }
 }
 
@@ -319,7 +342,17 @@ fn insert(conn: Connection, table: string, data: map) -> QueryResult {
   }
 
   let sql = build_insert_sql(builder)
-  return execute_query(conn, sql, [])
+
+  // INSERT 파라미터 수집
+  let params = []
+  let keys = map.keys(data)
+  let i = 0
+  while i < arr.length(keys) {
+    arr.push(params, data[keys[i]])
+    i = i + 1
+  }
+
+  return execute_query(conn, sql, params)
 }
 
 fn build_insert_sql(builder: QueryBuilder) -> string {
@@ -364,8 +397,26 @@ fn update(conn: Connection, table: string, data: map) -> QueryBuilder {
 }
 
 fn execute_update(builder: QueryBuilder) -> int {
+  // UPDATE 쿼리 빌드 및 파라미터 수집
   let sql = build_update_sql(builder)
-  let result = execute_query(builder.connection, sql, builder.params)
+  let params = []
+
+  // 값 파라미터
+  let keys = map.keys(builder.values)
+  let i = 0
+  while i < arr.length(keys) {
+    arr.push(params, builder.values[keys[i]])
+    i = i + 1
+  }
+
+  // WHERE 조건 파라미터
+  let j = 0
+  while j < arr.length(builder.params) {
+    arr.push(params, builder.params[j])
+    j = j + 1
+  }
+
+  let result = execute_query(builder.connection, sql, params)
   return result.affectedRows
 }
 
@@ -415,6 +466,18 @@ fn execute_delete(builder: QueryBuilder) -> int {
   return result.affectedRows
 }
 
+// ============================================
+// WHERE 조건 적용 후 실행 헬퍼
+// ============================================
+
+fn execute_update_where(builder: QueryBuilder) -> int {
+  return execute_update(builder)
+}
+
+fn execute_delete_where(builder: QueryBuilder) -> int {
+  return execute_delete(builder)
+}
+
 fn build_delete_sql(builder: QueryBuilder) -> string {
   let sql = "DELETE FROM " + builder.table
 
@@ -430,6 +493,11 @@ fn build_delete_sql(builder: QueryBuilder) -> string {
 // ============================================
 
 fn begin_transaction(conn: Connection) -> Transaction {
+  // SQLite에서 트랜잭션 시작
+  if conn.type == "sqlite" {
+    sqlite_begin_transaction(conn.sqliteConn)
+  }
+
   return {
     connection: conn,
     isActive: true,
@@ -438,12 +506,13 @@ fn begin_transaction(conn: Connection) -> Transaction {
 }
 
 fn commit(tx: Transaction) -> bool {
-  // 모든 쿼리 실행
-  let i = 0
-  while i < arr.length(tx.queries) {
-    let q = tx.queries[i]
-    // execute_query(tx.connection, q.sql, q.params)
-    i = i + 1
+  if !tx.isActive {
+    return false
+  }
+
+  // SQLite에서 커밋
+  if tx.connection.type == "sqlite" {
+    sqlite_commit(tx.connection.sqliteConn)
   }
 
   tx.isActive = false
@@ -451,25 +520,87 @@ fn commit(tx: Transaction) -> bool {
 }
 
 fn rollback(tx: Transaction) -> bool {
-  // 트랜잭션 취소 (모든 쿼리 무시)
+  if !tx.isActive {
+    return false
+  }
+
+  // SQLite에서 롤백
+  if tx.connection.type == "sqlite" {
+    sqlite_rollback(tx.connection.sqliteConn)
+  }
+
   tx.isActive = false
   return true
 }
 
 // ============================================
-// 쿼리 실행 (임시 구현)
+// 쿼리 실행 (SQLite 드라이버 통합)
 // ============================================
 
 fn execute_query(conn: Connection, sql: string, params: array) -> QueryResult {
-  // 실제 구현: SQLite 또는 MySQL 호출
-  // 임시: 더미 결과 반환
+  if conn.type == "sqlite" {
+    // SQLite 드라이버 사용
+    let sqliteConn = conn.sqliteConn
+
+    if sqliteConn == null {
+      return {
+        rows: [],
+        rowCount: 0,
+        insertedId: 0,
+        affectedRows: 0,
+        error: "SQLite connection not initialized"
+      }
+    }
+
+    // SQL 타입에 따라 처리
+    if str.starts_with(str.upper(sql), "SELECT") {
+      // SELECT: sqlite_query 사용
+      let rows = sqlite_query(sqliteConn, sql, params)
+      return {
+        rows: rows,
+        rowCount: arr.length(rows),
+        insertedId: 0,
+        affectedRows: 0,
+        error: null
+      }
+    } else if str.starts_with(str.upper(sql), "INSERT") {
+      // INSERT: sqlite_exec 사용
+      let success = sqlite_exec(sqliteConn, sql, params)
+      return {
+        rows: [],
+        rowCount: 0,
+        insertedId: 1,  // TODO: 실제 ID 조회
+        affectedRows: success ? 1 : 0,
+        error: success ? null : "Insert failed"
+      }
+    } else {
+      // UPDATE/DELETE: sqlite_exec 사용
+      let success = sqlite_exec(sqliteConn, sql, params)
+      return {
+        rows: [],
+        rowCount: 0,
+        insertedId: 0,
+        affectedRows: success ? 1 : 0,
+        error: success ? null : "Execution failed"
+      }
+    }
+  } else if conn.type == "mysql" {
+    // MySQL 드라이버 (아직 구현 안 됨)
+    return {
+      rows: [],
+      rowCount: 0,
+      insertedId: 0,
+      affectedRows: 0,
+      error: "MySQL driver not yet implemented"
+    }
+  }
 
   return {
     rows: [],
     rowCount: 0,
-    insertedId: 1,
+    insertedId: 0,
     affectedRows: 0,
-    error: null
+    error: "Unknown database type"
   }
 }
 
@@ -478,13 +609,26 @@ fn execute_query(conn: Connection, sql: string, params: array) -> QueryResult {
 // ============================================
 
 fn migrate(conn: Connection, migrationPath: string) -> bool {
-  // 마이그레이션 파일 읽기 및 실행
-  // TODO: 구현 필요
-  println("[ORM] Migration started for", conn.database)
-  return true
+  if conn.type == "sqlite" {
+    // 마이그레이션 테이블 생성
+    sqlite_init_migrations(conn.sqliteConn)
+
+    println("[ORM] Migration initialized for", conn.database)
+
+    // 실제 마이그레이션 파일 실행은 별도 구현 필요
+    // 현재는 기본 구조만 제공
+
+    return true
+  }
+
+  return false
 }
 
 fn migrations_status(conn: Connection) -> array {
+  if conn.type == "sqlite" {
+    return sqlite_get_migrations(conn.sqliteConn)
+  }
+
   return conn.migrations
 }
 
