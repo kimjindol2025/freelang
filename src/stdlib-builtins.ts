@@ -685,6 +685,125 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   });
 
   // ────────────────────────────────────────────────────────────
+  // Phase 1: 누락된 메서드 함수들 (Self-Hosting Blocker 제거)
+  // ────────────────────────────────────────────────────────────
+
+  // arr.len(arr) - 배열 길이
+  registry.register({
+    name: '__method_len',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const obj = args[0];
+      if (Array.isArray(obj)) return obj.length;
+      if (typeof obj === 'string') return obj.length;
+      if (obj instanceof Map) return obj.size;
+      if (obj instanceof Set) return obj.size;
+      return 0;
+    }
+  });
+
+  // arr.push(arr, item) - 배열에 아이템 추가 (불변)
+  registry.register({
+    name: '__method_push',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const arr = args[0] as any[];
+      const item = args[1];
+      return [...arr, item];
+    }
+  });
+
+  // arr.slice(arr, start, end) - 배열 슬라이싱
+  registry.register({
+    name: '__method_slice',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const arr = args[0] as any[];
+      const start = args[1] as number;
+      const end = args[2] as number;
+      return arr.slice(start, end);
+    }
+  });
+
+  // arr.pop(arr) - 마지막 요소 제거 (불변)
+  registry.register({
+    name: '__method_pop',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const arr = args[0] as any[];
+      return arr.slice(0, -1);
+    }
+  });
+
+  // map.keys(map) - 맵 키들
+  registry.register({
+    name: '__method_keys',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const map = args[0] as Map<any, any>;
+      return Array.from(map.keys());
+    }
+  });
+
+  // map.values(map) - 맵 값들
+  registry.register({
+    name: '__method_values',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const map = args[0] as Map<any, any>;
+      return Array.from(map.values());
+    }
+  });
+
+  // map.get(map, key) - 맵에서 값 조회
+  registry.register({
+    name: '__method_get',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const map = args[0] as Map<any, any>;
+      const key = args[1];
+      return map.get(key);
+    }
+  });
+
+  // map.set(map, key, value) - 맵에 값 설정
+  registry.register({
+    name: '__method_set',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const map = args[0] as Map<any, any>;
+      const key = args[1];
+      const value = args[2];
+      map.set(key, value);
+      return map;
+    }
+  });
+
+  // map.has(map, key) - 맵에 키가 있는지 확인
+  registry.register({
+    name: '__method_has',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const map = args[0] as Map<any, any>;
+      const key = args[1];
+      return map.has(key);
+    }
+  });
+
+  // str.len(str) - 문자열 길이 (alias for __method_len)
+  registry.register({
+    name: '__method_length',
+    module: 'builtin_methods',
+    executor: (args) => {
+      const obj = args[0];
+      if (Array.isArray(obj)) return obj.length;
+      if (typeof obj === 'string') return obj.length;
+      if (obj instanceof Map) return obj.size;
+      return 0;
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────
   // Phase A 추가: 누락된 함수들
   // ────────────────────────────────────────────────────────────
 

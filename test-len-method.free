@@ -1,0 +1,10 @@
+// __method_len 메서드 테스트
+
+fn main() {
+  let arr = [1, 2, 3, 4, 5];
+  let len = __method_len(arr);
+  println("Array length:");
+  println(len);
+}
+
+main();

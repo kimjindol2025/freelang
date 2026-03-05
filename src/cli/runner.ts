@@ -131,6 +131,62 @@ export class ProgramRunner {
   }
 
   /**
+   * Phase 2: Preload imported modules recursively
+   * Extracts import statements and loads them first to register functions
+   */
+  private preloadImports(filePath: string, loadedFiles = new Set<string>()): void {
+    try {
+      // Avoid circular imports
+      const absolutePath = path.resolve(filePath);
+      if (loadedFiles.has(absolutePath)) {
+        return;
+      }
+      loadedFiles.add(absolutePath);
+
+      // Check file exists
+      if (!fs.existsSync(filePath)) {
+        return;
+      }
+
+      // Read file
+      const source = fs.readFileSync(filePath, 'utf-8');
+
+      // Extract import statements: import "path/to/module"
+      const importPattern = /import\s+["']([^"']+)["']/g;
+      let match;
+      const importedFiles: string[] = [];
+
+      while ((match = importPattern.exec(source)) !== null) {
+        const importPath = match[1];
+        // Resolve relative to current file
+        const resolvedPath = path.resolve(path.dirname(filePath), importPath);
+        // Add .fl extension if missing
+        const fullPath = resolvedPath.endsWith('.fl') ? resolvedPath : resolvedPath + '.fl';
+
+        if (fs.existsSync(fullPath)) {
+          importedFiles.push(fullPath);
+        }
+      }
+
+      // Recursively preload imported files first
+      for (const importedFile of importedFiles) {
+        this.preloadImports(importedFile, loadedFiles);
+      }
+
+      // Now run this file to register its functions
+      // But only run it for side effects (function registration), not execution
+      const result = this.runString(source);
+      if (!result.success && result.error) {
+        // Log import loading error but don't fail
+        console.warn(`⚠️ Warning loading import ${filePath}: ${result.error}`);
+      }
+    } catch (error) {
+      // Silent fail on import loading
+      console.warn(`⚠️ Warning preloading ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
    * Run program from file
    */
   runFile(filePath: string): RunResult {
@@ -146,6 +202,9 @@ export class ProgramRunner {
           executionTime: Date.now() - startTime
         };
       }
+
+      // Phase 2: Preload all imported modules first (for function registration)
+      this.preloadImports(filePath);
 
       // 2. Read file
       const source = fs.readFileSync(filePath, 'utf-8');

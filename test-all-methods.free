@@ -1,0 +1,48 @@
+// Phase 1: 모든 새로운 메서드 테스트
+
+fn main() {
+  println("=== Phase 1: New Methods Test ===");
+
+  // Test 1: __method_len
+  println("\n1. __method_len()");
+  let arr = [10, 20, 30];
+  let len = __method_len(arr);
+  println(len);
+
+  // Test 2: __method_push
+  println("\n2. __method_push()");
+  let arr2 = __method_push(arr, 40);
+  println(arr2);
+
+  // Test 3: __method_slice
+  println("\n3. __method_slice()");
+  let slice = __method_slice(arr, 0, 2);
+  println(slice);
+
+  // Test 4: __method_pop
+  println("\n4. __method_pop()");
+  let popped = __method_pop(arr);
+  println(popped);
+
+  // Test 5: __method_keys
+  println("\n5. __method_keys()");
+  let map = map.new();
+  map.set(map, "a", 1);
+  map.set(map, "b", 2);
+  let keys = __method_keys(map);
+  println(keys);
+
+  // Test 6: __method_has
+  println("\n6. __method_has()");
+  let hasA = __method_has(map, "a");
+  println(hasA);
+
+  // Test 7: __method_get
+  println("\n7. __method_get()");
+  let val = __method_get(map, "a");
+  println(val);
+
+  println("\n✅ All Phase 1 methods working!");
+}
+
+main();

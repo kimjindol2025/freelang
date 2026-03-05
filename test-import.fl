@@ -1,0 +1,18 @@
+// Phase 2 검증: import 테스트
+
+import "module-helper"
+
+fn main() {
+  println("Test 1: double(5)");
+  println(double(5));
+
+  println("Test 2: triple(4)");
+  println(triple(4));
+
+  println("Test 3: add(3, 7)");
+  println(add(3, 7));
+
+  println("✅ Phase 2 import test passed!");
+}
+
+main();

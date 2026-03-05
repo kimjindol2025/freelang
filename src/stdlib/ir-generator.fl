@@ -1,0 +1,321 @@
+// ─────────────────────────────────────────────────────────────────
+// Phase 3: FreeLang IR Generator (자체호스팅 코드 생성기)
+// ─────────────────────────────────────────────────────────────────
+//
+// 역할: FreeLang AST → IR(Intermediate Representation) 변환
+// 입력: AST (Parser가 생성한 추상 문법 트리)
+// 출력: IR instructions (VM이 실행할 수 있는 중간 표현)
+//
+// IR 명령어 예:
+//   PUSH 5          → 스택에 5를 푸시
+//   ADD             → 스택의 두 값을 더함
+//   STORE_LOCAL x   → 로컬 변수 x에 저장
+//   LOAD x          → 변수 x를 로드
+//   CALL "fn_name"  → 함수 호출
+//   JUMP_IF_FALSE L → 조건부 점프
+//
+
+// ─────────────────────────────────────────────────────────────────
+// IR Generator 상태 객체
+// ─────────────────────────────────────────────────────────────────
+
+fn createIRGen() {
+  return {
+    instructions: [],      // 생성된 IR 명령어 목록
+    localVars: {},        // 로컬 변수 저장소 (이름 → 인덱스)
+    functions: {},        // 함수 정의 저장소
+    labelCount: 0,        // 레이블 카운터
+    currentScope: 0       // 현재 스코프 깊이
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 기본 IR 명령어 생성 함수
+// ─────────────────────────────────────────────────────────────────
+
+fn emit(gen, op, arg) {
+  gen.instructions.push({
+    op: op,
+    arg: arg
+  });
+  return gen;
+}
+
+fn newLabel(gen) {
+  let label = "L" + gen.labelCount;
+  gen.labelCount = gen.labelCount + 1;
+  return label;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AST 노드별 IR 생성
+// ─────────────────────────────────────────────────────────────────
+
+// 리터럴 (숫자, 문자열, 불린)
+fn generateLiteral(gen, node) {
+  if (node.type == "number") {
+    emit(gen, "PUSH", node.value);
+  } else if (node.type == "string") {
+    emit(gen, "STR_NEW", node.value);
+  } else if (node.type == "boolean") {
+    emit(gen, "PUSH", node.value);
+  }
+  return gen;
+}
+
+// 이진 연산 (a + b, a * b, a - b, ...)
+fn generateBinaryOp(gen, node) {
+  // 좌측 식 컴파일
+  generateExpression(gen, node.left);
+  // 우측 식 컴파일
+  generateExpression(gen, node.right);
+
+  // 연산자에 따른 명령어 발행
+  if (node.op == "+") {
+    emit(gen, "ADD", null);
+  } else if (node.op == "-") {
+    emit(gen, "SUB", null);
+  } else if (node.op == "*") {
+    emit(gen, "MUL", null);
+  } else if (node.op == "/") {
+    emit(gen, "DIV", null);
+  } else if (node.op == "%") {
+    emit(gen, "MOD", null);
+  } else if (node.op == "==") {
+    emit(gen, "EQ", null);
+  } else if (node.op == "!=") {
+    emit(gen, "NE", null);
+  } else if (node.op == "<") {
+    emit(gen, "LT", null);
+  } else if (node.op == ">") {
+    emit(gen, "GT", null);
+  } else if (node.op == "<=") {
+    emit(gen, "LE", null);
+  } else if (node.op == ">=") {
+    emit(gen, "GE", null);
+  } else if (node.op == "&&") {
+    emit(gen, "AND", null);
+  } else if (node.op == "||") {
+    emit(gen, "OR", null);
+  }
+  return gen;
+}
+
+// 함수 호출
+fn generateCall(gen, node) {
+  // 인자들 컴파일
+  let args = node.arguments || [];
+  let i = 0;
+  while (i < args.len(args)) {
+    generateExpression(gen, args[i]);
+    i = i + 1;
+  }
+
+  // CALL 명령어 발행
+  emit(gen, "CALL", node.name);
+  return gen;
+}
+
+// 변수 참조
+fn generateIdentifier(gen, node) {
+  emit(gen, "LOAD", node.name);
+  return gen;
+}
+
+// 식(Expression) 코드 생성
+fn generateExpression(gen, expr) {
+  if (expr.type == "number" || expr.type == "string" || expr.type == "boolean") {
+    generateLiteral(gen, expr);
+  } else if (expr.type == "binary") {
+    generateBinaryOp(gen, expr);
+  } else if (expr.type == "call") {
+    generateCall(gen, expr);
+  } else if (expr.type == "identifier") {
+    generateIdentifier(gen, expr);
+  }
+  return gen;
+}
+
+// 변수 선언 (let x = 5)
+fn generateLetDecl(gen, node) {
+  // 초기값 식 컴파일
+  generateExpression(gen, node.init);
+  // 로컬 변수에 저장
+  emit(gen, "STORE_LOCAL", node.id);
+  return gen;
+}
+
+// IF 문 (간소화 버전 - 동적 레이블 패칭 제거)
+fn generateIfStatement(gen, node) {
+  // 조건 컴파일
+  generateExpression(gen, node.test);
+
+  // false 분기로 점프
+  let falseLabel = newLabel(gen);
+  emit(gen, "JUMP_IF_FALSE", falseLabel);
+
+  // then 블록 컴파일
+  generateStatement(gen, node.consequent);
+
+  // else 블록 컴파일 (있으면)
+  if (node.alternate != null) {
+    generateStatement(gen, node.alternate);
+  }
+
+  return gen;
+}
+
+// WHILE 루프 (간소화 버전)
+fn generateWhileStatement(gen, node) {
+  let loopStart = gen.instructions.len(gen.instructions);
+
+  // 조건 컴파일
+  generateExpression(gen, node.test);
+
+  // 조건 거짓이면 루프 종료로 점프
+  let endLabel = newLabel(gen);
+  emit(gen, "JUMP_IF_FALSE", endLabel);
+
+  // 루프 본체 컴파일
+  generateStatement(gen, node.body);
+
+  // 루프 시작으로 점프
+  emit(gen, "JUMP", loopStart);
+
+  return gen;
+}
+
+// FOR 루프 (간소화 버전)
+fn generateForStatement(gen, node) {
+  // 초기화
+  generateStatement(gen, node.init);
+
+  let loopStart = gen.instructions.len(gen.instructions);
+
+  // 조건 확인
+  generateExpression(gen, node.test);
+  let endLabel = newLabel(gen);
+  emit(gen, "JUMP_IF_FALSE", endLabel);
+
+  // 루프 본체
+  generateStatement(gen, node.body);
+
+  // 업데이트
+  generateStatement(gen, node.update);
+
+  // 루프 시작으로 점프
+  emit(gen, "JUMP", loopStart);
+
+  return gen;
+}
+
+// RETURN 문
+fn generateReturnStatement(gen, node) {
+  if (node.argument != null) {
+    generateExpression(gen, node.argument);
+  }
+  emit(gen, "RETURN", null);
+  return gen;
+}
+
+// 블록 (여러 문장)
+fn generateBlock(gen, block) {
+  let statements = block.body || [];
+  let i = 0;
+  while (i < statements.len(statements)) {
+    generateStatement(gen, statements[i]);
+    i = i + 1;
+  }
+  return gen;
+}
+
+// 문장(Statement) 코드 생성
+fn generateStatement(gen, stmt) {
+  if (stmt.type == "let") {
+    generateLetDecl(gen, stmt);
+  } else if (stmt.type == "if") {
+    generateIfStatement(gen, stmt);
+  } else if (stmt.type == "while") {
+    generateWhileStatement(gen, stmt);
+  } else if (stmt.type == "for") {
+    generateForStatement(gen, stmt);
+  } else if (stmt.type == "return") {
+    generateReturnStatement(gen, stmt);
+  } else if (stmt.type == "block") {
+    generateBlock(gen, stmt);
+  } else if (stmt.type == "expression") {
+    generateExpression(gen, stmt.expression);
+  }
+  return gen;
+}
+
+// 함수 선언 코드 생성
+fn generateFunction(gen, fnNode) {
+  emit(gen, "FUNC_START", fnNode.id);
+
+  // 함수 매개변수를 로컬 변수로 등록
+  let params = fnNode.params || [];
+  let i = 0;
+  while (i < params.len(params)) {
+    gen.localVars[params[i]] = i;
+    i = i + 1;
+  }
+
+  // 함수 본체 컴파일
+  generateBlock(gen, fnNode.body);
+
+  emit(gen, "FUNC_END", fnNode.id);
+
+  return gen;
+}
+
+// 모듈 전체 코드 생성
+fn generateModule(gen, module) {
+  let statements = module.statements || [];
+  let i = 0;
+
+  while (i < statements.len(statements)) {
+    let stmt = statements[i];
+    if (stmt.type == "function") {
+      generateFunction(gen, stmt);
+    } else {
+      generateStatement(gen, stmt);
+    }
+    i = i + 1;
+  }
+
+  return gen;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 공개 인터페이스
+// ─────────────────────────────────────────────────────────────────
+
+fn compileToIR(ast) {
+  let gen = createIRGen();
+  generateModule(gen, ast);
+  return {
+    instructions: gen.instructions,
+    functions: gen.functions
+  };
+}
+
+// 테스트
+fn testIRGen() {
+  println("IR Generator Self-Hosting Test");
+
+  let simpleExpr = {
+    type: "binary",
+    op: "+",
+    left: { type: "number", value: 3 },
+    right: { type: "number", value: 4 }
+  };
+
+  let gen = createIRGen();
+  generateExpression(gen, simpleExpr);
+
+  println("Instructions generated:");
+  println(gen.instructions.len(gen.instructions));
+}
+
+// testIRGen();
