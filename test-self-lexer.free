@@ -1,0 +1,41 @@
+// Test the self-hosting lexer
+
+// Simple test: tokenize a function definition
+fn test_basic() {
+  let code = "fn add(a, b) { return a + b }"
+  let tokens = tokenize(code)
+
+  println("Test 1: Function definition")
+  println(str(length(tokens)))
+  printTokens(tokens)
+  println("")
+}
+
+// Test with variables
+fn test_variables() {
+  let code = "let x = 42"
+  let tokens = tokenize(code)
+
+  println("Test 2: Variable declaration")
+  println(str(length(tokens)))
+  printTokens(tokens)
+  println("")
+}
+
+// Test with strings
+fn test_strings() {
+  let code = "let str = \"hello world\""
+  let tokens = tokenize(code)
+
+  println("Test 3: String literal")
+  println(str(length(tokens)))
+  printTokens(tokens)
+  println("")
+}
+
+// Run all tests
+test_basic()
+test_variables()
+test_strings()
+
+println("✅ All tests completed!")

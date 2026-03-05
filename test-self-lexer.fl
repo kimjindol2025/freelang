@@ -1,0 +1,25 @@
+// Test the self-hosting lexer
+import "src/stdlib/self-lexer.fl"
+
+// Test 1: Simple function
+let code1 = "fn add(a, b) { return a + b }"
+let tokens1 = tokenize(code1)
+println("Test 1: Function definition")
+println(str(length(tokens1)))
+printTokens(tokens1)
+println("")
+
+// Test 2: Variables and keywords
+let code2 = "let x = 42; if (x > 0) { println(x) }"
+let tokens2 = tokenize(code2)
+println("Test 2: Variables and control flow")
+println(str(length(tokens2)))
+printTokens(tokens2)
+println("")
+
+// Test 3: Strings and numbers
+let code3 = "let str = \"hello\"; let num = 3.14"
+let tokens3 = tokenize(code3)
+println("Test 3: Strings and numbers")
+println(str(length(tokens3)))
+printTokens(tokens3)

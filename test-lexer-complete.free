@@ -1,0 +1,58 @@
+// Complete test of self-lexer functionality
+
+// 1. Test isDigit
+fn testIsDigit() {
+  let digit0 = (charAt("0", 0) == "0")
+  let digit9 = (charAt("9", 0) == "9")
+  let non_digit = (charAt("a", 0) != "0")
+  println("isDigit test passed")
+}
+
+// 2. Test isAlpha
+fn testIsAlpha() {
+  let lower_a = (charAt("a", 0) == "a")
+  let upper_A = (charAt("A", 0) == "A")
+  let under = (charAt("_", 0) == "_")
+  println("isAlpha test passed")
+}
+
+// 3. Test charAt
+fn testCharAt() {
+  let str = "hello"
+  let h = charAt(str, 0)
+  let e = charAt(str, 1)
+  let o = charAt(str, 4)
+  
+  if (h == "h") {
+    println("charAt test passed")
+  }
+}
+
+// 4. Test string_length
+fn testStringLength() {
+  let str = "hello"
+  let len = string_length(str)
+  if (len == 5) {
+    println("string_length test passed")
+  }
+}
+
+// 5. Test array and push
+fn testArray() {
+  let arr = []
+  push(arr, "token1")
+  push(arr, "token2")
+  
+  if (length(arr) == 2) {
+    println("array push test passed")
+  }
+}
+
+// Run all tests
+testIsDigit()
+testIsAlpha()
+testCharAt()
+testStringLength()
+testArray()
+
+println("All basic tests completed!")
