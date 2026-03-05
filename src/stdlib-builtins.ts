@@ -9,6 +9,7 @@ import { NativeFunctionRegistry } from './vm/native-function-registry';
 import { SimplePromise } from './runtime/simple-promise';
 import { RegexObject } from './stdlib/regex/regex-impl';
 import { registerMathExtendedFunctions } from './stdlib-math-extended';
+import { registerHttpExtendedFunctions } from './stdlib-http-extended';
 
 /**
  * stdlib 함수들을 NativeFunctionRegistry에 등록
@@ -2779,6 +2780,11 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   // Phase F: 수학/암호/통계 확장 함수 (115개)
   // ────────────────────────────────────────────────────────────
   registerMathExtendedFunctions(registry);
+
+  // ────────────────────────────────────────────────────────────
+  // Phase G: HTTP/Network 확장 함수 (150개)
+  // ────────────────────────────────────────────────────────────
+  registerHttpExtendedFunctions(registry);
 
   // Silent registration (no console output)
 }

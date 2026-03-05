@@ -674,8 +674,8 @@ fn tokenToString(token) {
  */
 fn printTokens(tokens) {
   let i = 0
-  while (i < length(tokens)) {
-    let token = tokens[i]
+  while (i < arr_len(tokens)) {
+    let token = arr_get(tokens, i)
     println(tokenToString(token))
     i = i + 1
   }

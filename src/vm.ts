@@ -486,7 +486,8 @@ export class VM {
           throw new Error('not_object:stack');
         }
         this.guardStack();
-        this.stack.push((obj as any)[key]);
+        const result = (obj as any)[key];
+        this.stack.push(result !== undefined ? result : null);
         this.pc++;
         break;
       }
