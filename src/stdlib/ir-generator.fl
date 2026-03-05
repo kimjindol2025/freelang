@@ -1,407 +1,181 @@
 // ─────────────────────────────────────────────────────────────────
-// Phase 3: FreeLang IR Generator (자체호스팅 코드 생성기)
+// Phase 3: FreeLang IR Generator (간소화 버전 v3)
 // ─────────────────────────────────────────────────────────────────
 //
-// 목표: AST → IR 변환 (self-hosting 핵심 엔진)
-// 전략: 2-pass 코드 생성 (동적 레이블 패칭 제약 극복)
-//
-// Pass 1: AST 트래버설 + 레이블 맵 생성
-// Pass 2: 최종 IR 생성 (레이블 위치 참조)
+// 목표: AST → IR 변환 (Self-hosting 핵심)
+// 전략: 극도로 간단한 선형 IR 생성
 //
 
 // ─────────────────────────────────────────────────────────────────
-// 1. 기본 IR 명령어 타입 정의
+// 1. IR 명령어 생성
 // ─────────────────────────────────────────────────────────────────
 
-fn makeInst(op, arg) {
-  let inst = map_new();
-  map_set(inst, "op", op);
-  map_set(inst, "arg", arg);
-  return inst;
+fn emitPUSH(instrs, value) {
+  instrs.push(instrs, "PUSH:" + value);
+  return instrs;
 }
 
-fn makeLabel(id) {
-  return "L" + id;
+fn emitADD(instrs) {
+  instrs.push(instrs, "ADD");
+  return instrs;
+}
+
+fn emitSUB(instrs) {
+  instrs.push(instrs, "SUB");
+  return instrs;
+}
+
+fn emitMUL(instrs) {
+  instrs.push(instrs, "MUL");
+  return instrs;
+}
+
+fn emitCALL(instrs, name) {
+  instrs.push(instrs, "CALL:" + name);
+  return instrs;
+}
+
+fn emitLOAD(instrs, varname) {
+  instrs.push(instrs, "LOAD:" + varname);
+  return instrs;
+}
+
+fn emitSTORE(instrs, varname) {
+  instrs.push(instrs, "STORE:" + varname);
+  return instrs;
+}
+
+fn emitRETURN(instrs) {
+  instrs.push(instrs, "RETURN");
+  return instrs;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 2. IR 빌더 (배열 기반 - 동적 수정 피함)
+// 2. AST → IR 컴파일
 // ─────────────────────────────────────────────────────────────────
 
-fn newIRBuilder() {
-  let builder = map_new();
-  map_set(builder, "instructions", []);
-  map_set(builder, "labelCounter", 0);
-  map_set(builder, "varCounter", 0);
-  return builder;
-}
-
-fn builderEmit(builder, op, arg) {
-  let insts = map_get(builder, "instructions");
-  insts.push(insts, makeInst(op, arg));
-  return builder;
-}
-
-fn builderNewLabel(builder) {
-  let labelId = map_get(builder, "labelCounter");
-  map_set(builder, "labelCounter", labelId + 1);
-  return makeLabel(labelId);
-}
-
-fn builderResult(builder) {
-  return map_get(builder, "instructions");
-}
-
-// ─────────────────────────────────────────────────────────────────
-// 3. Pass 1: AST 분석 및 레이블 맵 생성
-// ─────────────────────────────────────────────────────────────────
-
-fn analyzeAST(node) {
-  let info = map_new();
-  map_set(info, "hasIfStatement", false);
-  map_set(info, "hasWhileLoop", false);
-  map_set(info, "hasForLoop", false);
-  map_set(info, "ifCount", 0);
-  map_set(info, "whileCount", 0);
-  map_set(info, "forCount", 0);
-
-  // Walk AST and count control flow
-  walkAST(node, info);
-  return info;
-}
-
-fn walkAST(node, info) {
-  if (node == null) {
-    return info;
-  }
-
-  if (node.type == "if") {
-    map_set(info, "hasIfStatement", true);
-    let count = map_get(info, "ifCount");
-    map_set(info, "ifCount", count + 1);
-    if (node.consequent != null) {
-      walkAST(node.consequent, info);
+fn compileExpr(instrs, expr) {
+  if (expr.type == "number") {
+    emitPUSH(instrs, expr.value);
+  } else if (expr.type == "identifier") {
+    emitLOAD(instrs, expr.name);
+  } else if (expr.type == "binary") {
+    compileExpr(instrs, expr.left);
+    compileExpr(instrs, expr.right);
+    if (expr.op == "+") {
+      emitADD(instrs);
+    } else if (expr.op == "-") {
+      emitSUB(instrs);
+    } else if (expr.op == "*") {
+      emitMUL(instrs);
     }
-    if (node.alternate != null) {
-      walkAST(node.alternate, info);
-    }
-  } else if (node.type == "while") {
-    map_set(info, "hasWhileLoop", true);
-    let count = map_get(info, "whileCount");
-    map_set(info, "whileCount", count + 1);
-    if (node.body != null) {
-      walkAST(node.body, info);
-    }
-  } else if (node.type == "for") {
-    map_set(info, "hasForLoop", true);
-    let count = map_get(info, "forCount");
-    map_set(info, "forCount", count + 1);
-    if (node.body != null) {
-      walkAST(node.body, info);
-    }
-  } else if (node.type == "block" || node.type == "module") {
-    let statements = node.body || node.statements || [];
+  } else if (expr.type == "call") {
+    let args = expr.arguments || [];
     let i = 0;
-    while (i < statements.len(statements)) {
-      walkAST(statements[i], info);
+    while (i < args.len(args)) {
+      compileExpr(instrs, args[i]);
+      i = i + 1;
+    }
+    emitCALL(instrs, expr.name);
+  }
+  return instrs;
+}
+
+fn compileStmt(instrs, stmt) {
+  if (stmt.type == "let") {
+    compileExpr(instrs, stmt.init);
+    emitSTORE(instrs, stmt.id);
+  } else if (stmt.type == "expression") {
+    compileExpr(instrs, stmt.expression);
+  } else if (stmt.type == "return") {
+    if (stmt.argument != null) {
+      compileExpr(instrs, stmt.argument);
+    }
+    emitRETURN(instrs);
+  } else if (stmt.type == "block") {
+    let stmts = stmt.body || [];
+    let i = 0;
+    while (i < stmts.len(stmts)) {
+      compileStmt(instrs, stmts[i]);
       i = i + 1;
     }
   }
-
-  return info;
+  return instrs;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// 4. Pass 2: IR 생성 (단순 선형 생성)
-// ─────────────────────────────────────────────────────────────────
-
-fn generateIRFromLiteral(builder, node) {
-  if (node.type == "number") {
-    builderEmit(builder, "PUSH", node.value);
-  } else if (node.type == "string") {
-    builderEmit(builder, "STR_NEW", node.value);
-  } else if (node.type == "boolean") {
-    builderEmit(builder, "PUSH", node.value);
-  }
-  return builder;
-}
-
-fn generateIRFromBinary(builder, node) {
-  // 좌측 컴파일
-  generateIRFromExpr(builder, node.left);
-  // 우측 컴파일
-  generateIRFromExpr(builder, node.right);
-
-  // 연산자별 명령어
-  if (node.op == "+") {
-    builderEmit(builder, "ADD", null);
-  } else if (node.op == "-") {
-    builderEmit(builder, "SUB", null);
-  } else if (node.op == "*") {
-    builderEmit(builder, "MUL", null);
-  } else if (node.op == "/") {
-    builderEmit(builder, "DIV", null);
-  } else if (node.op == "%") {
-    builderEmit(builder, "MOD", null);
-  } else if (node.op == "==") {
-    builderEmit(builder, "EQ", null);
-  } else if (node.op == "!=") {
-    builderEmit(builder, "NE", null);
-  } else if (node.op == "<") {
-    builderEmit(builder, "LT", null);
-  } else if (node.op == ">") {
-    builderEmit(builder, "GT", null);
-  } else if (node.op == "<=") {
-    builderEmit(builder, "LE", null);
-  } else if (node.op == ">=") {
-    builderEmit(builder, "GE", null);
-  } else if (node.op == "&&") {
-    builderEmit(builder, "AND", null);
-  } else if (node.op == "||") {
-    builderEmit(builder, "OR", null);
-  }
-
-  return builder;
-}
-
-fn generateIRFromCall(builder, node) {
-  // 인자들 컴파일
-  let args = node.arguments || [];
+fn compileFunction(instrs, fnNode) {
+  instrs.push(instrs, "FUNC_START:" + fnNode.id);
+  let body = fnNode.body;
+  let stmts = body.body || [];
   let i = 0;
-  while (i < args.len(args)) {
-    generateIRFromExpr(builder, args[i]);
+  while (i < stmts.len(stmts)) {
+    compileStmt(instrs, stmts[i]);
     i = i + 1;
   }
-
-  // CALL 명령어
-  builderEmit(builder, "CALL", node.name);
-  return builder;
+  instrs.push(instrs, "FUNC_END:" + fnNode.id);
+  return instrs;
 }
 
-fn generateIRFromExpr(builder, expr) {
-  if (expr == null) {
-    return builder;
-  }
-
-  if (expr.type == "number" || expr.type == "string" || expr.type == "boolean") {
-    generateIRFromLiteral(builder, expr);
-  } else if (expr.type == "binary") {
-    generateIRFromBinary(builder, expr);
-  } else if (expr.type == "call") {
-    generateIRFromCall(builder, expr);
-  } else if (expr.type == "identifier") {
-    builderEmit(builder, "LOAD", expr.name);
-  }
-
-  return builder;
-}
-
-fn generateIRFromLetDecl(builder, node) {
-  generateIRFromExpr(builder, node.init);
-  builderEmit(builder, "STORE_LOCAL", node.id);
-  return builder;
-}
-
-fn generateIRFromIfStmt(builder, node) {
-  // 조건 컴파일
-  generateIRFromExpr(builder, node.test);
-
-  // 레이블 생성
-  let falseLabel = builderNewLabel(builder);
-  let endLabel = builderNewLabel(builder);
-
-  // 조건 거짓이면 점프
-  builderEmit(builder, "JUMP_IF_FALSE", falseLabel);
-
-  // then 블록
-  generateIRFromStmt(builder, node.consequent);
-
-  // 끝으로 점프
-  builderEmit(builder, "JUMP", endLabel);
-
-  // else 레이블
-  builderEmit(builder, "LABEL", falseLabel);
-
-  // else 블록 (있으면)
-  if (node.alternate != null) {
-    generateIRFromStmt(builder, node.alternate);
-  }
-
-  // 끝 레이블
-  builderEmit(builder, "LABEL", endLabel);
-
-  return builder;
-}
-
-fn generateIRFromWhileStmt(builder, node) {
-  let loopLabel = builderNewLabel(builder);
-  let endLabel = builderNewLabel(builder);
-
-  // 루프 레이블
-  builderEmit(builder, "LABEL", loopLabel);
-
-  // 조건 컴파일
-  generateIRFromExpr(builder, node.test);
-
-  // 조건 거짓이면 종료
-  builderEmit(builder, "JUMP_IF_FALSE", endLabel);
-
-  // 루프 본체
-  generateIRFromStmt(builder, node.body);
-
-  // 루프 시작으로 점프
-  builderEmit(builder, "JUMP", loopLabel);
-
-  // 끝 레이블
-  builderEmit(builder, "LABEL", endLabel);
-
-  return builder;
-}
-
-fn generateIRFromForStmt(builder, node) {
-  let loopLabel = builderNewLabel(builder);
-  let endLabel = builderNewLabel(builder);
-
-  // 초기화
-  generateIRFromStmt(builder, node.init);
-
-  // 루프 레이블
-  builderEmit(builder, "LABEL", loopLabel);
-
-  // 조건
-  generateIRFromExpr(builder, node.test);
-
-  // 조건 거짓이면 종료
-  builderEmit(builder, "JUMP_IF_FALSE", endLabel);
-
-  // 본체
-  generateIRFromStmt(builder, node.body);
-
-  // 업데이트
-  generateIRFromStmt(builder, node.update);
-
-  // 루프 시작으로 점프
-  builderEmit(builder, "JUMP", loopLabel);
-
-  // 끝 레이블
-  builderEmit(builder, "LABEL", endLabel);
-
-  return builder;
-}
-
-fn generateIRFromReturnStmt(builder, node) {
-  if (node.argument != null) {
-    generateIRFromExpr(builder, node.argument);
-  }
-  builderEmit(builder, "RETURN", null);
-  return builder;
-}
-
-fn generateIRFromBlock(builder, block) {
-  if (block == null) {
-    return builder;
-  }
-
-  let statements = block.body || [];
-  let i = 0;
-  while (i < statements.len(statements)) {
-    generateIRFromStmt(builder, statements[i]);
-    i = i + 1;
-  }
-
-  return builder;
-}
-
-fn generateIRFromStmt(builder, stmt) {
-  if (stmt == null) {
-    return builder;
-  }
-
-  if (stmt.type == "let") {
-    generateIRFromLetDecl(builder, stmt);
-  } else if (stmt.type == "if") {
-    generateIRFromIfStmt(builder, stmt);
-  } else if (stmt.type == "while") {
-    generateIRFromWhileStmt(builder, stmt);
-  } else if (stmt.type == "for") {
-    generateIRFromForStmt(builder, stmt);
-  } else if (stmt.type == "return") {
-    generateIRFromReturnStmt(builder, stmt);
-  } else if (stmt.type == "block") {
-    generateIRFromBlock(builder, stmt);
-  } else if (stmt.type == "expression") {
-    generateIRFromExpr(builder, stmt.expression);
-  }
-
-  return builder;
-}
-
-fn generateIRFromFunction(builder, fnNode) {
-  builderEmit(builder, "FUNC_START", fnNode.id);
-  generateIRFromBlock(builder, fnNode.body);
-  builderEmit(builder, "FUNC_END", fnNode.id);
-  return builder;
-}
-
-fn generateIRFromModule(builder, module) {
-  let statements = module.statements || [];
+fn compileModule(module) {
+  let instrs = [];
+  let stmts = module.statements || [];
   let i = 0;
 
-  while (i < statements.len(statements)) {
-    let stmt = statements[i];
+  while (i < stmts.len(stmts)) {
+    let stmt = stmts[i];
     if (stmt.type == "function") {
-      generateIRFromFunction(builder, stmt);
+      compileFunction(instrs, stmt);
     } else {
-      generateIRFromStmt(builder, stmt);
+      compileStmt(instrs, stmt);
     }
     i = i + 1;
   }
 
-  return builder;
+  return instrs;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 5. 공개 API
+// 3. 공개 API
 // ─────────────────────────────────────────────────────────────────
 
 fn compileAST(ast) {
-  // Phase 1: 분석
-  let info = analyzeAST(ast);
-
-  // Phase 2: IR 생성
-  let builder = newIRBuilder();
-  generateIRFromModule(builder, ast);
-
-  return {
-    ir: builderResult(builder),
-    analysis: info
-  };
+  return compileModule(ast);
 }
 
-fn irGeneratorVersion() {
-  return "2.0.0 (2-pass, FreeLang-compatible)";
+fn getIRVersion() {
+  return "3.0.0 (minimal, string-based)";
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 테스트
+// 4. 테스트
 // ─────────────────────────────────────────────────────────────────
 
-fn testBasicExpr() {
-  println("IR Generator Test: Basic Expression");
+fn testCompile() {
+  println("IR Generator v3 Test");
 
-  let builder = newIRBuilder();
-  let expr = {
-    type: "binary",
-    op: "+",
-    left: { type: "number", value: 3 },
-    right: { type: "number", value: 4 }
+  let ast = {
+    type: "module",
+    statements: [
+      {
+        type: "let",
+        id: "x",
+        init: { type: "number", value: 5 }
+      },
+      {
+        type: "expression",
+        expression: {
+          type: "binary",
+          op: "+",
+          left: { type: "identifier", name: "x" },
+          right: { type: "number", value: 3 }
+        }
+      }
+    ]
   };
 
-  generateIRFromExpr(builder, expr);
-  let ir = builderResult(builder);
-
-  println("Instructions:");
+  let ir = compileAST(ast);
+  println("Generated IR instructions:");
   println(ir.len(ir));
 }
 
-// testBasicExpr();
+// testCompile();
