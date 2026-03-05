@@ -294,6 +294,101 @@ export class SQLiteDatabase {
   async disableForeignKeys(): Promise<void> {
     await this.execute('PRAGMA foreign_keys = OFF');
   }
+
+  /**
+   * Get database size in bytes
+   * @returns Promise with database size
+   */
+  async getDatabaseSize(): Promise<number> {
+    // In production, would get actual file size
+    return 0;
+  }
+
+  /**
+   * Get row count for table
+   * @param table Table name
+   * @returns Promise with row count
+   */
+  async getRowCount(table: string): Promise<number> {
+    const result = await this.query(`SELECT COUNT(*) as count FROM ${table}`);
+    return result.length > 0 ? (result[0].count as number) : 0;
+  }
+
+  /**
+   * Create index
+   * @param indexName Index name
+   * @param table Table name
+   * @param columns Column names (comma-separated or array)
+   * @param unique Whether index is unique
+   * @returns Promise that resolves when created
+   */
+  async createIndex(indexName: string, table: string, columns: string | string[], unique: boolean = false): Promise<void> {
+    const columnList = Array.isArray(columns) ? columns.join(', ') : columns;
+    const uniqueStr = unique ? 'UNIQUE' : '';
+    const sql = `CREATE ${uniqueStr} INDEX IF NOT EXISTS ${indexName} ON ${table} (${columnList})`;
+    await this.execute(sql);
+  }
+
+  /**
+   * Get all indexes for table
+   * @param table Table name
+   * @returns Promise with index list
+   */
+  async getIndexes(table: string): Promise<any[]> {
+    const sql = `PRAGMA index_list(${table})`;
+    return this.query(sql);
+  }
+
+  /**
+   * Export data to array of objects
+   * @param sql SQL query
+   * @param params Query parameters
+   * @returns Promise with data
+   */
+  async export(sql: string, params?: any[]): Promise<SQLiteRow[]> {
+    return this.query(sql, params);
+  }
+
+  /**
+   * Import data from array of objects
+   * @param table Table name
+   * @param data Array of objects to insert
+   * @returns Promise with number of rows inserted
+   */
+  async import(table: string, data: SQLiteRow[]): Promise<number> {
+    let count = 0;
+    for (const row of data) {
+      const keys = Object.keys(row);
+      const values = Object.values(row);
+      const placeholders = keys.map(() => '?').join(', ');
+      const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
+      await this.execute(sql, values);
+      count++;
+    }
+    return count;
+  }
+
+  /**
+   * Backup database to file
+   * @param backupPath Path to backup file
+   * @returns Promise that resolves when backed up
+   */
+  async backup(backupPath: string): Promise<void> {
+    // In production, would use VACUUM INTO or copy file
+    // This is a stub
+  }
+
+  /**
+   * Get database info
+   * @returns Promise with database info
+   */
+  async getDatabaseInfo(): Promise<{ [key: string]: any }> {
+    return {
+      path: this.dbPath,
+      isOpen: this.isOpen,
+      inTransaction: this.inTransaction
+    };
+  }
 }
 
 /**

@@ -515,8 +515,8 @@ async function main(): Promise<void> {
         break;
 
       default:
-        // .free 파일 직접 실행 지원 (Phase 3)
-        if (!arg.startsWith('-') && arg.endsWith('.free')) {
+        // .free 파일 또는 .fl 파일 직접 실행 지원 (Phase 3)
+        if (!arg.startsWith('-') && (arg.endsWith('.free') || arg.endsWith('.fl'))) {
           try {
             const runner = new ProgramRunner();
             const result = runner.runFile(arg);

@@ -218,6 +218,30 @@ export interface MatchExpression {
   arms: MatchArm[];
 }
 
+// Phase 16: Struct Declaration
+export interface StructDeclaration {
+  type: 'struct';
+  name: string;
+  fields: Array<{ name: string; fieldType?: string }>;
+}
+
+// Phase 16: Enum Declaration
+export interface EnumDeclaration {
+  type: 'enum';
+  name: string;
+  fields: { [key: string]: number };
+}
+
+// Phase 16: Break Statement
+export interface BreakStatement {
+  type: 'break';
+}
+
+// Phase 16: Continue Statement
+export interface ContinueStatement {
+  type: 'continue';
+}
+
 // 문장 (Statement)
 export type Statement =
   | ExpressionStatement
@@ -231,7 +255,11 @@ export type Statement =
   | ImportStatement  // Phase 4: Module System
   | ExportStatement  // Phase 4: Module System
   | TryStatement    // Phase I: Exception Handling
-  | ThrowStatement; // Phase I: Exception Handling
+  | ThrowStatement  // Phase I: Exception Handling
+  | StructDeclaration  // Phase 16: Struct support
+  | EnumDeclaration    // Phase 16: Enum support
+  | BreakStatement     // Phase 16: Break support
+  | ContinueStatement; // Phase 16: Continue support
 
 export interface ExpressionStatement {
   type: 'expression';

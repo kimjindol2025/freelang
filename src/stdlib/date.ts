@@ -273,6 +273,268 @@ export function isInRange(date: Date, range: DateRange): boolean {
 }
 
 /**
+ * Get difference in milliseconds between two dates
+ * @param date1 First date
+ * @param date2 Second date
+ * @returns Millisecond difference
+ */
+export function millisBetween(date1: Date, date2: Date): number {
+  return date2.getTime() - date1.getTime();
+}
+
+/**
+ * Get difference in seconds between two dates
+ * @param date1 First date
+ * @param date2 Second date
+ * @returns Second difference
+ */
+export function secondsBetween(date1: Date, date2: Date): number {
+  return Math.floor(millisBetween(date1, date2) / 1000);
+}
+
+/**
+ * Get difference in minutes between two dates
+ * @param date1 First date
+ * @param date2 Second date
+ * @returns Minute difference
+ */
+export function minutesBetween(date1: Date, date2: Date): number {
+  return Math.floor(millisBetween(date1, date2) / (1000 * 60));
+}
+
+/**
+ * Get difference in hours between two dates
+ * @param date1 First date
+ * @param date2 Second date
+ * @returns Hour difference
+ */
+export function hoursBetween(date1: Date, date2: Date): number {
+  return Math.floor(millisBetween(date1, date2) / (1000 * 60 * 60));
+}
+
+/**
+ * Get difference in months between two dates
+ * @param date1 First date
+ * @param date2 Second date
+ * @returns Month difference
+ */
+export function monthsBetween(date1: Date, date2: Date): number {
+  const months = (date2.getFullYear() - date1.getFullYear()) * 12;
+  return months + (date2.getMonth() - date1.getMonth());
+}
+
+/**
+ * Get difference in years between two dates
+ * @param date1 First date
+ * @param date2 Second date
+ * @returns Year difference
+ */
+export function yearsBetween(date1: Date, date2: Date): number {
+  return date2.getFullYear() - date1.getFullYear();
+}
+
+/**
+ * Format date using pattern (like strftime)
+ * @param date Date object
+ * @param pattern Format pattern with % codes
+ * @returns Formatted string
+ *
+ * Pattern codes:
+ * %Y - 4-digit year
+ * %m - 2-digit month (01-12)
+ * %d - 2-digit day (01-31)
+ * %H - 2-digit hour (00-23)
+ * %M - 2-digit minute (00-59)
+ * %S - 2-digit second (00-59)
+ * %A - Full weekday name
+ * %a - Abbreviated weekday name
+ * %B - Full month name
+ * %b - Abbreviated month name
+ */
+export function formatAdvanced(date: Date, pattern: string): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayNamesShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const monthNamesShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  return pattern
+    .replace('%Y', String(year))
+    .replace('%m', month)
+    .replace('%d', day)
+    .replace('%H', hours)
+    .replace('%M', minutes)
+    .replace('%S', seconds)
+    .replace('%A', dayNames[date.getDay()])
+    .replace('%a', dayNamesShort[date.getDay()])
+    .replace('%B', monthNames[date.getMonth()])
+    .replace('%b', monthNamesShort[date.getMonth()]);
+}
+
+/**
+ * Parse date with custom format
+ * @param dateStr Date string
+ * @param pattern Format pattern
+ * @returns Date object or null if parsing fails
+ */
+export function parseWithFormat(dateStr: string, pattern: string): Date | null {
+  // Simple pattern parser for common formats
+  let year = 0, month = 1, day = 1, hours = 0, minutes = 0, seconds = 0;
+
+  const regexParts: [string, (v: number) => void][] = [
+    ['%Y', (v) => year = v],
+    ['%m', (v) => month = v],
+    ['%d', (v) => day = v],
+    ['%H', (v) => hours = v],
+    ['%M', (v) => minutes = v],
+    ['%S', (v) => seconds = v]
+  ];
+
+  let regexPattern = pattern;
+  const groups: { [key: string]: (v: number) => void } = {};
+  let groupIndex = 1;
+
+  for (const [code, setter] of regexParts) {
+    if (pattern.includes(code)) {
+      regexPattern = regexPattern.replace(code, '(\\d{1,4})');
+      groups[groupIndex++] = setter;
+    }
+  }
+
+  try {
+    const regex = new RegExp('^' + regexPattern + '$');
+    const match = regex.exec(dateStr);
+    if (!match) return null;
+
+    groupIndex = 1;
+    for (const [code, setter] of regexParts) {
+      if (pattern.includes(code)) {
+        setter(parseInt(match[groupIndex++], 10));
+      }
+    }
+
+    return new Date(year, month - 1, day, hours, minutes, seconds);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if date is in past
+ * @param date Date to check
+ * @returns true if date is in past
+ */
+export function isPast(date: Date): boolean {
+  return date < new Date();
+}
+
+/**
+ * Check if date is in future
+ * @param date Date to check
+ * @returns true if date is in future
+ */
+export function isFuture(date: Date): boolean {
+  return date > new Date();
+}
+
+/**
+ * Get age in years from birth date
+ * @param birthDate Birth date
+ * @returns Age in years
+ */
+export function getAge(birthDate: Date): number {
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+
+  return age;
+}
+
+/**
+ * Get number of days elapsed since date
+ * @param date Date to check
+ * @returns Days elapsed (negative if future)
+ */
+export function daysElapsed(date: Date): number {
+  return daysBetween(date, new Date());
+}
+
+/**
+ * Get start of month
+ * @param date Date object
+ * @returns Date at start of month (00:00:00)
+ */
+export function startOfMonth(date: Date): Date {
+  const result = new Date(date);
+  result.setDate(1);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+/**
+ * Get end of month
+ * @param date Date object
+ * @returns Date at end of month (23:59:59)
+ */
+export function endOfMonth(date: Date): Date {
+  const result = new Date(date);
+  result.setMonth(result.getMonth() + 1);
+  result.setDate(0);
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
+/**
+ * Get start of year
+ * @param date Date object
+ * @returns Date at start of year
+ */
+export function startOfYear(date: Date): Date {
+  const result = new Date(date);
+  result.setMonth(0);
+  result.setDate(1);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+/**
+ * Get end of year
+ * @param date Date object
+ * @returns Date at end of year
+ */
+export function endOfYear(date: Date): Date {
+  const result = new Date(date);
+  result.setMonth(11);
+  result.setDate(31);
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
+/**
+ * Get week number of year
+ * @param date Date object
+ * @returns Week number (1-53)
+ */
+export function weekOfYear(date: Date): number {
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const jan1 = new Date(date.getFullYear(), 0, 1);
+  const diff = (target.getTime() - jan1.getTime()) / (24 * 60 * 60 * 1000);
+  return Math.ceil((diff + jan1.getDay() + 1) / 7);
+}
+
+/**
  * Export all date functions as default object
  */
 export const date = {
@@ -281,11 +543,19 @@ export const date = {
   timestamp,
   parse,
   format,
+  formatAdvanced,
+  parseWithFormat,
   components,
   addDays,
   addMonths,
   addYears,
   daysBetween,
+  millisBetween,
+  secondsBetween,
+  minutesBetween,
+  hoursBetween,
+  monthsBetween,
+  yearsBetween,
   isToday,
   isLeapYear,
   daysInMonth,
@@ -295,6 +565,15 @@ export const date = {
   isSameDay,
   startOfDay,
   endOfDay,
+  startOfMonth,
+  endOfMonth,
+  startOfYear,
+  endOfYear,
   range,
-  isInRange
+  isInRange,
+  isPast,
+  isFuture,
+  getAge,
+  daysElapsed,
+  weekOfYear
 };

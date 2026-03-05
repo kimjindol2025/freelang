@@ -66,6 +66,7 @@ export * as http2 from './http2';
 
 // Re-export Round 5 modules (Phase 7 - Database)
 export * as db from './db.sqlite';
+export * as fsAdv from './fs-advanced';
 
 // Re-export Robot AI modules (Phase 8 - Embedded Systems & Robotics)
 export * as serial from './serial';
@@ -141,6 +142,7 @@ import * as udpModule from './udp';
 import * as tlsModule from './tls';
 import * as http2Module from './http2';
 import * as dbModule from './db.sqlite';
+import * as fsAdvModule from './fs-advanced';
 import * as serialModule from './serial';
 import * as robotaiModule from './robotai';
 
@@ -196,6 +198,7 @@ const std = {
   http2: http2Module,
   // Phase 7 modules (Round 5 - Database)
   db: dbModule,
+  fsAdv: fsAdvModule,
   // Phase 8 modules (Round 6 - Embedded Systems & Robotics)
   serial: serialModule,
   robotai: robotaiModule

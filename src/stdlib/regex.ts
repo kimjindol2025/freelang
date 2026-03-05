@@ -222,6 +222,170 @@ export function extractUrls(text: string): string[] {
 }
 
 /**
+ * Named capture groups result
+ */
+export interface NamedCaptureResult {
+  [groupName: string]: string | undefined;
+}
+
+/**
+ * Extended match result with all details
+ */
+export interface ExtendedMatchResult {
+  text: string;
+  index: number;
+  length: number;
+  groups?: string[];
+  named?: NamedCaptureResult;
+  input: string;
+}
+
+/**
+ * Execute regex on string with detailed results
+ * @param regex Compiled regex or pattern string
+ * @param str Input string
+ * @returns Extended match result or null
+ */
+export function exec(regex: string | CompiledRegex, str: string): ExtendedMatchResult | null {
+  try {
+    const regexObj = typeof regex === 'string' ? new RegExp(regex) : regex.regex;
+    const result = regexObj.exec(str);
+
+    if (!result) return null;
+
+    return {
+      text: result[0],
+      index: result.index,
+      length: result[0].length,
+      groups: result.slice(1),
+      input: str
+    };
+  } catch (error) {
+    throw new Error(`Invalid regex or input: ${error}`);
+  }
+}
+
+/**
+ * Find first match with full details
+ * @param str Input string
+ * @param pattern Regex pattern
+ * @returns Extended match result or null
+ */
+export function findFirst(str: string, pattern: string): ExtendedMatchResult | null {
+  return exec(pattern, str);
+}
+
+/**
+ * Find all matches with full details
+ * @param str Input string
+ * @param pattern Regex pattern
+ * @returns Array of extended match results
+ */
+export function findAll(str: string, pattern: string): ExtendedMatchResult[] {
+  try {
+    const finalFlags = pattern.includes('g') ? pattern : pattern + 'g';
+    const regex = new RegExp(pattern, finalFlags);
+    const results: ExtendedMatchResult[] = [];
+    let match;
+
+    while ((match = regex.exec(str)) !== null) {
+      results.push({
+        text: match[0],
+        index: match.index,
+        length: match[0].length,
+        groups: match.slice(1),
+        input: str
+      });
+    }
+
+    return results;
+  } catch (error) {
+    throw new Error(`Invalid regex pattern: ${error}`);
+  }
+}
+
+/**
+ * Named capture groups support
+ * Note: Uses numbered groups as fallback for named group mapping
+ * @param str Input string
+ * @param pattern Regex pattern with named groups (?<name>...)
+ * @param groupNames Array of group names in order
+ * @returns Result with named groups
+ */
+export function captureNamed(
+  str: string,
+  pattern: string,
+  groupNames: string[]
+): NamedCaptureResult | null {
+  try {
+    const regex = new RegExp(pattern);
+    const result = regex.exec(str);
+
+    if (!result) return null;
+
+    const named: NamedCaptureResult = {};
+
+    // Modern JS engines support named groups directly
+    if (result.groups) {
+      return result.groups;
+    }
+
+    // Fallback: map groupNames to captured groups
+    for (let i = 0; i < groupNames.length; i++) {
+      named[groupNames[i]] = result[i + 1];
+    }
+
+    return named;
+  } catch (error) {
+    throw new Error(`Named capture failed: ${error}`);
+  }
+}
+
+/**
+ * Test multiple patterns against string
+ * @param str Input string
+ * @param patterns Array of patterns to test
+ * @returns Object with pattern results
+ */
+export function testMultiple(str: string, patterns: { [key: string]: string }): { [key: string]: boolean } {
+  const results: { [key: string]: boolean } = {};
+
+  for (const [name, pattern] of Object.entries(patterns)) {
+    try {
+      results[name] = new RegExp(pattern).test(str);
+    } catch (error) {
+      results[name] = false;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Extract and group matches
+ * @param str Input string
+ * @param pattern Regex pattern
+ * @returns Object with all matches grouped by match text
+ */
+export function groupMatches(str: string, pattern: string): { [key: string]: number } {
+  try {
+    const finalFlags = 'g';
+    const regex = new RegExp(pattern, finalFlags);
+    const groups: { [key: string]: number } = {};
+    let match;
+
+    while ((match = regex.exec(str)) !== null) {
+      const text = match[0];
+      groups[text] = (groups[text] || 0) + 1;
+    }
+
+    return groups;
+  } catch (error) {
+    throw new Error(`Grouping failed: ${error}`);
+  }
+}
+
+/**
  * Export all regex functions as default object
  */
 export const regex = {
@@ -237,5 +401,11 @@ export const regex = {
   isUrl,
   isAlphanumeric,
   extractEmails,
-  extractUrls
+  extractUrls,
+  exec,
+  findFirst,
+  findAll,
+  captureNamed,
+  testMultiple,
+  groupMatches
 };

@@ -66,7 +66,11 @@ import {
   Module,  // Phase 1: Full program parsing
   TryStatement,  // Phase I: Exception Handling
   CatchClause,   // Phase I: Exception Handling
-  ThrowStatement  // Phase I: Exception Handling
+  ThrowStatement,  // Phase I: Exception Handling
+  StructDeclaration,  // Phase 16: Struct support
+  EnumDeclaration,    // Phase 16: Enum support
+  BreakStatement,     // Phase 16: Break support
+  ContinueStatement   // Phase 16: Continue support
 } from './ast';
 
 /**
@@ -1287,6 +1291,30 @@ export class Parser {
       return this.parseReturnStatement();
     }
 
+    // Phase 16: break 문
+    if (this.check(TokenType.BREAK)) {
+      this.advance();
+      this.match(TokenType.SEMICOLON);
+      return { type: 'break' } as BreakStatement;
+    }
+
+    // Phase 16: continue 문
+    if (this.check(TokenType.CONTINUE)) {
+      this.advance();
+      this.match(TokenType.SEMICOLON);
+      return { type: 'continue' } as ContinueStatement;
+    }
+
+    // Phase 16: struct 선언
+    if (this.check(TokenType.STRUCT)) {
+      return this.parseStructDeclaration();
+    }
+
+    // Phase 16: enum 선언
+    if (this.check(TokenType.ENUM)) {
+      return this.parseEnumDeclaration();
+    }
+
     // Phase I: try 문
     if (this.check(TokenType.TRY)) {
       return this.parseTryStatement();
@@ -1795,6 +1823,120 @@ export class Parser {
     return {
       type: 'export',
       declaration
+    };
+  }
+
+  /**
+   * Phase 16: Struct 선언 파싱
+   *
+   * 형식:
+   *   struct Point {
+   *     x: number,
+   *     y: number,
+   *     z: number
+   *   }
+   */
+  private parseStructDeclaration(): StructDeclaration {
+    this.expect(TokenType.STRUCT, 'Expected "struct"');
+
+    const nameToken = this.expect(TokenType.IDENT, 'Expected struct name');
+    const name = nameToken.value;
+
+    this.expect(TokenType.LBRACE, 'Expected "{"');
+
+    const fields: Array<{ name: string; fieldType?: string }> = [];
+
+    while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+      const fieldNameToken = this.expect(TokenType.IDENT, 'Expected field name');
+      const fieldName = fieldNameToken.value;
+
+      let fieldType: string | undefined;
+
+      // 타입 표기 (선택적 콜론)
+      if (this.check(TokenType.COLON)) {
+        this.advance();
+        fieldType = this.parseType();
+      }
+
+      fields.push({ name: fieldName, fieldType });
+
+      // 필드 구분자 (쉼표, 선택적)
+      if (this.check(TokenType.COMMA)) {
+        this.advance();
+      } else if (!this.check(TokenType.RBRACE)) {
+        // 쉼표나 닫기 괄호가 없으면 오류
+        throw new ParseError(
+          this.current().line,
+          this.current().column,
+          'Expected "," or "}" in struct declaration'
+        );
+      }
+    }
+
+    this.expect(TokenType.RBRACE, 'Expected "}"');
+
+    return {
+      type: 'struct',
+      name,
+      fields
+    };
+  }
+
+  /**
+   * Phase 16: Enum 선언 파싱
+   *
+   * 형식:
+   *   enum Color {
+   *     Red,
+   *     Green = 10,
+   *     Blue = 20
+   *   }
+   */
+  private parseEnumDeclaration(): EnumDeclaration {
+    this.expect(TokenType.ENUM, 'Expected "enum"');
+
+    const nameToken = this.expect(TokenType.IDENT, 'Expected enum name');
+    const name = nameToken.value;
+
+    this.expect(TokenType.LBRACE, 'Expected "{"');
+
+    const fields: { [key: string]: number } = {};
+    let counter = 0;
+
+    while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+      const fieldNameToken = this.expect(TokenType.IDENT, 'Expected enum field name');
+      const fieldName = fieldNameToken.value;
+
+      // 값 지정 (선택적)
+      if (this.check(TokenType.ASSIGN)) {
+        this.advance();
+        const valueToken = this.expect(TokenType.NUMBER, 'Expected number value');
+        const value = parseInt(valueToken.value, 10);
+        fields[fieldName] = value;
+        counter = value + 1;
+      } else {
+        fields[fieldName] = counter++;
+      }
+
+      // 필드 구분자 (쉼표, 선택적)
+      if (this.check(TokenType.COMMA)) {
+        this.advance();
+      } else if (!this.check(TokenType.RBRACE)) {
+        // 쉼표나 닫기 괄호가 없으면 오류
+        throw new ParseError(
+          this.current().line,
+          this.current().column,
+          'Expected "," or "}" in enum declaration'
+        );
+      }
+    }
+
+    this.expect(TokenType.RBRACE, 'Expected "}"');
+
+    return {
+      type: 'enum',
+      name,
+      fields
     };
   }
 
