@@ -14,6 +14,8 @@ import { IRGenerator } from './codegen/ir-generator';
 import { registerStdlibFunctions } from './stdlib-builtins';
 import { registerTCPFunctions } from './stdlib/net/tcp-native';
 import { registerSystemExtendedFunctions } from './stdlib-system-extended';
+import { registerSQLiteNativeFunctions } from './stdlib/sqlite-native';
+import { registerFsExtendedFunctions } from './stdlib-fs-extended';
 import { trackFunctionCall, isHotFunction, generateHotspotReport } from './phase-jit/hotspot-detector';
 import { SimplePromise } from './runtime/simple-promise';
 
@@ -57,6 +59,10 @@ export class VM {
     registerTCPFunctions(this.nativeFunctionRegistry);
     // Phase C: Register system extended functions (event, logging, scheduler, cache, validation, config)
     registerSystemExtendedFunctions(this.nativeFunctionRegistry);
+    // Phase D: Register SQLite native functions
+    registerSQLiteNativeFunctions(this.nativeFunctionRegistry);
+    // Phase D: Register file system extended functions
+    registerFsExtendedFunctions(this.nativeFunctionRegistry);
     // Phase 26: Set VM reference for higher-order functions
     this.nativeFunctionRegistry.setVM(this);
   }

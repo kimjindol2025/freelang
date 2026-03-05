@@ -35,6 +35,21 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
     }
   });
 
+  // 디렉토리 생성 (alias: dir_create) - simpler return
+  registry.register({
+    name: 'dir_create',
+    module: 'fs',
+    executor: (args) => {
+      try {
+        const dirPath = String(args[0]);
+        fs.mkdirSync(dirPath, { recursive: true });  // recursive=true for convenience
+        return true;
+      } catch (err: any) {
+        return false;
+      }
+    }
+  });
+
   // 디렉토리 삭제
   registry.register({
     name: 'fs_rmdir',
@@ -105,6 +120,35 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
         return { success: true, files: result };
       } catch (err: any) {
         return { success: false, error: err.message };
+      }
+    }
+  });
+
+  // 디렉토리 재귀 순회 (alias: dir_walk)
+  registry.register({
+    name: 'dir_walk',
+    module: 'fs',
+    executor: (args) => {
+      try {
+        const dirPath = String(args[0]);
+        const result: string[] = [];
+
+        function walk(dir: string) {
+          const files = fs.readdirSync(dir);
+          for (const file of files) {
+            const fullPath = path.join(dir, file);
+            result.push(fullPath);
+            const stat = fs.statSync(fullPath);
+            if (stat.isDirectory()) {
+              walk(fullPath);
+            }
+          }
+        }
+
+        walk(dirPath);
+        return result;  // dir_walk returns just the array of paths
+      } catch (err: any) {
+        return [];
       }
     }
   });
@@ -208,6 +252,33 @@ export function registerFsExtendedFunctions(registry: NativeFunctionRegistry): v
         };
       } catch (err: any) {
         return { success: false, error: err.message };
+      }
+    }
+  });
+
+  // 파일 상태 조회 (alias: file_stat) - simpler return
+  registry.register({
+    name: 'file_stat',
+    module: 'fs',
+    executor: (args) => {
+      try {
+        const filePath = String(args[0]);
+        const stat = fs.statSync(filePath);
+        return {
+          path: filePath,
+          name: path.basename(filePath),
+          extension: path.extname(filePath),
+          isDirectory: stat.isDirectory(),
+          isFile: stat.isFile(),
+          size: stat.size,
+          created: stat.birthtime,
+          modified: stat.mtime,
+          accessed: stat.atime,
+          mode: stat.mode,
+          isSymlink: stat.isSymbolicLink()
+        };
+      } catch (err: any) {
+        return null;
       }
     }
   });

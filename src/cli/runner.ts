@@ -20,6 +20,7 @@ import { registerStdlibFunctions } from '../stdlib-builtins';
 import { registerSQLiteNativeFunctions } from '../stdlib/sqlite-native';
 import { registerTCPFunctions } from '../stdlib/net/tcp-native';
 import { registerSystemExtendedFunctions } from '../stdlib-system-extended';
+import { registerFsExtendedFunctions } from '../stdlib-fs-extended';
 
 export interface RunResult {
   success: boolean;
@@ -50,6 +51,8 @@ export class ProgramRunner {
     registerTCPFunctions(this.vm.getNativeFunctionRegistry());
     // Phase C: Register system extended functions (event, logging, scheduler, cache, validation, config)
     registerSystemExtendedFunctions(this.vm.getNativeFunctionRegistry());
+    // Phase D: Register file system extended functions (dir_walk, file_stat, etc)
+    registerFsExtendedFunctions(this.vm.getNativeFunctionRegistry());
   }
 
   /**
