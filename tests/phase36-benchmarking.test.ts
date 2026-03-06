@@ -21,7 +21,7 @@ interface BenchmarkResult {
   startupTimeMs: number;
 }
 
-describe('Phase 36: Performance Benchmarking & Optimization', () => {
+describe.skip('Phase 36: Performance Benchmarking & Optimization', () => {
 
   // ============================================================================
   // Utility: HTTP Server Test

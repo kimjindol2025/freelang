@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-03-06T22:25:12.359387",
+  "project": "/home/kimjin/Desktop/kim/v2-freelang-ai",
+  "implementations": [
+    {
+      "id": 1,
+      "name": "handle 키워드",
+      "status": "completed",
+      "files": [
+        "src/parser-extensions/handle-keyword.ts",
+        "test/handle-keyword.test.ts"
+      ],
+      "estimated_lines_saved": 150,
+      "code_reduction_percent": 8
+    },
+    {
+      "id": 2,
+      "name": "파이프라인 연산자",
+      "status": "completed",
+      "files": [
+        "src/parser-extensions/pipeline-operator.ts",
+        "test/pipeline-operator.test.ts"
+      ],
+      "estimated_lines_saved": 300,
+      "code_reduction_percent": 12
+    }
+  ],
+  "total_generated_files": 4,
+  "backup_location": "/home/kimjin/Desktop/kim/v2-freelang-ai/.backups/20260306_222512",
+  "next_steps": [
+    "npm test -- handle-keyword.test.ts",
+    "npm test -- pipeline-operator.test.ts",
+    "분석 결과를 Stage 4(검증)로 진행"
+  ]
+}

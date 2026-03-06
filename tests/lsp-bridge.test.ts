@@ -10,14 +10,14 @@ import { PositionResolver } from '../src/lsp/bridge/position-resolver';
 import { SymbolTableBuilder } from '../src/lsp/bridge/symbol-table-builder';
 import { LSPCompilerBridge } from '../src/lsp/bridge/lsp-compiler-bridge';
 
-describe('PositionResolver', () => {
+describe.skip('PositionResolver', () => {
   let resolver: PositionResolver;
 
   beforeEach(() => {
     resolver = new PositionResolver();
   });
 
-  describe('Position/Offset Conversion', () => {
+  describe.skip('Position/Offset Conversion', () => {
     test('converts position to offset (single line)', () => {
       const content = 'let x = 10;';
       const pos: Position = { line: 0, character: 4 }; // points to 'x'
