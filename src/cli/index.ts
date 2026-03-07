@@ -14,6 +14,7 @@ import { interactiveMode } from './interactive';
 import { batchMode } from './batch';
 import { ProgramRunner } from './runner';
 import { AOTCompiler } from './aot-compiler';
+import { ProofTester } from './test-runner';
 
 /**
  * 도움말 표시
@@ -28,6 +29,7 @@ Usage:
   freelang --batch <file>     # 배치 모드 (파일 입력)
   freelang --aot <input> -o <output>  # AOT 컴파일 (Level 3)
   freelang <file.free>        # 파일 직접 실행
+  freelang test [path]        # Proof-Tester: @test 함수 실행
   freelang --help             # 도움말
   freelang --version          # 버전 정보
 
@@ -38,6 +40,7 @@ Options:
   -f, --format <json|csv>    # 출력 형식 (기본: json)
   --aot <input.free>         # AOT 컴파일 (Ahead-of-Time, Level 3)
   --serve <file> [port]      # HTTP 서버 모드 (기본 포트: 41001)
+  test [path] [--filter str] # Proof-Tester: @test 어노테이션 테스트 실행
   -h, --help                 # 도움말
   -v, --version              # 버전
 
@@ -436,6 +439,28 @@ async function main(): Promise<void> {
   if (args.length === 0) {
     await startInteractiveMode();
     return;
+  }
+
+  // "test" 서브커맨드: Proof-Tester
+  if (args[0] === 'test') {
+    const testPath = args[1] || '.';
+    let filter: string | undefined;
+    const filterIdx = args.indexOf('--filter');
+    if (filterIdx >= 0 && args[filterIdx + 1]) {
+      filter = args[filterIdx + 1];
+    }
+
+    const tester = new ProofTester({ verbose: args.includes('--verbose') });
+
+    // 파일인지 디렉토리인지 판별
+    const resolvedPath = path.resolve(testPath);
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      const report = tester.runSingle(resolvedPath);
+      process.exit(report.failed > 0 ? 1 : 0);
+    } else {
+      const report = tester.runDirectory(resolvedPath, filter);
+      process.exit(report.failed > 0 ? 1 : 0);
+    }
   }
 
   // 인자 파싱
