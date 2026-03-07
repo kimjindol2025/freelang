@@ -1,0 +1,29 @@
+fn double(x: number): number {
+  return x * 2;
+}
+
+fn isEven(x: number): boolean {
+  return x % 2 == 0;
+}
+
+fn add(a: number, b: number): number {
+  return a + b;
+}
+
+fn main(): void {
+  let nums = [1, 2, 3, 4, 5];
+
+  // Test map
+  let doubled = nums.map(double);
+  println(doubled);
+
+  // Test filter
+  let evens = nums.filter(isEven);
+  println(evens);
+
+  // Test reduce
+  let sum = nums.reduce(add, 0);
+  println(sum);
+}
+
+main();

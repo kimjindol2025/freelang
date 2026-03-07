@@ -1,0 +1,7 @@
+fn main() {
+  let nums = [1, 2, 3];
+  let result = nums.map(__builtin_test);
+  println(result);
+}
+
+main();

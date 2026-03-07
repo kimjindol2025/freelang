@@ -1,0 +1,25 @@
+@profile(sampling_rate: 5, output: .both)
+fn compute_sum(n) {
+  let total = 0
+  let i = 0
+  while i < n {
+    total = total + i
+    i = i + 1
+  }
+  return total
+}
+
+@profile(sampling_rate: 5, output: .flame_graph)
+fn heavy_work() {
+  let a = compute_sum(500)
+  let b = compute_sum(300)
+  return a + b
+}
+
+let r1 = heavy_work()
+let r2 = heavy_work()
+let r3 = compute_sum(1000)
+println(r1)
+println(r2)
+println(r3)
+profiler_report()

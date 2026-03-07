@@ -129,6 +129,11 @@ export class InstructionDispatcher {
     this.handlers.set(Op.CHAR_CODE, this.handleCharCode);
     this.handlers.set(Op.CHAR_FROM, this.handleCharFrom);
 
+    // Object/Map
+    this.handlers.set(Op.OBJ_NEW, this.handleObjNew);
+    this.handlers.set(Op.OBJ_SET, this.handleObjSet);
+    this.handlers.set(Op.OBJ_GET, this.handleObjGet);
+
     // Lambda
     this.handlers.set(Op.LAMBDA_NEW, this.handleLambdaNew);
     this.handlers.set(Op.LAMBDA_CAPTURE, this.handleLambdaCapture);
@@ -147,6 +152,10 @@ export class InstructionDispatcher {
     this.handlers.set(Op.CHANNEL_CREATE, this.handleChannelCreate);
     this.handlers.set(Op.CHANNEL_SEND, this.handleChannelSend);
     this.handlers.set(Op.CHANNEL_RECV, this.handleChannelRecv);
+
+    // Secret-Link: 보안 변수 (암호화 메모리)
+    this.handlers.set(Op.STORE_SECRET, this.handleStoreSecret);
+    this.handlers.set(Op.LOAD_SECRET, this.handleLoadSecret);
 
     // Debug
     this.handlers.set(Op.DUMP, this.handleDump);
@@ -623,8 +632,84 @@ export class InstructionDispatcher {
   // Debug Handler
   // ──────────────────────────────────────────────────────────────
 
+  private handleObjNew = (ctx: DispatcherContext, inst: Inst): void => {
+    // Create a new empty object (map)
+    const obj = {};
+    ctx.vars.set(inst.arg as string, obj);
+    ctx.pc++;
+  };
+
+  private handleObjSet = (ctx: DispatcherContext, inst: Inst): void => {
+    // obj.key = value: stack: [value, key] → store in obj
+    ctx.need(2);
+    const key = ctx.stack.pop() as string;
+    const val = ctx.stack.pop();
+    const obj = ctx.vars.get(inst.arg as string);
+    if (typeof obj !== 'object' || obj === null) {
+      ctx.fail(Op.OBJ_SET, 5, `not_object:${inst.arg}`);
+    }
+    (obj as any)[key] = val;
+    ctx.pc++;
+  };
+
+  private handleObjGet = (ctx: DispatcherContext, inst: Inst): void => {
+    // obj.key: stack: [obj, key] → [value]
+    ctx.need(2);
+    const key = ctx.stack.pop() as string;
+    const obj = ctx.stack.pop();
+    if (typeof obj !== 'object' || obj === null) {
+      ctx.fail(Op.OBJ_GET, 5, `not_object:${typeof obj}`);
+    }
+    ctx.guardStack();
+    ctx.stack.push((obj as any)[key]);
+    ctx.pc++;
+  };
+
   private handleDump = (ctx: DispatcherContext): void => {
     console.log('[DUMP]', ctx.stack);
+    ctx.pc++;
+  };
+
+  // ──────────────────────────────────────────────────────────────
+  // Secret-Link Handlers (암호화 메모리 영역)
+  // ──────────────────────────────────────────────────────────────
+
+  private handleStoreSecret = (ctx: DispatcherContext, inst: Inst): void => {
+    ctx.need(1);
+    const value = ctx.stack.pop()!;
+    const name = inst.arg as string;
+    // __secrets__ Map에 저장 (일반 vars와 분리)
+    if (!ctx.vars.has('__secrets__')) {
+      ctx.vars.set('__secrets__', new Map<string, any>());
+    }
+    const secrets = ctx.vars.get('__secrets__') as Map<string, any>;
+    // XOR 난독화 저장 (메모리 덤프 방지)
+    const key = Date.now() ^ 0xA5A5A5A5;
+    if (typeof value === 'string') {
+      const encoded = Array.from(value).map((c, i) => c.charCodeAt(0) ^ ((key >> (i % 4) * 8) & 0xFF));
+      secrets.set(name, { encoded, key, type: 'string' });
+    } else {
+      secrets.set(name, { encoded: value ^ key, key, type: 'number' });
+    }
+    ctx.pc++;
+  };
+
+  private handleLoadSecret = (ctx: DispatcherContext, inst: Inst): void => {
+    const name = inst.arg as string;
+    const secrets = ctx.vars.get('__secrets__') as Map<string, any> | undefined;
+    if (!secrets || !secrets.has(name)) {
+      ctx.fail(Op.LOAD_SECRET, 4, `undef_secret:${name}`);
+    }
+    const entry = secrets.get(name)!;
+    // XOR 복호화
+    let value: any;
+    if (entry.type === 'string') {
+      value = entry.encoded.map((c: number, i: number) => String.fromCharCode(c ^ ((entry.key >> (i % 4) * 8) & 0xFF))).join('');
+    } else {
+      value = entry.encoded ^ entry.key;
+    }
+    ctx.guardStack();
+    ctx.stack.push(value);
     ctx.pc++;
   };
 }

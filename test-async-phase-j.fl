@@ -1,0 +1,27 @@
+// Phase J: async/await test
+
+// Test 1: Simple async function
+async fn getNumber() -> number {
+  return 42
+}
+
+// Test 2: Regular function
+fn addNumbers(a, b) -> number {
+  return a + b
+}
+
+fn main() -> void {
+  // Test 1: Call async function (should return Promise)
+  let promise = getNumber();
+  println("Got promise:");
+  println(promise);
+
+  // Test 2: Use Promise.resolve
+  let resolved = Promise.resolve("Hello");
+  println("Created resolved promise");
+
+  // Test 3: Call regular function
+  let sum = addNumbers(5, 3);
+  println("Sum: ");
+  println(sum);
+}

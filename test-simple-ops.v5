@@ -1,0 +1,12 @@
+fn main() {
+  let nums = [1, 2, 3, 4, 5];
+
+  // Test array operations
+  let len = arr_len(nums);
+  println(len);
+
+  let first = arr_get(nums, 0);
+  println(first);
+}
+
+main();

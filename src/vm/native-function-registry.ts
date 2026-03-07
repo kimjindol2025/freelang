@@ -11,10 +11,11 @@ import { FFIFunctionSignature } from '../ffi/type-bindings';
 export interface NativeFunctionConfig {
   name: string;                              // 함수명
   module: string;                            // C 모듈명
-  signature: FFIFunctionSignature;           // 함수 시그니처
+  signature?: FFIFunctionSignature;          // 함수 시그니처 (옵션)
   executor?: (args: any[]) => any;          // 실행 함수 (옵션)
   async?: boolean;                           // 비동기 여부
   callbackId?: number;                       // 콜백 ID
+  paramCount?: number;                       // 명시적 파라미터 수 (executor.length 오버라이드)
 }
 
 /**
@@ -24,13 +25,14 @@ export interface NativeFunctionConfig {
 export class NativeFunctionRegistry {
   private functions: Map<string, NativeFunctionConfig> = new Map();
   private moduleToFunctions: Map<string, string[]> = new Map();
+  private vm?: any;  // Phase 26: VM reference for calling user-defined functions
 
   /**
    * 네이티브 함수 등록
    */
   public register(config: NativeFunctionConfig): boolean {
     if (this.functions.has(config.name)) {
-      console.warn(`Native function already registered: ${config.name}`);
+      process.stderr.write(`Native function already registered: ${config.name}\n`);
       return false;
     }
 
@@ -43,6 +45,20 @@ export class NativeFunctionRegistry {
     this.moduleToFunctions.get(config.module)!.push(config.name);
 
     return true;
+  }
+
+  /**
+   * Phase 26: Set VM reference (for calling user-defined functions from native functions)
+   */
+  public setVM(vm: any): void {
+    this.vm = vm;
+  }
+
+  /**
+   * Phase 26: Get VM reference
+   */
+  public getVM(): any {
+    return this.vm;
   }
 
   /**
@@ -75,13 +91,15 @@ export class NativeFunctionRegistry {
       throw new Error(`Native function not found: ${name}`);
     }
 
-    // 매개변수 검증
-    const paramCount = config.signature.parameters.length;
-    if (args.length !== paramCount) {
-      throw new Error(
-        `Function ${name} expects ${paramCount} arguments, ` +
-        `but got ${args.length}`
-      );
+    // 매개변수 검증 (signature가 있을 때만)
+    if (config.signature) {
+      const paramCount = config.signature.parameters.length;
+      if (args.length !== paramCount) {
+        throw new Error(
+          `Function ${name} expects ${paramCount} arguments, ` +
+          `but got ${args.length}`
+        );
+      }
     }
 
     // 함수 실행

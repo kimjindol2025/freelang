@@ -1,0 +1,39 @@
+/**
+ * 간단한 tokenize 테스트
+ */
+
+println("=== Simple Tokenize Test ===")
+let code = "42"
+println("Input: " + code)
+
+let tokens = tokenize(code)
+println("Token array created")
+println("Array length: " + str(arr.len(tokens)))
+
+// 배열 길이 확인
+if arr.len(tokens) > 0 {
+  println("First element exists")
+
+  let token = tokens[0]
+  println("First token retrieved")
+  println("Token type: " + typeof(token))
+
+  // 다양한 방식으로 접근 시도
+  if typeof(token) == "map" {
+    println("Token is a map")
+
+    // map 키 확인
+    let keys = map.keys(token)
+    println("Token keys: " + str(keys))
+
+    // 각 키의 값 출력
+    let i = 0
+    while i < arr.len(keys) {
+      let k = keys[i]
+      let v = token[k]
+      println("  " + k + " = " + str(v))
+      i = i + 1
+    }
+  }
+}
+

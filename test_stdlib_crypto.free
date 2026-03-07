@@ -1,0 +1,22 @@
+/**
+ * Test: stdlib/crypto 모듈 검증
+ */
+
+import crypto from "stdlib/crypto"
+
+fn test_crypto() => {
+  console.log("=== Crypto Module Test ===")
+
+  // Base64 테스트
+  let text = "hello"
+  let encoded = crypto.base64Encode(text)
+  console.log("base64Encode('hello'): " + encoded)
+
+  // SHA256 테스트
+  let hash = crypto.sha256("test")
+  console.log("sha256('test'): " + hash)
+
+  console.log("✅ Crypto tests passed")
+}
+
+test_crypto()

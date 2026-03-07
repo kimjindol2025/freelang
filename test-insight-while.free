@@ -1,0 +1,11 @@
+// while 없이 단순 연산만
+
+@monitor
+fn compute(n) {
+  let x = n + 1
+  return x
+}
+
+let r = compute(5)
+println(r)
+insight_report()

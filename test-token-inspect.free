@@ -1,0 +1,26 @@
+/**
+ * Token 구조 조사
+ */
+
+println("=== Token Structure Inspection ===")
+
+let code = "42"
+let tokens = tokenize(code)
+
+// 배열 길이 확인
+let len = strlen(str(tokens))
+println("Total tokens: " + str(len))
+
+// 첫 번째 token 접근
+let stringified = str(tokens)
+println("Stringified: " + stringified)
+
+// Token 배열 요소 조회 시도
+// FreeLang에서 배열 인덱싱: array[index]
+let firstTokenStr = str(tokens[0])
+println("First token (stringified): " + firstTokenStr)
+
+// typeof 사용해보기
+let firstTokenType = typeof(tokens[0])
+println("First token type: " + firstTokenType)
+

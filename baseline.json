@@ -1,0 +1,92 @@
+{
+  "baseline": {
+    "fibonacci40": {
+      "current": 280,
+      "target": 150,
+      "improvement": 0,
+      "description": "Recursive fib(40) benchmark - critical bottleneck"
+    },
+    "arraySort10K": {
+      "current": 45,
+      "target": 25,
+      "improvement": 0,
+      "description": "Sort 10,000 random elements"
+    },
+    "stringConcat1MB": {
+      "current": 60,
+      "target": 35,
+      "improvement": 0,
+      "description": "String concatenation to ~1MB total"
+    },
+    "jsonParse1K": {
+      "current": 30,
+      "target": 18,
+      "improvement": 0,
+      "description": "Parse 1,000 JSON objects"
+    },
+    "loop1M": {
+      "current": 50,
+      "target": 20,
+      "improvement": 0,
+      "description": "Simple loop 1 million iterations"
+    },
+    "arrayAccess100K": {
+      "current": 20,
+      "target": 10,
+      "improvement": 0,
+      "description": "Random array access 100K times"
+    },
+    "objectProperty100K": {
+      "current": 35,
+      "target": 15,
+      "improvement": 0,
+      "description": "Object property lookup 100K times"
+    },
+    "functionCall1M": {
+      "current": 45,
+      "target": 12,
+      "improvement": 0,
+      "description": "Function call overhead 1 million times"
+    }
+  },
+  "metadata": {
+    "date": "2026-03-06",
+    "version": "v3.0",
+    "totalBaselineTime": 365,
+    "targetTotalTime": 155,
+    "totalImprovement": 57.5
+  },
+  "notes": {
+    "fibonacci40": "Needs memoization or conversion to iteration",
+    "arraySort10K": "Array.sort() performance, consider O(n log n) improvements",
+    "stringConcat1MB": "String concatenation is slow; use buffers or arrays",
+    "jsonParse1K": "Data parsing performance, JSON library optimization",
+    "loop1M": "Raw loop performance, JIT warm-up needed",
+    "arrayAccess100K": "Array indexing performance, bounds checking",
+    "objectProperty100K": "Property lookup, hash table performance",
+    "functionCall1M": "Function call overhead, reduce stack depth"
+  },
+  "optimization_roadmap": {
+    "week_1_2": [
+      "Phase: Profiler & Benchmarks",
+      "Task: Implement comprehensive profiler",
+      "Task: Create benchmark suite",
+      "Task: Establish baseline metrics",
+      "Task: Analyze bottlenecks"
+    ],
+    "week_3_4": [
+      "Phase: JIT Hotspot Detection",
+      "Task: Inline function calls",
+      "Task: Loop unrolling",
+      "Task: Type specialization",
+      "Expected improvement: 20%"
+    ],
+    "week_5_6": [
+      "Phase: Memory Optimization",
+      "Task: Object pooling",
+      "Task: GC tuning",
+      "Task: Memory structure alignment",
+      "Expected improvement: 30%"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+// 단계별 디버그
+
+@monitor
+fn compute_sum(n) {
+  let i = 0
+  let s = 0
+  while i < n {
+    s = s + i
+    i = i + 1
+  }
+  return s
+}
+
+let r1 = compute_sum(10)
+println(r1)
+insight_report()

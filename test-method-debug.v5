@@ -1,0 +1,11 @@
+fn double(x) {
+  return x * 2;
+}
+
+fn main() {
+  let nums = [1, 2, 3];
+  let result = nums.map(double);
+  println(result);
+}
+
+main();

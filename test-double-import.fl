@@ -1,0 +1,6 @@
+import { add } from "./math";
+import { concat } from "./string-utils";
+
+fn test() -> void {
+  return;
+}

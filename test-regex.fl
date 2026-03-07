@@ -1,0 +1,68 @@
+// Test 1: Basic regex matching
+fn test_regex_basic() -> void {
+  var pattern = /[0-9]+/;
+  var text = "abc123def456";
+
+  if (pattern.test(text)) {
+    println("Test 1 PASS: Found numbers");
+  } else {
+    println("Test 1 FAIL: No numbers found");
+  }
+}
+
+// Test 2: Regex match
+fn test_regex_match() -> void {
+  var text = "abc123def456";
+  var match = text.match(/[0-9]+/);
+
+  if (match == "123") {
+    println("Test 2 PASS: Match result is 123");
+  } else {
+    println("Test 2 FAIL: Expected 123, got " + str(match));
+  }
+}
+
+// Test 3: Regex replace
+fn test_regex_replace() -> void {
+  var text = "abc123def456";
+  var replaced = text.replace(/[0-9]+/, "X");
+
+  if (replaced == "abcXdef456") {
+    println("Test 3 PASS: Replace first occurrence");
+  } else {
+    println("Test 3 FAIL: Expected abcXdef456, got " + replaced);
+  }
+}
+
+// Test 4: Regex split
+fn test_regex_split() -> void {
+  var text = "a1b2c3";
+  var parts = text.split(/[0-9]/);
+
+  if (parts[0] == "a" && parts[1] == "b" && parts[2] == "c") {
+    println("Test 4 PASS: Split by digits");
+  } else {
+    println("Test 4 FAIL: Split result incorrect");
+  }
+}
+
+// Test 5: Case insensitive regex
+fn test_regex_flags() -> void {
+  var pattern = /HELLO/i;
+  var text = "hello world";
+
+  if (pattern.test(text)) {
+    println("Test 5 PASS: Case insensitive matching");
+  } else {
+    println("Test 5 FAIL: Case insensitive failed");
+  }
+}
+
+fn main() -> void {
+  test_regex_basic();
+  test_regex_match();
+  test_regex_replace();
+  test_regex_split();
+  test_regex_flags();
+  println("All tests completed!");
+}

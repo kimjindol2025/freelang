@@ -25,14 +25,70 @@ export interface ModuleLinkContext {
 
 export class IRGenerator {
   private indexVarCounter = 0;  // For generating unique index variables
+  private tempVarCounter = 0;   // For generating temporary array variables
   private moduleLinkContext?: ModuleLinkContext;  // Phase 4 Step 5: Module linking
+  private localScope: Set<string> = new Set();  // Function parameter scope tracking
 
   /**
    * AST → IR instructions
    * Example: BinaryOp('+', 1, 2) → [PUSH 1, PUSH 2, ADD, HALT]
+   *
+   * @param ast AST node to compile
+   * @param localScope Optional array of parameter names for function scope
    */
-  generateIR(ast: ASTNode): Inst[] {
+  /**
+   * Self-Monitoring Kernel: @monitor 어노테이션 함수 body IR 래핑
+   *
+   * 동작:
+   * 1. PUSH fnName → CALL insight_enter  (함수 진입 기록)
+   * 2. 원본 body IR (RET 직전에 insight_exit 주입)
+   * 3. 마지막 HALT 앞 insight_exit 보장
+   *
+   * 오버헤드: PUSH + CALL 2개 = ~50ns (TSC 측정 자체보다 낮음)
+   */
+  wrapWithMonitoring(bodyIR: Inst[], fnName: string): Inst[] {
+    const result: Inst[] = [];
+
+    // 진입 기록: insight_enter(fnName)
+    // insight_enter는 null 반환 → VM이 스택에 push하지 않음 → POP 불필요
+    result.push({ op: Op.STR_NEW, arg: fnName });
+    result.push({ op: Op.CALL, arg: 'insight_enter' });
+
+    // 원본 IR에서 RET/HALT 직전마다 insight_exit 주입
+    for (let i = 0; i < bodyIR.length; i++) {
+      const inst = bodyIR[i];
+      if (inst.op === Op.RET) {
+        // RET 전에 exit 기록. 반환값이 스택 top에 있으므로 건드리지 않음
+        result.push({ op: Op.STR_NEW, arg: fnName });
+        result.push({ op: Op.CALL, arg: 'insight_exit' });
+        result.push(inst);  // RET
+      } else if (inst.op === Op.HALT) {
+        // HALT 전에 exit 기록 (암묵적 return 없는 함수)
+        result.push({ op: Op.STR_NEW, arg: fnName });
+        result.push({ op: Op.CALL, arg: 'insight_exit' });
+        result.push(inst);  // HALT
+      } else {
+        result.push(inst);
+      }
+    }
+
+    return result;
+  }
+
+  generateIR(ast: ASTNode, localScope?: string[]): Inst[] {
     const instructions: Inst[] = [];
+
+    // CRITICAL FIX: Initialize localScope from function parameters
+    // This allows traverse() to know which variables are function parameters
+    if (localScope && Array.isArray(localScope)) {
+      this.localScope = new Set(localScope);
+    } else {
+      this.localScope.clear();
+    }
+
+    if (process.env.DEBUG_TRAVERSE) {
+      console.log(`[DEBUG] generateIR initialized localScope:`, Array.from(this.localScope));
+    }
 
     if (!ast) {
       instructions.push({ op: Op.PUSH, arg: 0 });
@@ -75,12 +131,46 @@ export class IRGenerator {
       this.collectExportedSymbol(exportStmt);
     }
 
-    // Step 4: 모듈 본체 IR 생성
+    // Step 4: Hardware-CORS - @allow_origin 있으면 CORS 화이트리스트 초기화 IR 주입
+    if (module.allowOrigins && module.allowOrigins.length > 0) {
+      instructions.push({ op: Op.PUSH, arg: module.allowOrigins.join(',') });
+      instructions.push({ op: Op.CALL, arg: 'http_cors_set_origins' });
+      instructions.push({ op: Op.POP });
+    }
+
+    // Step 4b: Native-CSP-Shield - @csp_policy 있으면 글로벌 정책 초기화 IR 주입
+    if (module.cspPolicy && module.cspPolicy.trim()) {
+      instructions.push({ op: Op.PUSH, arg: module.cspPolicy });
+      instructions.push({ op: Op.CALL, arg: 'csp_policy_set' });
+      instructions.push({ op: Op.POP });
+    }
+
+    // Step 4c: Native-Request-Validator - @validate_schema 있으면 스키마 등록 IR 주입
+    // validate_schema_register(name, schema_str) 호출을 프로그램 시작 시 자동 실행
+    if (module.validateSchemas && module.validateSchemas.length > 0) {
+      for (const vs of module.validateSchemas) {
+        instructions.push({ op: Op.PUSH, arg: vs.schema });
+        instructions.push({ op: Op.PUSH, arg: vs.name });
+        instructions.push({ op: Op.CALL, arg: 'validate_schema_register' });
+        instructions.push({ op: Op.POP });
+      }
+    }
+
+    // Step 4d: Native-JSON-Vault - @local_vault 있으면 vault_open IR 주입
+    // vault_open(path, autosave) → 파일 로드 + WAL crash recovery
+    if (module.localVault) {
+      instructions.push({ op: Op.PUSH, arg: String(module.localVault.autosave) });
+      instructions.push({ op: Op.PUSH, arg: module.localVault.path });
+      instructions.push({ op: Op.CALL, arg: 'vault_open' });
+      instructions.push({ op: Op.POP });
+    }
+
+    // Step 5: 모듈 본체 IR 생성
     for (const stmt of module.statements) {
       this.traverse(stmt, instructions);
     }
 
-    // Step 5: HALT 추가
+    // Step 6: HALT 추가
     instructions.push({ op: Op.HALT });
 
     return instructions;
@@ -168,6 +258,44 @@ export class IRGenerator {
   }
 
   /**
+   * Phase 1: Normalize node type from parser lowercase to internal uppercase
+   *
+   * Parser generates lowercase types (e.g., 'identifier', 'binary', 'literal')
+   * But traverse() expects original case (e.g., 'Identifier', 'BinaryOp', 'NumberLiteral')
+   *
+   * This method maps between them for compatibility.
+   */
+  private normalizeNodeType(type: string): string {
+    const typeMap: Record<string, string> = {
+      'identifier': 'Identifier',
+      'binary': 'BinaryOp',
+      'call': 'CallExpression',
+      'array': 'ArrayLiteral',
+      'member': 'MemberExpression',
+      'literal': 'NumberLiteral',  // Generic, will be handled
+      'match': 'MatchExpression',
+      'lambda': 'lambda',  // Keep as-is
+      'import': 'import',
+      'export': 'export',
+      'variable': 'variable',
+      'expression': 'expression',
+      'if': 'IfStatement',
+      'for': 'ForStatement',
+      'forOf': 'ForOfStatement',
+      'while': 'WhileStatement',
+      'return': 'return',
+      'block': 'Block',
+      'function': 'FunctionStatement',
+      // Reified-Type-System 노드
+      'typeAlias': 'typeAlias',
+      'staticAssert': 'staticAssert'
+    };
+
+    // Return mapped type or original if not found
+    return typeMap[type] || type;
+  }
+
+  /**
    * Phase 4 Step 5: 임포트된 심볼인지 확인
    *
    * @param name 심볼명
@@ -218,16 +346,49 @@ export class IRGenerator {
   private traverse(node: ASTNode, out: Inst[]): void {
     if (!node) return;
 
-    switch (node.type) {
+    // Normalize node type (lowercase to uppercase mapping)
+    const normalizedType = this.normalizeNodeType(node.type);
+
+    // DEBUG: 모든 노드 타입 로깅
+    if (process.env.DEBUG_TRAVERSE) {
+      console.log(`[DEBUG TRAVERSE] node.type="${node.type}" → normalizedType="${normalizedType}"`);
+      if ((node as any).name) console.log(`  → name="${(node as any).name}"`);
+      if ((node as any).value) console.log(`  → has value expression`);
+    }
+
+    switch (normalizedType) {
       // ── Literals ────────────────────────────────────────────
       case 'NumberLiteral':
       case 'number':
-        out.push({ op: Op.PUSH, arg: node.value });
+        // Distinguish between int and float
+        if (typeof node.value === 'number' && !Number.isInteger(node.value)) {
+          out.push({ op: Op.PUSH_FLOAT, arg: node.value });  // Float literal
+        } else {
+          out.push({ op: Op.PUSH, arg: node.value });  // Integer or generic number
+        }
         break;
 
       case 'StringLiteral':
       case 'string':
         out.push({ op: Op.STR_NEW, arg: node.value });
+        break;
+
+      // Generic 'literal' from parser (detect type from value)
+      case 'literal':
+        if (typeof node.value === 'number') {
+          // Phase 3: Distinguish int from float
+          if (!Number.isInteger(node.value)) {
+            out.push({ op: Op.PUSH_FLOAT, arg: node.value });
+          } else {
+            out.push({ op: Op.PUSH, arg: node.value });
+          }
+        } else if (typeof node.value === 'string') {
+          out.push({ op: Op.STR_NEW, arg: node.value });
+        } else if (typeof node.value === 'boolean') {
+          out.push({ op: Op.PUSH, arg: node.value ? 1 : 0 });
+        } else {
+          out.push({ op: Op.PUSH, arg: node.value });
+        }
         break;
 
       case 'BoolLiteral':
@@ -237,6 +398,7 @@ export class IRGenerator {
 
       // ── Binary Operations ───────────────────────────────────
       case 'BinaryOp':
+      case 'binary':
         this.traverse(node.left, out);
         this.traverse(node.right, out);
 
@@ -271,13 +433,20 @@ export class IRGenerator {
 
       // ── Unary Operations ────────────────────────────────────
       case 'UnaryOp':
-        this.traverse(node.operand, out);
-        if (node.operator === '-') {
-          out.push({ op: Op.NEG });
-        } else if (node.operator === '!') {
-          out.push({ op: Op.NOT });
+      case 'unary':
+        if (node.operator === 'typeof') {
+          // typeof is a function call: typeof(argument)
+          this.traverse(node.argument, out);
+          out.push({ op: Op.CALL, arg: 'typeof' });
         } else {
-          throw new Error(`Unknown unary operator: ${node.operator}`);
+          this.traverse(node.argument || node.operand, out);
+          if (node.operator === '-') {
+            out.push({ op: Op.NEG });
+          } else if (node.operator === '!') {
+            out.push({ op: Op.NOT });
+          } else {
+            throw new Error(`Unknown unary operator: ${node.operator}`);
+          }
         }
         break;
 
@@ -287,14 +456,63 @@ export class IRGenerator {
         break;
 
       case 'Assignment':
+      case 'assignment':
+        // Support both old (node.name) and new (node.target) formats
+        let varName: string;
+        if (node.target) {
+          // New format: { type: 'assignment', target: identifier, value: expr }
+          if (node.target.type === 'identifier' && node.target.name) {
+            varName = node.target.name;
+          } else {
+            throw new Error('Assignment target must be an identifier');
+          }
+        } else if (node.name) {
+          // Old format: { type: 'assignment', name: string, value: expr }
+          varName = node.name;
+        } else {
+          throw new Error('Assignment must have a target or name');
+        }
+
+        // Evaluate the value expression
         this.traverse(node.value, out);
-        out.push({ op: Op.STORE, arg: node.name });
+        // Store in variable
+        out.push({ op: Op.STORE, arg: varName });
+        break;
+
+      // ── Member Expression (obj.property, obj[index]) ──────────
+      case 'MemberExpression':
+      case 'member':
+        // Evaluate the object
+        this.traverse(node.object, out);
+
+        // Check if it's computed (obj[prop]) or not (obj.prop)
+        if (node.computed) {
+          // obj[index]: push the index value
+          this.traverse(node.property, out);
+          // Stack: [obj, index] → use ARR_GET or member access
+          out.push({ op: Op.ARR_GET });
+        } else {
+          // obj.property: property is a simple identifier
+          const propName = node.property?.name || node.property;
+          if (propName === 'length') {
+            // Special case: .length property
+            out.push({ op: Op.ARR_LEN });
+          } else {
+            // Generic property access (for objects/maps)
+            // Treat as map lookup: push property name, then OBJ_GET
+            out.push({ op: Op.PUSH, arg: propName });
+            out.push({ op: Op.OBJ_GET });
+          }
+        }
         break;
 
       // ── Block (multiple statements) ─────────────────────────
       case 'Block':
-        if (node.statements && Array.isArray(node.statements)) {
-          for (const stmt of node.statements) {
+      case 'block':
+        // Support both node.statements and node.body (parser compatibility)
+        const statements = node.statements || node.body || [];
+        if (Array.isArray(statements)) {
+          for (const stmt of statements) {
             this.traverse(stmt, out);
           }
         }
@@ -340,13 +558,36 @@ export class IRGenerator {
 
       // ── Array Operations ────────────────────────────────────
       case 'ArrayLiteral':
-        out.push({ op: Op.ARR_NEW });
+      case 'array':
+        // Create array in temporary variable
+        const tmpVar = `__tmp_arr_${this.tempVarCounter++}`;
+        out.push({ op: Op.ARR_NEW, arg: tmpVar });
         if (node.elements && Array.isArray(node.elements)) {
           for (const elem of node.elements) {
             this.traverse(elem, out);
-            out.push({ op: Op.ARR_PUSH });
+            out.push({ op: Op.ARR_PUSH, arg: tmpVar });
           }
         }
+        // Load the array onto stack
+        out.push({ op: Op.LOAD, arg: tmpVar });
+        break;
+
+      // ── Object Operations ────────────────────────────────────
+      case 'ObjectLiteral':
+      case 'object':
+        // Create object in temporary variable
+        const tmpObjVar = `__tmp_obj_${this.tempVarCounter++}`;
+        out.push({ op: Op.OBJ_NEW, arg: tmpObjVar });
+        if (node.properties && Array.isArray(node.properties)) {
+          for (const prop of node.properties) {
+            // Evaluate the value expression
+            this.traverse(prop.value, out);
+            // Store it as a property (key, stack_value) → tmpObjVar[key] = stack_value
+            out.push({ op: Op.OBJ_SET, arg: `${tmpObjVar}:${prop.key}` });
+          }
+        }
+        // Load the object onto stack
+        out.push({ op: Op.LOAD, arg: tmpObjVar });
         break;
 
       case 'IndexAccess':
@@ -362,16 +603,96 @@ export class IRGenerator {
 
       // ── Function Call ───────────────────────────────────────
       case 'CallExpression':
-        if (node.arguments && Array.isArray(node.arguments)) {
-          for (const arg of node.arguments) {
-            this.traverse(arg, out);
-          }
-        }
+      case 'call':
+        // Check if this is a method call (obj.method(...))
+        if (node.callee && typeof node.callee === 'object' && node.callee.type === 'member') {
+          // Method call: obj.method(args)
+          const memberExpr = node.callee as any;
+          const methodName = memberExpr.property?.name || memberExpr.property;
 
-        // Phase 4 Step 5: Cross-module function call support
-        // 예: math.add(1, 2) → qualified name으로 처리
-        const calleeNameWithContext = this.resolveCalleeForModule(node.callee);
-        out.push({ op: Op.CALL, arg: calleeNameWithContext, sub: [] });
+          // Push object as first argument
+          this.traverse(memberExpr.object, out);
+
+          // Push other arguments
+          // Phase 26: For higher-order functions (map, filter, reduce), if argument is an identifier,
+          // convert it to a string (function name) so the native function can call it via VM
+          if (node.arguments && Array.isArray(node.arguments)) {
+            for (const arg of node.arguments) {
+              // Check if this is a high-order method (map, filter, reduce, find) and arg is an identifier
+              if ((methodName === 'map' || methodName === 'filter' || methodName === 'reduce' || methodName === 'find') &&
+                  arg && arg.type === 'identifier') {
+                // Push function name as a string
+                out.push({ op: Op.STR_NEW, arg: arg.name });
+              } else {
+                // Normal argument
+                this.traverse(arg, out);
+              }
+            }
+          }
+
+          // Convert method call to VM instruction based on method name
+          switch (methodName) {
+            // String methods
+            case 'slice':
+            case 'substring':
+            case 'substr':
+              // obj.slice(start, end) → STR_SUB
+              out.push({ op: Op.STR_SUB });
+              break;
+            case 'length':
+              // obj.length → STR_LEN or ARR_LEN (handled in MemberExpression for properties)
+              out.push({ op: Op.STR_LEN });
+              break;
+            case 'charAt':
+            case 'charCodeAt':
+              // obj.charAt(index) → STR_AT
+              out.push({ op: Op.STR_AT });
+              break;
+            case 'concat':
+              // obj.concat(other) → STR_CONCAT
+              out.push({ op: Op.STR_CONCAT });
+              break;
+
+            // Array methods
+            case 'push':
+              out.push({ op: Op.ARR_PUSH, arg: '__return_val' });
+              break;
+            case 'reverse':
+              out.push({ op: Op.ARR_REV });
+              break;
+            case 'sort':
+              out.push({ op: Op.ARR_SORT });
+              break;
+
+            // Higher-order array methods (map, filter, reduce, find)
+            case 'map':
+            case 'filter':
+            case 'reduce':
+            case 'find':
+              // Higher-order functions: argument is a function name (string)
+              const builtinMethodName = `__method_${methodName}`;
+              out.push({ op: Op.CALL, arg: builtinMethodName, sub: [] });
+              break;
+
+            default:
+              // Unknown method: fallback to function call
+              const unknownMethodName = `__method_${methodName}`;
+              out.push({ op: Op.CALL, arg: unknownMethodName, sub: [] });
+              break;
+          }
+        } else {
+          // Regular function call
+          if (node.arguments && Array.isArray(node.arguments)) {
+            for (const arg of node.arguments) {
+              this.traverse(arg, out);
+            }
+          }
+
+          // Phase 4 Step 5: Cross-module function call support
+          // 예: math.add(1, 2) → qualified name으로 처리
+          const calleeNameWithContext = this.resolveCalleeForModule(node.callee);
+          out.push({ op: Op.CALL, arg: calleeNameWithContext, sub: [] });
+        }
         break;
 
       // ── Range/Iterator (Lazy Evaluation) ─────────────────────
@@ -383,37 +704,48 @@ export class IRGenerator {
 
       // ── For Statement (Iterator-based Loop) ──────────────────
       case 'ForStatement':
-        // 1. Create iterator from iterable
+      case 'for':
+        // for...in loop: array iteration
+        // Treat same as ForOfStatement - use index-based approach
+
+        // 1. Initialize index variable with 0
+        const forIdxVar = `_idx_${this.indexVarCounter++}`;
+        out.push({ op: Op.PUSH, arg: 0 });
+        out.push({ op: Op.STORE, arg: forIdxVar });
+
+        // 2. Evaluate and store array
         this.traverse(node.iterable, out);
+        const forArrVar = `_arr_${this.indexVarCounter++}`;
+        out.push({ op: Op.STORE, arg: forArrVar });
 
-        // 2. Loop start address
-        const forLoopStart = out.length;
+        // 3. Loop condition check
+        const forLoopStartAddr = out.length;
+        out.push({ op: Op.LOAD, arg: forIdxVar });
+        out.push({ op: Op.ARR_LEN, arg: forArrVar });
+        out.push({ op: Op.LT });
+        const forJmpIdx = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 }); // patch later
 
-        // 3. Check if iterator has next (ITER_HAS)
-        out.push({ op: Op.DUP }); // duplicate iterator for ITER_HAS
-        out.push({ op: Op.ITER_HAS });
-
-        // 4. Jump if no more elements
-        const forJmpNotIdx = out.length;
-        out.push({ op: Op.JMP_NOT, arg: 0 }); // placeholder
-
-        // 5. Get next value (ITER_NEXT)
-        out.push({ op: Op.ITER_NEXT });
-
-        // 6. Store loop variable
+        // 4. Load element and store in loop variable
+        out.push({ op: Op.LOAD, arg: forArrVar });
+        out.push({ op: Op.LOAD, arg: forIdxVar });
+        out.push({ op: Op.ARR_GET });
         out.push({ op: Op.STORE, arg: node.variable });
 
-        // 7. Execute body
+        // 5. Execute body
         this.traverse(node.body, out);
 
-        // 8. Jump back to loop start
-        out.push({ op: Op.JMP, arg: forLoopStart });
+        // 6. Increment index
+        out.push({ op: Op.LOAD, arg: forIdxVar });
+        out.push({ op: Op.PUSH, arg: 1 });
+        out.push({ op: Op.ADD });
+        out.push({ op: Op.STORE, arg: forIdxVar });
 
-        // 9. Patch JMP_NOT to point to end
-        out[forJmpNotIdx].arg = out.length;
+        // 7. Jump back
+        out.push({ op: Op.JMP, arg: forLoopStartAddr });
 
-        // 10. Pop iterator from stack
-        out.push({ op: Op.POP });
+        // 8. Patch exit jump
+        out[forJmpIdx].arg = out.length;
         break;
 
       // ── For...Of Statement (Array iteration with index) ────────
@@ -441,11 +773,8 @@ export class IRGenerator {
         // Load index
         out.push({ op: Op.LOAD, arg: indexVar });
 
-        // Load array
-        out.push({ op: Op.LOAD, arg: arrayVar });
-
-        // Get array length (ARR_LEN)
-        out.push({ op: Op.ARR_LEN });
+        // Get array length using variable-based ARR_LEN
+        out.push({ op: Op.ARR_LEN, arg: arrayVar });
 
         // Compare: index < length
         out.push({ op: Op.LT });
@@ -514,17 +843,249 @@ export class IRGenerator {
       // ── Function Statement (from Phase 4 Step 5) ─────────────────
       case 'function':
       case 'FunctionStatement':
-        // 함수 선언: FUNC_DEF 지시사항 생성
-        const fn = node as FunctionStatement;
-        const funcBody: Inst[] = [];
-        if (fn.body) {
-          this.traverse(fn.body, funcBody);
+        // Phase 2: Functions are registered at module level (runner.ts)
+        // No need to generate FUNC_DEF IR since registration happens before execution
+        // Just skip the function definition here
+        break;
+
+      // ── Expression Statement (evaluate and discard result) ────
+      case 'expression':
+        if (node.expression) {
+          this.traverse(node.expression, out);
         }
-        out.push({
-          op: Op.FUNC_DEF,
-          arg: fn.name,
-          sub: funcBody
-        });
+        break;
+
+      // ── Variable Declaration (let) ──────────────────────────
+      case 'variable':
+        if (process.env.DEBUG_TRAVERSE) {
+          console.log(`[DEBUG TRAVERSE] ✅ REACHED variable case! name="${(node as any).name}"`);
+        }
+        // Generate code for value expression
+        if (node.value) {
+          this.traverse(node.value, out);
+        } else {
+          // No initializer: push undefined (or 0)
+          out.push({ op: Op.PUSH, arg: 0 });
+        }
+        // Store in variable
+        if (process.env.DEBUG_TRAVERSE) {
+          console.log(`[DEBUG TRAVERSE] Generating STORE for "${(node as any).name}"`);
+        }
+        out.push({ op: Op.STORE, arg: node.name });
+        break;
+
+      // ── Secret-Link: 보안 변수 선언 (암호화 메모리) ─────────
+      case 'secret':
+        if (node.source === 'config') {
+          // Config.load("KEY") → 빌드 타임에 .flconf에서 주입된 값 로드
+          out.push({ op: Op.LOAD_SECRET, arg: node.configKey || node.name });
+        } else if (node.value) {
+          // 리터럴 값 → 암호화 저장
+          this.traverse(node.value, out);
+        } else {
+          out.push({ op: Op.PUSH, arg: 0 });
+        }
+        // 보안 영역에 저장 (일반 STORE가 아닌 STORE_SECRET)
+        out.push({ op: Op.STORE_SECRET, arg: node.name });
+        break;
+
+      // ── Return Statement ────────────────────────────────────
+      case 'ReturnStatement':
+      case 'return':
+        // Support both node.value and node.argument (parser compatibility)
+        const returnValue = node.value || node.argument;
+        if (returnValue) {
+          this.traverse(returnValue, out);
+        } else {
+          out.push({ op: Op.PUSH, arg: 0 });
+        }
+        out.push({ op: Op.RET });
+        break;
+
+      // ── Try-Catch-Finally Statement (Phase I) ───────────────
+      case 'TryStatement':
+      case 'try':
+        {
+          // Structure:
+          // TRY_START catch_offset
+          // [try body]
+          // JMP finally_or_end
+          // [catch blocks]
+          // [finally block]
+          // ...
+
+          const tryStartIdx = out.length;
+          out.push({ op: Op.TRY_START, arg: 0 }); // Patch catch offset later
+
+          // Generate try body
+          if (node.body && node.body.body) {
+            for (const stmt of node.body.body) {
+              this.traverse(stmt, out);
+            }
+          }
+
+          // Jump over catch blocks (if they exist)
+          const jumpOverCatchIdx = out.length;
+          out.push({ op: Op.JMP, arg: 0 }); // Patch offset later
+
+          // Patch try_start to point to catch block
+          const catchBlockStart = out.length;
+          out[tryStartIdx].arg = catchBlockStart;
+
+          // Generate catch blocks
+          if (node.catchClauses && node.catchClauses.length > 0) {
+            for (const catchClause of node.catchClauses) {
+              // CATCH_START with error variable name
+              out.push({
+                op: Op.CATCH_START,
+                arg: catchClause.parameter || '_error'
+              });
+
+              // Generate catch body
+              if (catchClause.body && catchClause.body.body) {
+                for (const stmt of catchClause.body.body) {
+                  this.traverse(stmt, out);
+                }
+              }
+
+              // CATCH_END (marks end of catch block)
+              out.push({ op: Op.CATCH_END });
+            }
+          }
+
+          // Patch jump-over-catch to point to finally (or end)
+          out[jumpOverCatchIdx].arg = out.length;
+
+          // Generate finally block if it exists
+          if (node.finallyBody && node.finallyBody.body) {
+            for (const stmt of node.finallyBody.body) {
+              this.traverse(stmt, out);
+            }
+          }
+        }
+        break;
+
+      // ── Throw Statement (Phase I) ────────────────────────────
+      case 'ThrowStatement':
+      case 'throw':
+        {
+          // Evaluate the expression (usually a string or variable)
+          this.traverse(node.argument, out);
+          // Throw the error
+          out.push({ op: Op.THROW });
+        }
+        break;
+
+      // ── Struct Declaration (Phase 16) ───────────────────────
+      case 'struct':
+      case 'StructDeclaration':
+        {
+          // Struct declaration: store struct metadata in the IR
+          // struct name { field1, field2, ... }
+          // Reified-Type-System: struct User<T> → typeParams 정보를 메타데이터로 포함
+
+          const structName = node.name;
+          const fields = node.fields || [];
+          const typeParams = node.typeParams;  // GenericTypeParam[] | undefined
+
+          // Create struct type object
+          out.push({ op: Op.STRUCT_NEW, arg: structName });
+
+          // Reified-Type-System: 제네릭 파라미터가 있으면 GENERIC_INST 메타데이터 emit
+          // arg 형식: "StructName[T,U]" → ReifiedTypeRegistry가 레이아웃 결정에 사용
+          if (typeParams && typeParams.length > 0) {
+            const paramStr = typeParams.map((p: any) =>
+              p.constraint ? `${p.name}:${p.constraint}` : p.name
+            ).join(',');
+            out.push({ op: Op.GENERIC_INST, arg: `${structName}[${paramStr}]` });
+          }
+
+          // Register struct fields
+          for (const field of fields) {
+            const fieldName = field.name || field;
+            // Reified-Type-System: nullable 필드(T?)는 null-check guard를 함께 등록
+            const rawFieldType: string = field.fieldType || 'any';
+            const isNullable = rawFieldType.endsWith('?');
+            // STRUCT_FIELD arg: "fieldName" 또는 "fieldName:nullable" (nullable 마킹)
+            out.push({ op: Op.STRUCT_FIELD, arg: isNullable ? `${fieldName}:nullable` : fieldName });
+          }
+
+          // Store struct definition
+          out.push({ op: Op.STORE, arg: `__struct_${structName}` });
+        }
+        break;
+
+      // ── Reified-Type-System: 타입 별칭 선언 ──────────────────
+      // type UserID = int | string → TYPE_DECL 명령어로 컴파일 타임 레지스트리 등록
+      // 런타임 오버헤드: 0 (메타데이터 전용, VM이 execute 시 skip)
+      case 'typeAlias':
+        {
+          const { alias, definition, isUnion, members } = node;
+
+          // TYPE_DECL: "alias=definition" 형태로 인코딩
+          // 예: "UserID=int|string" 또는 "Callback=fn(int)->bool"
+          const encoded = isUnion && members
+            ? `${alias}=${members.join('|')}`
+            : `${alias}=${definition}`;
+
+          out.push({ op: Op.TYPE_DECL, arg: encoded });
+        }
+        break;
+
+      // ── Reified-Type-System: 컴파일 타임 크기 검증 ──────────
+      // @static_assert_size<User<int>, 24> → STATIC_ASSERT 명령어
+      // VM이 타입 레지스트리에서 실제 크기를 계산하여 불일치 시 컴파일 에러
+      case 'staticAssert':
+        {
+          const { targetType, expectedSize } = node;
+          // arg 형식: "TypeName:expectedBytes"
+          out.push({ op: Op.STATIC_ASSERT, arg: `${targetType}:${expectedSize}` });
+        }
+        break;
+
+      // ── Self-Testing Compiler: test 블록 ──────────────────────
+      // 릴리즈 빌드에서 test 블록은 완전히 제거 (0바이트)
+      // --test 플래그 빌드는 test-runner.ts가 별도로 처리
+      case 'test':
+        break;  // NOP: 릴리즈 빌드에서 0바이트 제거
+
+      // ── Self-Testing Compiler: expect 어서션 ─────────────────
+      // expect(actual).to.be.equal(expected) 형식 → assert_* 함수 호출로 컴파일
+      // test-runner.ts가 test 블록을 fn으로 래핑할 때 PROOF_TESTER_STDLIB과 함께 실행
+      // 릴리즈: test 블록 자체가 0바이트 → 내부의 assert도 자동 제거
+      case 'assert':
+        {
+          const { kind, actual, expected, sourceDesc } = node;
+
+          if (kind === 'equal') {
+            // assert_eq(actual, expected, sourceDesc)
+            this.traverse(actual, out);
+            this.traverse(expected, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_eq' });
+          } else if (kind === 'notEqual') {
+            // assert_ne(actual, expected, sourceDesc)
+            this.traverse(actual, out);
+            this.traverse(expected, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_ne' });
+          } else if (kind === 'true') {
+            // assert_true(actual, sourceDesc)
+            this.traverse(actual, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_true' });
+          } else if (kind === 'false') {
+            // assert_false(actual, sourceDesc)
+            this.traverse(actual, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_false' });
+          } else if (kind === 'exists') {
+            // assert(actual, sourceDesc)  — assert가 falsy이면 실패
+            this.traverse(actual, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert' });
+          }
+        }
         break;
 
       // ── Default (unknown node type) ─────────────────────────
@@ -970,10 +1531,17 @@ export class IRGenerator {
     // Store lambda body as instructions
     const bodyInstructions: Inst[] = [];
     this.traverse(lambda.body, bodyInstructions);
+
+    // Extract parameter names for proper variable binding
+    const paramNames = lambda.params?.map((p: any) =>
+      typeof p === 'string' ? p : (p.name || '')
+    ) || [];
+
     out.push({
       op: Op.LAMBDA_SET_BODY,
       arg: lambda.params.length,
-      sub: bodyInstructions
+      sub: bodyInstructions,
+      params: paramNames  // Include parameter names for VM to bind
     });
   }
 

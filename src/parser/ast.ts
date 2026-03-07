@@ -26,6 +26,7 @@ export interface MinimalFunctionAST {
 
   // 함수 정보
   fnName: string;        // 함수명
+  typeParams?: string[]; // 타입 매개변수 (예: ["T", "U"])  - Phase 5 Task 5
   inputType: string;     // 입력 타입 (예: "array<number>")
   outputType: string;    // 출력 타입 (예: "number")
 
@@ -71,7 +72,8 @@ export type Expression =
   | ArrayExpression
   | MemberExpression
   | MatchExpression
-  | LambdaExpression;
+  | LambdaExpression
+  | AwaitExpression;  // Phase J: await expression
 
 export interface LiteralExpression {
   type: 'literal';
@@ -122,6 +124,16 @@ export interface LambdaExpression {
 }
 
 /**
+ * Phase J: Await Expression
+ * Pauses execution until a Promise resolves
+ * Only valid inside async functions
+ */
+export interface AwaitExpression {
+  type: 'await';
+  argument: Expression;  // Expression that returns a Promise<T>
+}
+
+/**
  * Phase 4 Step 1: Module System - Import/Export Support
  * Enables multi-file projects with type-safe imports and exports
  */
@@ -153,6 +165,38 @@ export interface Module {
   imports: ImportStatement[];  // Import statements at top
   exports: ExportStatement[];  // Export statements
   statements: Statement[];     // Other statements (functions, variables, etc.)
+  lintConfig?: LintConfig;     // Native-Linter: @lint(...) 어노테이션
+  allowOrigins?: string[];     // Hardware-CORS: @allow_origin("https://...") 도메인 화이트리스트
+  cspPolicy?: string;          // Native-CSP-Shield: @csp_policy(...) 직렬화 문자열
+  validateSchemas?: Array<{ name: string; schema: string }>;  // Native-Request-Validator: @validate_schema(...)
+  localVault?: LocalVaultConfig; // Native-JSON-Vault: @local_vault(path: "...", autosave: true)
+}
+
+/**
+ * Native-JSON-Vault: @local_vault(...) 어노테이션 설정
+ *
+ * 예시:
+ *   @local_vault(path: "./data/config.json", autosave: true)
+ */
+export interface LocalVaultConfig {
+  path: string;        // vault 파일 경로
+  autosave: boolean;   // 쓰기 즉시 commit 여부
+  line: number;
+  column: number;
+}
+
+/**
+ * Native-Linter: @lint(...) 어노테이션 설정
+ *
+ * 예시:
+ *   @lint(no_unused: error, shadowing_check: warn, strict_pointers: true)
+ */
+export interface LintConfig {
+  no_unused?: 'error' | 'warn' | 'off';      // 미사용 변수 감지
+  shadowing_check?: 'error' | 'warn' | 'off'; // 변수 섀도잉 감지
+  strict_pointers?: boolean;                  // 포인터 안전성 강제
+  line: number;   // 어노테이션 소스 위치
+  column: number;
 }
 
 /**
@@ -206,6 +250,151 @@ export interface MatchExpression {
   arms: MatchArm[];
 }
 
+// Reified-Type-System: 제네릭 타입 파라미터
+// struct User<T: Printable> → typeParams: [{ name: 'T', constraint: 'Printable' }]
+export interface GenericTypeParam {
+  name: string;           // 'T', 'U', 'K', 'V' 등
+  constraint?: string;    // 'Printable', 'Comparable' 등 (선택)
+}
+
+// Compile-Time-ORM: @db_table / @db_column 어노테이션 타입
+export interface ORMAnnotation {
+  name: string;                     // 'db_table' | 'db_column' | 'db_id' | 'db_auto_inc'
+  args?: Record<string, string>;    // 예: { name: 'wash_logs' } or { type: 'varchar(255)' }
+}
+
+// Compile-Time-Validator: @check(min:N, max:N, pattern:"...") 어노테이션
+// @check(min: 3, max: 20)           → 길이/크기 범위 검증
+// @check(pattern: "^[a-z]+$")       → 정규표현식 검증 (SIMD 가속)
+// @check(min: 0, max: 100, pattern: "^\\d+$") → 복합 검증
+export interface CheckConstraint {
+  min?: number;      // string: 최소 길이, number: 최솟값
+  max?: number;      // string: 최대 길이, number: 최댓값
+  pattern?: string;  // 정규표현식 패턴 (SIMD-accelerated matching)
+  required?: boolean; // 필수 필드 여부 (기본 true)
+}
+
+// Phase 16: Struct Declaration
+// Reified-Type-System: typeParams 추가 → struct User<T> { id: T, name: string }
+// Compile-Time-ORM: annotations 추가 → @db_table(name: "wash_logs") struct WashLog { ... }
+// Compile-Time-Validator: checkConstraints 추가 → @check(min:3, max:20) username: string
+export interface StructDeclaration {
+  type: 'struct';
+  name: string;
+  typeParams?: GenericTypeParam[];   // Reified-Type-System: 제네릭 파라미터
+  fields: Array<{
+    name: string;
+    fieldType?: string;
+    annotations?: ORMAnnotation[];       // Compile-Time-ORM: @db_id, @db_column(type: .varchar)
+    checkConstraints?: CheckConstraint;  // Compile-Time-Validator: @check(...) 검증 규칙
+  }>;
+  annotations?: ORMAnnotation[];     // Compile-Time-ORM: @db_table(name: "...") 등
+  secureToken?: SecureTokenAnnotation; // Native-Auth-Token: @secure_token(...)
+}
+
+// Reified-Type-System: 타입 별칭 선언
+// type UserID = int | string       → alias: 'UserID', definition: 'int | string', isUnion: true
+// type Callback = fn(int) -> bool  → alias: 'Callback', definition: 'fn(int)->bool'
+export interface TypeAliasDeclaration {
+  type: 'typeAlias';
+  alias: string;          // 타입 별칭명 (예: 'UserID')
+  definition: string;     // 원본 타입 표현 (예: 'int | string')
+  isUnion: boolean;       // 유니온 타입 여부
+  members?: string[];     // 유니온 멤버들 (isUnion이 true일 때)
+  line: number;
+  column: number;
+}
+
+// Reified-Type-System: 컴파일 타임 크기 검증
+// @static_assert_size<User<int>, 24>  → 런타임 오버헤드 없이 타입 레이아웃 검증
+export interface StaticAssertDeclaration {
+  type: 'staticAssert';
+  targetType: string;     // 검증할 타입 (예: 'User<int>')
+  expectedSize: number;   // 기대 바이트 크기 (예: 24)
+  line: number;
+  column: number;
+}
+
+// Phase 16: Enum Declaration
+export interface EnumDeclaration {
+  type: 'enum';
+  name: string;
+  fields: { [key: string]: number };
+}
+
+// Phase 16: Break Statement
+export interface BreakStatement {
+  type: 'break';
+}
+
+// Phase 16: Continue Statement
+export interface ContinueStatement {
+  type: 'continue';
+}
+
+// Native-Auth-Token: @secure_token 어노테이션이 붙은 구조체 메타데이터
+// @secure_token(algo: .hmac_sha256, expires: 3600)
+// struct AuthClaims { user_id: int, role: string }
+export interface SecureTokenAnnotation {
+  algo: 'hmac_sha256' | 'sha256';  // 서명 알고리즘
+  expires: number;                  // 기본 만료 시간 (초)
+}
+
+// Secret-Link: 보안 변수 선언 (빌드 타임 주입 + 암호화 메모리)
+export interface SecretDeclaration {
+  type: 'secret';
+  name: string;                    // 보안 변수명
+  source?: 'config' | 'literal';   // 값 출처: .flconf 또는 리터럴
+  value?: Expression;              // 리터럴 값 (빌드 타임에 암호화)
+  configKey?: string;              // .flconf 키 (Config.load("KEY"))
+}
+
+// MOSS-Style: 제로-런타임 스타일 속성
+export interface StyleProperty {
+  name: string;           // background, padding, font-size 등
+  value: string | number; // #007bff, 10, "bold" 등
+  unit?: string;          // px, em, rem, % 등
+}
+
+// MOSS-Style: 제로-런타임 스타일 선언
+export interface StyleDeclaration {
+  type: 'style';
+  name: string;           // 스타일 이름 (primary_button 등)
+  properties: StyleProperty[];
+  extends?: string;       // 상속할 스타일 이름 (선택)
+}
+
+// Self-Testing Compiler: 내장 테스트 블록
+// - test 모드: 함수로 래핑하여 실행
+// - 릴리즈 빌드: IR Generator가 완전히 skip (0바이트)
+export interface TestBlock {
+  type: 'test';
+  name: string;        // test "이름"
+  body: Statement[];   // 블록 내용
+  modifier?: 'skip' | 'only';  // test.skip / test.only
+  line: number;        // 소스 위치 (오류 추적용)
+  column: number;
+}
+
+// Self-Testing Compiler: expect 어서션
+// expect(actual).to.be.equal(expected) → assert_eq(actual, expected, desc) 호출로 컴파일
+// - test 블록 내에서 사용 → 릴리즈에서는 test 블록 자체가 0바이트이므로 자동 제거
+// - 지원 형식:
+//     expect(x).to.be.equal(y)    → kind='equal'   (assert_eq)
+//     expect(x).to.be.notEqual(y) → kind='notEqual' (assert_ne)
+//     expect(x).to.be.true()      → kind='true'     (assert_true)
+//     expect(x).to.be.false()     → kind='false'    (assert_false)
+//     expect(x).to.be.exists()    → kind='exists'   (assert)
+export interface AssertStatement {
+  type: 'assert';
+  kind: 'equal' | 'notEqual' | 'true' | 'false' | 'exists';
+  actual: Expression;
+  expected?: Expression;   // equal / notEqual에서 사용
+  sourceDesc: string;      // "[line:col] expect(...).to.be.xxx(...)" - 에러 메시지용
+  line: number;
+  column: number;
+}
+
 // 문장 (Statement)
 export type Statement =
   | ExpressionStatement
@@ -217,7 +406,19 @@ export type Statement =
   | ReturnStatement
   | BlockStatement
   | ImportStatement  // Phase 4: Module System
-  | ExportStatement; // Phase 4: Module System
+  | ExportStatement  // Phase 4: Module System
+  | TryStatement    // Phase I: Exception Handling
+  | ThrowStatement  // Phase I: Exception Handling
+  | StructDeclaration  // Phase 16: Struct support
+  | EnumDeclaration    // Phase 16: Enum support
+  | BreakStatement     // Phase 16: Break support
+  | ContinueStatement  // Phase 16: Continue support
+  | SecretDeclaration  // Secret-Link: 보안 변수
+  | StyleDeclaration   // MOSS-Style: 스타일 선언
+  | TestBlock               // Self-Testing Compiler: 내장 테스트 블록
+  | AssertStatement         // Self-Testing Compiler: expect 어서션
+  | TypeAliasDeclaration    // Reified-Type-System: type X = A | B
+  | StaticAssertDeclaration; // Reified-Type-System: @static_assert_size<T, N>
 
 export interface ExpressionStatement {
   type: 'expression';
@@ -271,14 +472,36 @@ export interface BlockStatement {
   body: Statement[];
 }
 
+// Phase I: Exception Handling - Try Statement
+export interface TryStatement {
+  type: 'try';
+  body: BlockStatement;           // try block
+  catchClauses?: CatchClause[];   // catch blocks (optional, can be multiple)
+  finallyBody?: BlockStatement;   // finally block (optional)
+}
+
+// Phase I: Catch Clause
+export interface CatchClause {
+  parameter?: string;  // Error variable name (e.g., "err" in catch(err))
+  body: BlockStatement;  // catch block body
+}
+
+// Phase I: Throw Statement
+export interface ThrowStatement {
+  type: 'throw';
+  argument: Expression;  // Expression to throw (usually string)
+}
+
 // 함수 (FunctionStatement)
 export interface FunctionStatement {
   type: 'function';
   name: string;
+  typeParams?: string[];  // Type parameters (e.g., ["T", "U"]) - Phase 5 Task 5
   params: Parameter[];
   returnType?: string;
   body: BlockStatement;
   intent?: string;
+  async?: boolean;  // Phase J: async function flag
   source?: {
     line: number;
     column: number;
@@ -288,4 +511,52 @@ export interface FunctionStatement {
 export interface Parameter {
   name: string;
   paramType?: string;
+}
+
+/**
+ * Task B: Enhanced Type System
+ *
+ * Structured TypeAnnotation for better type checking
+ * Supports: primitives, unions, generics, arrays, functions
+ */
+
+export interface TypeParameter {
+  name: string;
+  constraint?: TypeAnnotationObject;
+  default?: TypeAnnotationObject;
+}
+
+// Structured type annotation (replaces string-based types)
+export type TypeAnnotationObject =
+  | PrimitiveType
+  | UnionTypeObject
+  | GenericTypeRef
+  | ArrayTypeRef
+  | FunctionTypeRef;
+
+export interface PrimitiveType {
+  kind: 'primitive';
+  name: 'number' | 'string' | 'boolean' | 'any' | 'void' | 'never';
+}
+
+export interface UnionTypeObject {
+  kind: 'union';
+  members: TypeAnnotationObject[];
+}
+
+export interface GenericTypeRef {
+  kind: 'generic';
+  name: string;
+  typeArguments: TypeAnnotationObject[];
+}
+
+export interface ArrayTypeRef {
+  kind: 'array';
+  element: TypeAnnotationObject;
+}
+
+export interface FunctionTypeRef {
+  kind: 'function';
+  paramTypes: TypeAnnotationObject[];
+  returnType: TypeAnnotationObject;
 }

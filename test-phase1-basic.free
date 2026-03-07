@@ -1,0 +1,19 @@
+// Phase 1 기본 메서드 테스트
+
+fn main() {
+  println("Test 1: __method_len");
+  let arr = [1, 2, 3];
+  println(__method_len(arr));
+
+  println("Test 2: __method_push");
+  let arr2 = __method_push(arr, 4);
+  println(arr2);
+
+  println("Test 3: __method_slice");
+  let slice = __method_slice(arr2, 0, 2);
+  println(slice);
+
+  println("✅ Phase 1 basic tests passed!");
+}
+
+main();

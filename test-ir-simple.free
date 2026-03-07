@@ -1,0 +1,19 @@
+// ir-generator 간단한 테스트
+
+fn testArrayOp() {
+  println("Test: Array operations");
+
+  let arr = [];
+  arr.push(arr, "PUSH:5");
+  arr.push(arr, "ADD");
+  arr.push(arr, "RETURN");
+
+  println("Instructions:");
+  let i = 0;
+  while (i < arr.len(arr)) {
+    println(arr[i]);
+    i = i + 1;
+  }
+}
+
+testArrayOp();

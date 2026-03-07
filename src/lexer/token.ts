@@ -39,16 +39,33 @@ export enum TokenType {
   SUPER = 'SUPER',
   IMPL = 'IMPL',
 
+  // Phase I: Exception Handling (4개 추가)
+  TRY = 'TRY',           // try block
+  CATCH = 'CATCH',       // catch block
+  THROW = 'THROW',       // throw statement
+  FINALLY = 'FINALLY',   // finally block
+
   // Phase 5 minimal .free 포맷 토큰 (3개 추가)
   INPUT = 'INPUT',       // input: 타입 정의
   OUTPUT = 'OUTPUT',     // output: 타입 정의
   INTENT = 'INTENT',     // intent: 의도 정의
+
+  // Secret-Link: 보안 변수 선언 (빌드 타임 주입 / 암호화 메모리)
+  SECRET = 'SECRET',     // secret 키워드
+
+  // MOSS-Style: 제로-런타임 스타일 선언
+  STYLE = 'STYLE',       // style 키워드
+
+  // Self-Testing Compiler: 내장 테스트 블록
+  TEST = 'TEST',         // test 블록 (릴리즈 빌드에서 0바이트 제거)
+  EXPECT = 'EXPECT',     // expect(actual).to.be.xxx(expected) 어서션 (test 블록 전용)
 
   // Identifiers & Literals
   IDENT = 'IDENT',
   NUMBER = 'NUMBER',
   STRING = 'STRING',
   CHAR = 'CHAR',
+  REGEX = 'REGEX',  // Regular expression literal
 
   // Operators
   PLUS = 'PLUS',           // +
@@ -110,7 +127,16 @@ export enum TokenType {
   EOF = 'EOF',
   NEWLINE = 'NEWLINE',
   COMMENT = 'COMMENT',
-  ILLEGAL = 'ILLEGAL'
+  ILLEGAL = 'ILLEGAL',
+
+  // Native-Graph: 정적 컴파일 기반 GraphQL (Apollo 대체)
+  SCHEMA = 'SCHEMA',     // schema 블록 정의
+  RESOLVER = 'RESOLVER', // @resolver 어노테이션 대상 키워드
+  QUERY = 'QUERY',       // query 타입 정의
+  MUTATION = 'MUTATION', // mutation 타입 정의
+
+  // Self-Formatting Compiler: 포맷 정책 어노테이션
+  FORMAT_POLICY = 'FORMAT_POLICY'  // @format(indent:4, semi:true, ...) 어노테이션
 }
 
 /**
@@ -162,10 +188,32 @@ export const KEYWORDS: Record<string, TokenType> = {
   'super': TokenType.SUPER,
   'impl': TokenType.IMPL,
 
+  // Phase I: Exception Handling (4개)
+  'try': TokenType.TRY,
+  'catch': TokenType.CATCH,
+  'throw': TokenType.THROW,
+  'finally': TokenType.FINALLY,
+
   // Phase 5 minimal .free 포맷 토큰 (3개)
   'input': TokenType.INPUT,
   'output': TokenType.OUTPUT,
-  'intent': TokenType.INTENT
+  'intent': TokenType.INTENT,
+
+  // Secret-Link: 보안 변수
+  'secret': TokenType.SECRET,
+
+  // MOSS-Style: 제로-런타임 스타일 선언
+  'style': TokenType.STYLE,
+
+  // Self-Testing Compiler: 내장 테스트 블록
+  'test': TokenType.TEST,
+  'expect': TokenType.EXPECT,   // expect 어서션 (test 블록 전용)
+
+  // Native-Graph: 정적 컴파일 기반 GraphQL (Apollo 대체)
+  'schema': TokenType.SCHEMA,
+  'resolver': TokenType.RESOLVER,
+  'query': TokenType.QUERY,
+  'mutation': TokenType.MUTATION
 };
 
 /**

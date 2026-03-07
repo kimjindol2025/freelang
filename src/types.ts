@@ -7,14 +7,25 @@ export enum Op {
   PUSH      = 0x01,
   POP       = 0x02,
   DUP       = 0x03,
+  PUSH_FLOAT = 0x04,  // Phase 3: Push float literal (64-bit double)
 
-  // Arithmetic
+  // Arithmetic (Integer & Float)
   ADD       = 0x10,
   SUB       = 0x11,
   MUL       = 0x12,
   DIV       = 0x13,
   MOD       = 0x14,
   NEG       = 0x15,
+
+  // Float-specific arithmetic (Phase 3 Level 3)
+  FADD      = 0x16,   // stack: [float1, float2] → [float1 + float2]
+  FSUB      = 0x17,   // stack: [float1, float2] → [float1 - float2]
+  FMUL      = 0x18,   // stack: [float1, float2] → [float1 * float2]
+  FDIV      = 0x19,   // stack: [float1, float2] → [float1 / float2]
+
+  // Float conversions
+  F2I       = 0x1A,   // float to int: stack: [float] → [int(truncated)]
+  I2F       = 0x1B,   // int to float: stack: [int] → [float]
 
   // Comparison
   EQ        = 0x20,
@@ -101,6 +112,33 @@ export enum Op {
   CHANNEL_SEND = 0xB6,   // channel_send(channel, message)
   CHANNEL_RECV = 0xB7,   // channel_recv(channel, timeout) → message
 
+  // Object operations (Phase C)
+  OBJ_NEW   = 0xC0,  // Create new object: arg: varname → store in varname
+  OBJ_SET   = 0xC1,  // Set property: arg: "varname:key" → set varname[key] = stack_value
+  OBJ_GET   = 0xC2,  // Get property: stack: [obj, key] → [value]
+
+  // Struct operations (Phase 16)
+  STRUCT_NEW = 0xC3,   // Create new struct type: arg: struct_name
+  STRUCT_FIELD = 0xC4, // Register struct field: arg: field_name
+  STRUCT_SET_FIELD = 0xC5, // Set field: arg: "structvar:fieldname" → set field value
+  STRUCT_GET_FIELD = 0xC6, // Get field: stack: [struct, fieldname] → [value]
+
+  // Exception Handling (Phase I - try-catch)
+  TRY_START = 0xD0,  // Start try block: arg: catch_offset (jump target if error)
+  CATCH_START = 0xD1,  // Start catch block: arg: varname (error variable)
+  CATCH_END = 0xD2,  // End catch block
+  THROW = 0xD3,      // Throw error: arg: error_message
+
+  // Secret-Link: 보안 변수 (암호화 메모리 영역)
+  STORE_SECRET = 0xE0,  // 암호화 저장: arg: varname, stack: [value] → encrypted store
+  LOAD_SECRET  = 0xE1,  // 복호화 로드: arg: varname → stack: [decrypted_value]
+
+  // Reified-Type-System: 타입 정보를 바이너리 레이아웃에 직접 반영
+  TYPE_DECL    = 0xE8,  // 타입 별칭 등록: arg: "alias=definition" (컴파일 타임 메타데이터)
+  NULL_CHECK   = 0xE9,  // nullable 타입 null 안전 검사: arg: varname (런타임 null 가드)
+  STATIC_ASSERT = 0xEA, // 컴파일 타임 크기 검증: arg: "TypeName:expectedSize"
+  GENERIC_INST  = 0xEB, // 제네릭 인스턴스화: arg: "StructName<ConcreteType>" (레이아웃 결정)
+
   // Debug (AI reads structured output)
   DUMP      = 0xF0,
 }
@@ -110,6 +148,7 @@ export interface Inst {
   op: Op;
   arg?: number | string | number[];
   sub?: Inst[];  // sub-program for ARR_MAP/ARR_FILTER, CALL
+  params?: string[];  // parameter names for LAMBDA_SET_BODY
 }
 
 // ── AI Intent (what AI sends) ───────────────────────────────

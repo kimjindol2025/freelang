@@ -232,7 +232,7 @@ export interface FFIFunctionSignature {
     name: string;
     type: string;
   }>;
-  category: 'stream' | 'ws' | 'http' | 'http2' | 'timer' | 'event';
+  category: 'stream' | 'ws' | 'http' | 'http2' | 'timer' | 'event' | 'visualization' | 'system' | 'memory' | 'io';
 }
 
 /**

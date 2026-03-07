@@ -1,0 +1,13 @@
+// 보조 모듈: 함수 정의
+
+fn double(x) {
+  return x * 2;
+}
+
+fn triple(x) {
+  return x * 3;
+}
+
+fn add(a, b) {
+  return a + b;
+}
