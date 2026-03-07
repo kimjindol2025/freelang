@@ -96,7 +96,8 @@ export class ProgramRunner {
               type: 'FunctionDefinition',
               name: fn.name,
               params: fn.params?.map((p: any) => p.name) || [],  // Extract param names
-              body: fn.body  // BlockStatement
+              body: fn.body,  // BlockStatement
+              annotations: fn.annotations || []  // Self-Monitoring Kernel: @monitor 등
             });
           }
         }

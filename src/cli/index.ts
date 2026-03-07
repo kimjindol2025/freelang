@@ -542,7 +542,7 @@ async function main(): Promise<void> {
   }
 
   // 인자 파싱
-  let mode: 'interactive' | 'batch' | 'aot' = 'interactive';
+  let mode: 'interactive' | 'batch' | 'aot' | 'file' = 'interactive';
   let batchInputFile: string | undefined;
   let batchOutputFile: string | undefined;
   let aotInputFile: string | undefined;
@@ -630,7 +630,9 @@ async function main(): Promise<void> {
               if (result.output !== undefined && result.output !== null) {
                 console.log(result.output);
               }
-              process.exit(0);
+              // mode를 'file'로 설정: interactive 모드 진입 방지
+              // HTTP 서버 등 이벤트 루프가 있으면 Node.js가 자연스럽게 유지됨
+              mode = 'file';
             } else {
               // 실패: 에러 메시지 표시
               if (result.error) {

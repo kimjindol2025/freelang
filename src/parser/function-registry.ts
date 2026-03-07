@@ -11,6 +11,7 @@ export interface FunctionDefinition {
   returnType?: string; // Optional return type annotation
   paramTypes?: Record<string, string>; // Optional parameter type annotations
   async?: boolean; // Phase J: async function flag
+  annotations?: string[]; // Self-Monitoring Kernel: @monitor 등 어노테이션 목록
 }
 
 export interface FunctionTypes {

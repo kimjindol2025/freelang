@@ -293,6 +293,25 @@ export interface TestBlock {
   column: number;
 }
 
+// Self-Testing Compiler: expect 어서션
+// expect(actual).to.be.equal(expected) → assert_eq(actual, expected, desc) 호출로 컴파일
+// - test 블록 내에서 사용 → 릴리즈에서는 test 블록 자체가 0바이트이므로 자동 제거
+// - 지원 형식:
+//     expect(x).to.be.equal(y)    → kind='equal'   (assert_eq)
+//     expect(x).to.be.notEqual(y) → kind='notEqual' (assert_ne)
+//     expect(x).to.be.true()      → kind='true'     (assert_true)
+//     expect(x).to.be.false()     → kind='false'    (assert_false)
+//     expect(x).to.be.exists()    → kind='exists'   (assert)
+export interface AssertStatement {
+  type: 'assert';
+  kind: 'equal' | 'notEqual' | 'true' | 'false' | 'exists';
+  actual: Expression;
+  expected?: Expression;   // equal / notEqual에서 사용
+  sourceDesc: string;      // "[line:col] expect(...).to.be.xxx(...)" - 에러 메시지용
+  line: number;
+  column: number;
+}
+
 // 문장 (Statement)
 export type Statement =
   | ExpressionStatement
@@ -313,7 +332,8 @@ export type Statement =
   | ContinueStatement  // Phase 16: Continue support
   | SecretDeclaration  // Secret-Link: 보안 변수
   | StyleDeclaration   // MOSS-Style: 스타일 선언
-  | TestBlock;         // Self-Testing Compiler: 내장 테스트 블록
+  | TestBlock          // Self-Testing Compiler: 내장 테스트 블록
+  | AssertStatement;   // Self-Testing Compiler: expect 어서션
 
 export interface ExpressionStatement {
   type: 'expression';

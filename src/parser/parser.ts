@@ -75,6 +75,7 @@ import {
   StyleDeclaration,   // MOSS-Style: 스타일 선언
   StyleProperty,      // MOSS-Style: 스타일 속성
   TestBlock,          // Self-Testing Compiler: 내장 테스트 블록
+  AssertStatement,    // Self-Testing Compiler: expect 어서션
   LintConfig          // Native-Linter: @lint(...) 어노테이션
 } from './ast';
 
@@ -1576,6 +1577,12 @@ export class Parser {
       return this.parseTestBlock();
     }
 
+    // Self-Testing Compiler: expect 어서션
+    // expect(actual).to.be.equal(expected) 형식
+    if (this.check(TokenType.EXPECT)) {
+      return this.parseAssertStatement();
+    }
+
     // 블록 문
     if (this.check(TokenType.LBRACE)) {
       return this.parseBlockStatement();
@@ -2389,6 +2396,93 @@ export class Parser {
       value,
       configKey
     };
+  }
+
+  /**
+   * Self-Testing Compiler: expect 어서션 파싱
+   *
+   * 문법:
+   *   expect(actual).to.be.equal(expected)
+   *   expect(actual).to.be.notEqual(expected)
+   *   expect(actual).to.be.true()
+   *   expect(actual).to.be.false()
+   *   expect(actual).to.be.exists()
+   *
+   * 컴파일:
+   *   - test 모드: assert_eq / assert_ne / assert_true / assert_false / assert 호출
+   *   - 릴리즈: test 블록 자체가 0바이트이므로 자동으로 제거됨
+   */
+  private parseAssertStatement(): AssertStatement {
+    const startToken = this.current();
+    this.advance(); // consume 'expect'
+
+    // expect( 파싱
+    this.expect(TokenType.LPAREN, 'Expected "(" after "expect"');
+    const actual = this.parseExpression();
+    this.expect(TokenType.RPAREN, 'Expected ")" after expect argument');
+
+    // .to 파싱
+    this.expect(TokenType.DOT, 'Expected ".to" after expect(...)');
+    const toToken = this.current();
+    if (!this.check(TokenType.IDENT) || toToken.value !== 'to') {
+      throw new ParseError(toToken.line, toToken.column,
+        `Expected "to" after ".", got "${toToken.value}"`);
+    }
+    this.advance(); // consume 'to'
+
+    // .be 파싱
+    this.expect(TokenType.DOT, 'Expected ".be" after ".to"');
+    const beToken = this.current();
+    if (!this.check(TokenType.IDENT) || beToken.value !== 'be') {
+      throw new ParseError(beToken.line, beToken.column,
+        `Expected "be" after ".to.", got "${beToken.value}"`);
+    }
+    this.advance(); // consume 'be'
+
+    // .method 파싱
+    this.expect(TokenType.DOT, 'Expected assertion method after ".to.be"');
+    if (!this.check(TokenType.IDENT)) {
+      throw new ParseError(this.current().line, this.current().column,
+        'Expected assertion method: equal, notEqual, true, false, exists');
+    }
+    const methodToken = this.current();
+    const method = methodToken.value;
+    this.advance(); // consume method name
+
+    let kind: AssertStatement['kind'];
+    let expected: Expression | undefined;
+
+    if (method === 'equal' || method === 'notEqual') {
+      this.expect(TokenType.LPAREN, `Expected "(" after "${method}"`);
+      expected = this.parseExpression();
+      this.expect(TokenType.RPAREN, `Expected ")" after ${method} argument`);
+      kind = method as 'equal' | 'notEqual';
+    } else if (method === 'true' || method === 'false') {
+      this.expect(TokenType.LPAREN, `Expected "()" after "${method}"`);
+      this.expect(TokenType.RPAREN, `Expected ")" to close "${method}()"`);
+      kind = method as 'true' | 'false';
+    } else if (method === 'exists') {
+      this.expect(TokenType.LPAREN, 'Expected "()" after "exists"');
+      this.expect(TokenType.RPAREN, 'Expected ")" to close "exists()"');
+      kind = 'exists';
+    } else {
+      throw new ParseError(methodToken.line, methodToken.column,
+        `Unknown assertion method: "${method}". Use equal, notEqual, true, false, exists`);
+    }
+
+    this.match(TokenType.SEMICOLON);
+
+    const sourceDesc = `[${startToken.line}:${startToken.column}] expect(...).to.be.${method}(...)`;
+
+    return {
+      type: 'assert',
+      kind,
+      actual,
+      expected,
+      sourceDesc,
+      line: startToken.line,
+      column: startToken.column
+    } as AssertStatement;
   }
 
   /**

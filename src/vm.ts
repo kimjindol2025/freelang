@@ -18,6 +18,7 @@ import { registerSQLiteNativeFunctions } from './stdlib/sqlite-native';
 import { registerFsExtendedFunctions } from './stdlib-fs-extended';
 import { trackFunctionCall, isHotFunction, generateHotspotReport } from './phase-jit/hotspot-detector';
 import { SimplePromise } from './runtime/simple-promise';
+import { registerInsightFunctions } from './stdlib/insight-builtins';
 
 const MAX_CYCLES = 100_000;
 const MAX_STACK  = 10_000;
@@ -65,6 +66,8 @@ export class VM {
     registerFsExtendedFunctions(this.nativeFunctionRegistry);
     // Phase 26: Set VM reference for higher-order functions
     this.nativeFunctionRegistry.setVM(this);
+    // Self-Monitoring Kernel: insight_enter/exit/report/json/dashboard/gogs
+    registerInsightFunctions(this.nativeFunctionRegistry);
   }
 
   /**
@@ -654,7 +657,12 @@ export class VM {
               }
 
               // Pass function parameters as local scope to IR generator
-              const bodyIR = gen.generateIR(bodyNode, fn.params);
+              let bodyIR = gen.generateIR(bodyNode, fn.params);
+
+              // Self-Monitoring Kernel: @monitor 어노테이션 → async 함수에도 주입
+              if (fn.annotations && fn.annotations.includes('monitor')) {
+                bodyIR = gen.wrapWithMonitoring(bodyIR, funcName);
+              }
 
               if (process.env.DEBUG_FUNC_BODY) {
                 console.log(`[DEBUG] Async Function ${funcName} body IR (${bodyIR.length} instructions):`);
@@ -709,7 +717,12 @@ export class VM {
 
             // Generate IR for the entire block (all statements at once)
             // CRITICAL FIX: Pass function parameters to IR generator for proper scoping
-            const bodyIR = gen.generateIR(bodyNode, fn.params);
+            let bodyIR = gen.generateIR(bodyNode, fn.params);
+
+            // Self-Monitoring Kernel: @monitor 어노테이션 → insight_enter/exit 주입
+            if (fn.annotations && fn.annotations.includes('monitor')) {
+              bodyIR = gen.wrapWithMonitoring(bodyIR, funcName);
+            }
 
             // DEBUG: Log generated IR
             if (process.env.DEBUG_STORE) {

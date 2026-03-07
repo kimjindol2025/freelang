@@ -1,0 +1,133 @@
+// std/test.fl - FreeLang Self-Testing Compiler 내장 어설션 라이브러리
+//
+// 외부 의존성: 0%
+// 사용법:
+//   import "std/test" as assert
+//
+//   test "덧셈 검증" {
+//     let result = add(10, 20)
+//     assert.equal(result, 30)
+//   }
+//
+// 빌드:
+//   freelang build --test program.fl   # test 블록 실행
+//   freelang run program.fl            # test 블록 0바이트 (제거됨)
+
+// ──────────────────────────────────────────────────────
+// 핵심 어설션 (Core Assertions)
+// ──────────────────────────────────────────────────────
+
+fn assert_equal(actual, expected, message) {
+  if (actual == expected) {
+    let _ok = 0
+  } else {
+    print("__PROOF_FAIL:assert_equal: Expected " + string(expected) + ", got " + string(actual) + " | " + message)
+  }
+}
+
+fn assert_not_equal(actual, expected, message) {
+  if (actual == expected) {
+    print("__PROOF_FAIL:assert_not_equal: Values should differ but both are " + string(actual) + " | " + message)
+  }
+}
+
+fn assert_true(val, message) {
+  if (val == false) {
+    print("__PROOF_FAIL:assert_true: Expected true but got false | " + message)
+  }
+}
+
+fn assert_false(val, message) {
+  if (val == true) {
+    print("__PROOF_FAIL:assert_false: Expected false but got true | " + message)
+  }
+}
+
+fn assert_gt(a, b, message) {
+  if (a > b) {
+    let _ok = 0
+  } else {
+    print("__PROOF_FAIL:assert_gt: Expected " + string(a) + " > " + string(b) + " | " + message)
+  }
+}
+
+fn assert_lt(a, b, message) {
+  if (a < b) {
+    let _ok = 0
+  } else {
+    print("__PROOF_FAIL:assert_lt: Expected " + string(a) + " < " + string(b) + " | " + message)
+  }
+}
+
+fn assert_gte(a, b, message) {
+  if (a >= b) {
+    let _ok = 0
+  } else {
+    print("__PROOF_FAIL:assert_gte: Expected " + string(a) + " >= " + string(b) + " | " + message)
+  }
+}
+
+fn assert_lte(a, b, message) {
+  if (a <= b) {
+    let _ok = 0
+  } else {
+    print("__PROOF_FAIL:assert_lte: Expected " + string(a) + " <= " + string(b) + " | " + message)
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// 타입 어설션 (Type Assertions)
+// ──────────────────────────────────────────────────────
+
+fn assert_null(val, message) {
+  if (val == null) {
+    let _ok = 0
+  } else {
+    print("__PROOF_FAIL:assert_null: Expected null but got " + string(val) + " | " + message)
+  }
+}
+
+fn assert_not_null(val, message) {
+  if (val == null) {
+    print("__PROOF_FAIL:assert_not_null: Expected non-null value | " + message)
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// 문자열 어설션 (String Assertions)
+// ──────────────────────────────────────────────────────
+
+fn assert_contains(haystack, needle, message) {
+  let found = string_contains(haystack, needle)
+  if (found == false) {
+    print("__PROOF_FAIL:assert_contains: \"" + haystack + "\" does not contain \"" + needle + "\" | " + message)
+  }
+}
+
+fn assert_starts_with(str, prefix, message) {
+  let found = string_starts_with(str, prefix)
+  if (found == false) {
+    print("__PROOF_FAIL:assert_starts_with: \"" + str + "\" does not start with \"" + prefix + "\" | " + message)
+  }
+}
+
+fn assert_ends_with(str, suffix, message) {
+  let found = string_ends_with(str, suffix)
+  if (found == false) {
+    print("__PROOF_FAIL:assert_ends_with: \"" + str + "\" does not end with \"" + suffix + "\" | " + message)
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// 범용 어설션 (Generic)
+// ──────────────────────────────────────────────────────
+
+fn assert(cond, message) {
+  if (cond == false) {
+    print("__PROOF_FAIL:" + message)
+  }
+}
+
+fn fail(message) {
+  print("__PROOF_FAIL:Explicit failure: " + message)
+}

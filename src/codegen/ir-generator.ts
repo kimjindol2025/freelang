@@ -36,6 +36,47 @@ export class IRGenerator {
    * @param ast AST node to compile
    * @param localScope Optional array of parameter names for function scope
    */
+  /**
+   * Self-Monitoring Kernel: @monitor 어노테이션 함수 body IR 래핑
+   *
+   * 동작:
+   * 1. PUSH fnName → CALL insight_enter  (함수 진입 기록)
+   * 2. 원본 body IR (RET 직전에 insight_exit 주입)
+   * 3. 마지막 HALT 앞 insight_exit 보장
+   *
+   * 오버헤드: PUSH + CALL 2개 = ~50ns (TSC 측정 자체보다 낮음)
+   */
+  wrapWithMonitoring(bodyIR: Inst[], fnName: string): Inst[] {
+    const result: Inst[] = [];
+
+    // 진입 기록: insight_enter(fnName)
+    result.push({ op: Op.STR_NEW, arg: fnName });
+    result.push({ op: Op.CALL, arg: 'insight_enter' });
+    result.push({ op: Op.POP });  // 반환값 제거
+
+    // 원본 IR에서 RET 직전마다 insight_exit 주입
+    for (let i = 0; i < bodyIR.length; i++) {
+      const inst = bodyIR[i];
+      if (inst.op === Op.RET) {
+        // RET 전에 exit 기록 (반환값은 스택에 있음, 건드리지 않음)
+        result.push({ op: Op.STR_NEW, arg: fnName });
+        result.push({ op: Op.CALL, arg: 'insight_exit' });
+        result.push({ op: Op.POP });
+        result.push(inst);  // RET
+      } else if (inst.op === Op.HALT) {
+        // HALT 전에 exit 기록 (암묵적 return 처리)
+        result.push({ op: Op.STR_NEW, arg: fnName });
+        result.push({ op: Op.CALL, arg: 'insight_exit' });
+        result.push({ op: Op.POP });
+        result.push(inst);  // HALT
+      } else {
+        result.push(inst);
+      }
+    }
+
+    return result;
+  }
+
   generateIR(ast: ASTNode, localScope?: string[]): Inst[] {
     const instructions: Inst[] = [];
 
@@ -923,6 +964,51 @@ export class IRGenerator {
 
           // Store struct definition
           out.push({ op: Op.STORE, arg: `__struct_${structName}` });
+        }
+        break;
+
+      // ── Self-Testing Compiler: test 블록 ──────────────────────
+      // 릴리즈 빌드에서 test 블록은 완전히 제거 (0바이트)
+      // --test 플래그 빌드는 test-runner.ts가 별도로 처리
+      case 'test':
+        break;  // NOP: 릴리즈 빌드에서 0바이트 제거
+
+      // ── Self-Testing Compiler: expect 어서션 ─────────────────
+      // expect(actual).to.be.equal(expected) 형식 → assert_* 함수 호출로 컴파일
+      // test-runner.ts가 test 블록을 fn으로 래핑할 때 PROOF_TESTER_STDLIB과 함께 실행
+      // 릴리즈: test 블록 자체가 0바이트 → 내부의 assert도 자동 제거
+      case 'assert':
+        {
+          const { kind, actual, expected, sourceDesc } = node;
+
+          if (kind === 'equal') {
+            // assert_eq(actual, expected, sourceDesc)
+            this.traverse(actual, out);
+            this.traverse(expected, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_eq' });
+          } else if (kind === 'notEqual') {
+            // assert_ne(actual, expected, sourceDesc)
+            this.traverse(actual, out);
+            this.traverse(expected, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_ne' });
+          } else if (kind === 'true') {
+            // assert_true(actual, sourceDesc)
+            this.traverse(actual, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_true' });
+          } else if (kind === 'false') {
+            // assert_false(actual, sourceDesc)
+            this.traverse(actual, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert_false' });
+          } else if (kind === 'exists') {
+            // assert(actual, sourceDesc)  — assert가 falsy이면 실패
+            this.traverse(actual, out);
+            out.push({ op: Op.STR_NEW, arg: sourceDesc });
+            out.push({ op: Op.CALL, arg: 'assert' });
+          }
         }
         break;
 

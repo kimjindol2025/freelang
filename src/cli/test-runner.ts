@@ -52,24 +52,45 @@ export interface TestReport {
 // ============================================
 
 interface ParsedTestFunction {
-  name: string;
+  name: string;       // 표시 이름 (Proof-Tester 리포트용)
+  callName?: string;  // 실제 fn 호출 이름 (test 블록에서 safeName이 다를 때)
   line: number;
   body: string;
   modifier?: 'skip' | 'only';
 }
 
 /**
- * FreeLang 소스에서 @test 어노테이션된 함수를 추출
+ * 중괄호 매칭으로 블록 끝 라인 찾기
+ */
+function findBlockEnd(lines: string[], startLine: number): number {
+  let braceCount = 0;
+  let started = false;
+
+  for (let j = startLine; j < lines.length; j++) {
+    for (const ch of lines[j]) {
+      if (ch === '{') {
+        braceCount++;
+        started = true;
+      } else if (ch === '}') {
+        braceCount--;
+        if (started && braceCount === 0) return j;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * FreeLang 소스에서 테스트를 추출
  *
- * 지원 패턴:
+ * 지원 패턴 1 - @test 어노테이션 (레거시):
  *   @test
  *   fn test_something() { ... }
  *
- *   @test.skip
- *   fn test_wip() { ... }
- *
- *   @test.only
- *   fn test_focus() { ... }
+ * 지원 패턴 2 - test 블록 (Self-Testing Compiler 신규 문법):
+ *   test "테스트 이름" { ... }
+ *   test.skip "건너뛸 테스트" { ... }
+ *   test.only "단독 실행" { ... }
  */
 function extractTestFunctions(source: string): ParsedTestFunction[] {
   const tests: ParsedTestFunction[] = [];
@@ -78,7 +99,39 @@ function extractTestFunctions(source: string): ParsedTestFunction[] {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
 
-    // @test, @test.skip, @test.only 감지
+    // ── 패턴 2: test "이름" { ... } 블록 (신규 Self-Testing 문법) ──
+    const testBlockMatch = trimmed.match(/^test(?:\.(skip|only))?\s+"([^"]+)"\s*\{?\s*$/);
+    if (testBlockMatch) {
+      const modifier = (testBlockMatch[1] as 'skip' | 'only' | undefined) || undefined;
+      const name = testBlockMatch[2];
+
+      const bodyEnd = findBlockEnd(lines, i);
+      if (bodyEnd >= 0) {
+        // 블록 내용을 fn으로 래핑 (실행 엔진에서 호출 가능하게)
+        const innerLines = lines.slice(i + 1, bodyEnd);
+        // 마지막 } 제거 (이미 bodyEnd에서 닫힘)
+        const innerBody = innerLines
+          .join('\n')
+          .replace(/^\s*\}\s*$/, '') // 트레일링 닫는 괄호 제거
+          .trimEnd();
+
+        const safeName = '__test_' + name.replace(/[^a-zA-Z0-9_]/g, '_');
+        const fnBody = `fn ${safeName}() {\n${innerBody}\n}`;
+
+        tests.push({
+          name,          // 표시용 원래 이름
+          callName: safeName,  // 실제 fn 호출 이름
+          line: i + 1,
+          body: fnBody,
+          modifier
+        });
+
+        i = bodyEnd;
+      }
+      continue;
+    }
+
+    // ── 패턴 1: @test 어노테이션 (레거시) ──
     let modifier: 'skip' | 'only' | undefined;
     if (trimmed === '@test') {
       modifier = undefined;
@@ -102,39 +155,17 @@ function extractTestFunctions(source: string): ParsedTestFunction[] {
     if (!fnMatch) continue;
 
     const fnName = fnMatch[1];
+    const bodyEnd = findBlockEnd(lines, fnLine);
 
-    // 함수 본문 추출 (중괄호 매칭)
-    let braceCount = 0;
-    let bodyStart = -1;
-    let bodyEnd = -1;
-
-    for (let j = fnLine; j < lines.length; j++) {
-      for (const ch of lines[j]) {
-        if (ch === '{') {
-          if (braceCount === 0) bodyStart = j;
-          braceCount++;
-        } else if (ch === '}') {
-          braceCount--;
-          if (braceCount === 0) {
-            bodyEnd = j;
-            break;
-          }
-        }
-      }
-      if (bodyEnd >= 0) break;
-    }
-
-    if (bodyStart >= 0 && bodyEnd >= 0) {
-      // @test 라인부터 함수 끝까지 추출 (어노테이션은 제외, fn 정의부터)
+    if (bodyEnd >= 0) {
       const fnBody = lines.slice(fnLine, bodyEnd + 1).join('\n');
       tests.push({
         name: fnName,
-        line: fnLine + 1, // 1-based
+        line: fnLine + 1,
         body: fnBody,
         modifier
       });
-
-      i = bodyEnd; // 다음 반복을 위해 건너뜀
+      i = bodyEnd;
     }
   }
 
@@ -142,7 +173,7 @@ function extractTestFunctions(source: string): ParsedTestFunction[] {
 }
 
 /**
- * @test 함수가 아닌 코드 (헬퍼 함수, import, 상수 등) 추출
+ * @test / test "이름" {} 블록이 아닌 코드 (헬퍼 함수, import, 상수 등) 추출
  * 테스트 실행 시 컨텍스트로 사용
  */
 function extractNonTestCode(source: string): string {
@@ -155,23 +186,24 @@ function extractNonTestCode(source: string): string {
 
     const trimmed = lines[i].trim();
 
-    // @test 블록 시작이면 건너뛰기
+    // 패턴 2: test "이름" { ... } 블록 제거
+    if (/^test(?:\.(skip|only))?\s+"[^"]*"\s*\{?\s*$/.test(trimmed)) {
+      const blockEnd = findBlockEnd(lines, i);
+      if (blockEnd >= 0) {
+        skipUntil = blockEnd;
+      }
+      continue;
+    }
+
+    // 패턴 1: @test 어노테이션 블록 제거
     if (trimmed === '@test' || trimmed === '@test.skip' || trimmed === '@test.only') {
-      // 다음 fn의 끝을 찾아서 건너뛰기
       let fnLine = i + 1;
       while (fnLine < lines.length && lines[fnLine].trim() === '') fnLine++;
 
       if (fnLine < lines.length && lines[fnLine].trim().startsWith('fn ')) {
-        let braceCount = 0;
-        for (let j = fnLine; j < lines.length; j++) {
-          for (const ch of lines[j]) {
-            if (ch === '{') braceCount++;
-            else if (ch === '}') braceCount--;
-          }
-          if (braceCount === 0 && j > fnLine) {
-            skipUntil = j;
-            break;
-          }
+        const blockEnd = findBlockEnd(lines, fnLine);
+        if (blockEnd >= 0) {
+          skipUntil = blockEnd;
         }
       }
       continue;
@@ -347,7 +379,7 @@ export class ProofTester {
       PROOF_TESTER_STDLIB,
       context,
       testFn.body,
-      `\n${testFn.name}()`,  // 테스트 함수 호출
+      `\n${testFn.callName || testFn.name}()`,  // 테스트 함수 호출 (test 블록은 callName 사용)
     ].join('\n');
 
     try {
@@ -494,10 +526,10 @@ export class ProofTester {
         // 패턴 필터
         if (pattern && !entry.name.includes(pattern)) continue;
 
-        // 파일에 @test 어노테이션이 있는지 확인
+        // 파일에 @test 어노테이션 또는 test "이름" 블록이 있는지 확인
         try {
           const content = fs.readFileSync(fullPath, 'utf-8');
-          if (content.includes('@test')) {
+          if (content.includes('@test') || /\btest\s+"/.test(content)) {
             files.push(fullPath);
           }
         } catch {
