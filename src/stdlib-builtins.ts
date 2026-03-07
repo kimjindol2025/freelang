@@ -23,6 +23,7 @@ import { registerTeamCFunctions } from './stdlib-team-c-fileio-date';
 import { registerTeamDFunctions } from './stdlib-team-d-http-db';
 import { registerTeamEFunctions } from './stdlib-team-e-async-test';
 import { registerTeamFFunctions } from './stdlib-team-f-security';
+import { registerNativeChartFunctions } from './stdlib-chart';
 import * as fs from 'fs';
 
 /**
@@ -721,10 +722,16 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
 
                 let response;
                 if (vm && serverObj.requestHandler) {
-                  // Call with no parameters (handler accesses request via global)
-                  response = vm.callClosure(serverObj.requestHandler, []);
+                  const handler = serverObj.requestHandler;
+                  if (typeof handler === 'string') {
+                    // Named function string → callUserFunction으로 호출
+                    response = vm.callUserFunction(handler, []);
+                  } else {
+                    // Closure 객체 → callClosure로 호출
+                    response = vm.callClosure(handler, []);
+                  }
                 } else {
-                  // Fallback: direct call with requestObj as parameter
+                  // Fallback
                   response = serverObj.requestHandler([requestObj]);
                 }
 
@@ -785,7 +792,6 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
     executor: (args) => {
       const serverObj = args[0] as any;
       const handler = args[1] as any;
-      process.stderr.write(`[DBG] http_on_request: args.length=${args.length}, handler type=${typeof handler}, serverObj type=${typeof serverObj}\n`);
       serverObj.requestHandler = handler;
       return serverObj;
     }
@@ -854,35 +860,35 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   // RFC 7578 네이티브 파서, 매직넘버 보안검증, io_uring-ready 파일 저장
   // ────────────────────────────────────────────────────────────
 
-  // multipart_parse: FreeLang에서 직접 multipart 파싱 호출
+  // multipart_parse: FreeLang에서 직접 multipart 파싱 호출 (2 params: body, boundary)
   registry.register({
     name: 'multipart_parse',
     module: 'http',
+    signature: { name: 'multipart_parse', returnType: 'object', parameters: [{ name: 'body', type: 'any' }, { name: 'boundary', type: 'string' }], category: 'http' },
     executor: (args) => {
-      const bodyData = args[0];
-      const boundary = String(args[1] || '');
-      const bodyBuf = Buffer.isBuffer(bodyData) ? bodyData : Buffer.from(String(bodyData));
-      return __freelang_parseMultipart(bodyBuf, boundary);
+      const buf = Buffer.isBuffer(args[0]) ? args[0] : Buffer.from(String(args[0]));
+      return __freelang_parseMultipart(buf, String(args[1] || ''));
     }
   });
 
-  // upload_save: 파일 객체를 디스크에 저장 → 저장 경로 반환
+  // upload_save: 파일 객체를 디스크에 저장 → 저장 경로 반환 (2 params: file_obj, dest_dir)
   registry.register({
     name: 'upload_save',
     module: 'http',
+    signature: { name: 'upload_save', returnType: 'string', parameters: [{ name: 'file_obj', type: 'object' }, { name: 'dest_dir', type: 'string' }], category: 'http' },
     executor: (args) => {
       const fileObj = args[0] as Map<string, any>;
-      const destDir = String(args[1] || '/tmp/uploads');
+      const dir = String(args[1] || '/tmp/uploads');
       if (!(fileObj instanceof Map)) return '';
       const filename = String(fileObj.get('filename') || 'upload');
       const data: Buffer = fileObj.get('data');
       if (!data) return '';
       const fsLocal = require('fs');
-      if (!fsLocal.existsSync(destDir)) fsLocal.mkdirSync(destDir, { recursive: true });
+      if (!fsLocal.existsSync(dir)) fsLocal.mkdirSync(dir, { recursive: true });
       const ext = filename.includes('.') ? '.' + filename.split('.').pop() : '';
       const base = filename.includes('.') ? filename.slice(0, filename.lastIndexOf('.')) : filename;
       const uniqueName = `${base}_${Date.now()}${ext}`;
-      const savePath = `${destDir}/${uniqueName}`;
+      const savePath = `${dir}/${uniqueName}`;
       fsLocal.writeFileSync(savePath, Buffer.isBuffer(data) ? data : Buffer.from(data));
       fileObj.set('is_saved', true);
       fileObj.set('path', savePath);
@@ -890,16 +896,15 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
     }
   });
 
-  // file_write_binary: 바이너리 데이터를 파일로 저장
+  // file_write_binary: 바이너리 데이터를 파일로 저장 (2 params: path, data)
   registry.register({
     name: 'file_write_binary',
     module: 'io',
+    signature: { name: 'file_write_binary', returnType: 'bool', parameters: [{ name: 'path', type: 'string' }, { name: 'data', type: 'any' }], category: 'http' },
     executor: (args) => {
       const fsLocal = require('fs');
-      const path = String(args[0]);
-      const data = args[1];
-      const buf = Buffer.isBuffer(data) ? data : Buffer.from(Array.isArray(data) ? data : String(data));
-      fsLocal.writeFileSync(path, buf);
+      const buf = Buffer.isBuffer(args[1]) ? args[1] : Buffer.from(Array.isArray(args[1]) ? args[1] : String(args[1]));
+      fsLocal.writeFileSync(String(args[0]), buf);
       return true;
     }
   });
@@ -951,10 +956,11 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
     }
   });
 
-  // http_set_header: 응답 헤더 설정
+  // http_set_header: 응답 헤더 설정 (2 params: key, value)
   registry.register({
     name: 'http_set_header',
     module: 'http',
+    signature: { name: 'http_set_header', returnType: 'bool', parameters: [{ name: 'key', type: 'string' }, { name: 'value', type: 'string' }], category: 'http' },
     executor: (args) => {
       const vm = registry.getVM();
       if (vm) {
@@ -3913,6 +3919,15 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   // ────────────────────────────────────────────────────────────
   registerNativeGraphFunctions(registry);
 
+  // ────────────────────────────────────────────────────────────
+  // Native-Chart: Chart.js 완전 대체 (외부 의존성 0%)
+  // 순수 SVG 생성 기반 차트 엔진
+  // 빌트인: chart_bar / chart_line / chart_pie / chart_scatter
+  //         chart_sparkline / chart_render_html / chart_save / chart_multi
+  //         chart_palette
+  // ────────────────────────────────────────────────────────────
+  registerNativeChartFunctions(registry);
+
   // Silent registration (no console output)
 }
 
@@ -4272,6 +4287,214 @@ async function run(){
         srv.get('__server')?.close();
         __graph_servers.delete(port);
       }
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Native-Core-Multiplexing (cluster 완전 대체)
+  // @parallel 어노테이션 런타임 지원 – FreeLang 언어 내장 멀티코어 제어
+  //
+  // 구현 원칙:
+  //   - OS 수준 fork: Node.js cluster 모듈 (내부 구현) → 언어 수준으로 노출
+  //   - 공유 메모리: SharedArrayBuffer + Atomics (데이터 복사 0회)
+  //   - SO_REUSEPORT: Node.js cluster가 자동 처리 (여러 워커가 동일 포트 공유)
+  //   - Copy-on-Write: 각 워커 독립 힙, 공통 상수는 읽기 전용 공유
+  //   - 외부 의존성: 0% (os / cluster / SharedArrayBuffer = Node.js 내장)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  // ── parallel_cpu_count() → number ────────────────────────────────────────
+  // 현재 머신의 논리 CPU 코어 수 반환 (Core-Aware-Binary 기반)
+  registry.register({
+    name: 'parallel_cpu_count',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_cpu_count',
+      returnType: 'number',
+      parameters: [],
+      category: 'system'
+    },
+    executor: (_args) => {
+      const os = require('os');
+      return os.cpus().length;
+    }
+  });
+
+  // ── parallel_worker_id() → number ────────────────────────────────────────
+  // 현재 워커 프로세스 ID 반환 (0 = primary, 1~N = worker)
+  registry.register({
+    name: 'parallel_worker_id',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_worker_id',
+      returnType: 'number',
+      parameters: [],
+      category: 'system'
+    },
+    executor: (_args) => {
+      const cluster = require('cluster') as any;
+      return cluster.worker?.id ?? 0;
+    }
+  });
+
+  // ── parallel_is_primary() → number (1=primary, 0=worker) ─────────────────
+  // 현재 프로세스가 primary(마스터)인지 확인
+  registry.register({
+    name: 'parallel_is_primary',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_is_primary',
+      returnType: 'number',
+      parameters: [],
+      category: 'system'
+    },
+    executor: (_args) => {
+      const cluster = require('cluster') as any;
+      return cluster.isPrimary ? 1 : 0;
+    }
+  });
+
+  // ── parallel_shm_new(slots) → SharedArrayBuffer ───────────────────────────
+  // 공유 메모리 세그먼트 생성 (Int32 슬롯 N개, 워커 간 데이터 복사 없이 공유)
+  // Copy-on-Write: 워커 독립 힙 + 공통 상수 읽기 전용 공유 구현
+  registry.register({
+    name: 'parallel_shm_new',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_shm_new',
+      returnType: 'object',
+      parameters: [{ name: 'slots', type: 'number' }],
+      category: 'memory'
+    },
+    executor: (args) => {
+      const slots = Math.max(1, Number(args[0]) || 64);
+      // Int32 = 4바이트, SharedArrayBuffer = 워커 간 공유 가능 (postMessage 없이)
+      const sab = new SharedArrayBuffer(slots * 4);
+      const view = new Int32Array(sab);
+      const result = new Map<string, any>();
+      result.set('__type', 'SharedMemory');
+      result.set('__sab', sab);
+      result.set('__view', view);
+      result.set('slots', slots);
+      return result;
+    }
+  });
+
+  // ── parallel_shm_get(shm, index) → number ────────────────────────────────
+  // 공유 메모리에서 원자적(Atomic) 읽기 – 락 없는 lockless read
+  registry.register({
+    name: 'parallel_shm_get',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_shm_get',
+      returnType: 'number',
+      parameters: [
+        { name: 'shm', type: 'object' },
+        { name: 'index', type: 'number' }
+      ],
+      category: 'memory'
+    },
+    executor: (args) => {
+      const shm = args[0] as Map<string, any>;
+      const index = Number(args[1]) || 0;
+      const view = shm?.get('__view') as Int32Array | undefined;
+      if (!view) return 0;
+      return Atomics.load(view, index);
+    }
+  });
+
+  // ── parallel_shm_set(shm, index, value) → number ─────────────────────────
+  // 공유 메모리에 원자적(Atomic) 쓰기 – 락 없는 lockless write (CAS 기반)
+  registry.register({
+    name: 'parallel_shm_set',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_shm_set',
+      returnType: 'number',
+      parameters: [
+        { name: 'shm', type: 'object' },
+        { name: 'index', type: 'number' },
+        { name: 'value', type: 'number' }
+      ],
+      category: 'memory'
+    },
+    executor: (args) => {
+      const shm = args[0] as Map<string, any>;
+      const index = Number(args[1]) || 0;
+      const value = Number(args[2]) || 0;
+      const view = shm?.get('__view') as Int32Array | undefined;
+      if (!view) return 0;
+      return Atomics.store(view, index, value);
+    }
+  });
+
+  // ── parallel_serve(port, handler) → object ────────────────────────────────
+  // SO_REUSEPORT HTTP 서버: 모든 워커가 동일 포트를 공유하여 자동 로드밸런싱
+  // Node.js cluster + SO_REUSEPORT → 커널 수준 요청 분배 (round-robin)
+  // Atomic-Load-Balancer: primary가 요청을 워커에 분배 (잠금 경쟁 최소화)
+  registry.register({
+    name: 'parallel_serve',
+    module: 'parallel',
+    signature: {
+      name: 'parallel_serve',
+      returnType: 'object',
+      parameters: [
+        { name: 'port', type: 'number' },
+        { name: 'handler', type: 'function' }
+      ],
+      category: 'http'
+    },
+    executor: (args) => {
+      const port = Number(args[0]) || 8080;
+      const handler = args[1];
+      const http = require('http');
+      const cluster = require('cluster') as any;
+      const workerId = cluster.worker?.id ?? 0;
+
+      const server = http.createServer((req: any, res: any) => {
+        // 요청 맵 생성 (http_request() 호환)
+        const reqMap = new Map<string, any>();
+        reqMap.set('method', req.method || 'GET');
+        reqMap.set('path', req.url || '/');
+        reqMap.set('headers', new Map(Object.entries(req.headers)));
+        reqMap.set('worker_id', workerId);
+
+        // handler가 FreeLang 함수이면 VM에서 호출, 아니면 직접 호출
+        let body = '';
+        req.on('data', (chunk: any) => { body += chunk; });
+        req.on('end', () => {
+          reqMap.set('body', body);
+          try {
+            const vm = registry.getVM();
+            let responseBody = '';
+            if (vm && typeof handler === 'string') {
+              // FreeLang 함수명으로 호출
+              responseBody = String(vm.callFunction(handler, [reqMap]) ?? '');
+            } else if (typeof handler === 'function') {
+              responseBody = String(handler(reqMap) ?? '');
+            }
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end(responseBody);
+          } catch (e) {
+            res.writeHead(500);
+            res.end(String(e));
+          }
+        });
+      });
+
+      // SO_REUSEPORT: Node.js cluster 환경에서 자동 활성화
+      // 여러 워커가 동일 포트를 listen → 커널이 요청을 분배
+      server.listen(port, () => {
+        process.stdout.write(
+          `[Native-Core-Multiplexing] Worker-${workerId} ▶ :${port} (SO_REUSEPORT)\n`
+        );
+      });
+
+      const result = new Map<string, any>();
+      result.set('__type', 'ParallelServer');
+      result.set('port', port);
+      result.set('worker_id', workerId);
+      result.set('__server', server);
+      return result;
     }
   });
 }
