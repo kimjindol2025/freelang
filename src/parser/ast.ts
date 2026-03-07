@@ -233,11 +233,43 @@ export interface MatchExpression {
   arms: MatchArm[];
 }
 
+// Reified-Type-System: 제네릭 타입 파라미터
+// struct User<T: Printable> → typeParams: [{ name: 'T', constraint: 'Printable' }]
+export interface GenericTypeParam {
+  name: string;           // 'T', 'U', 'K', 'V' 등
+  constraint?: string;    // 'Printable', 'Comparable' 등 (선택)
+}
+
 // Phase 16: Struct Declaration
+// Reified-Type-System: typeParams 추가 → struct User<T> { id: T, name: string }
 export interface StructDeclaration {
   type: 'struct';
   name: string;
+  typeParams?: GenericTypeParam[];   // Reified-Type-System: 제네릭 파라미터
   fields: Array<{ name: string; fieldType?: string }>;
+}
+
+// Reified-Type-System: 타입 별칭 선언
+// type UserID = int | string       → alias: 'UserID', definition: 'int | string', isUnion: true
+// type Callback = fn(int) -> bool  → alias: 'Callback', definition: 'fn(int)->bool'
+export interface TypeAliasDeclaration {
+  type: 'typeAlias';
+  alias: string;          // 타입 별칭명 (예: 'UserID')
+  definition: string;     // 원본 타입 표현 (예: 'int | string')
+  isUnion: boolean;       // 유니온 타입 여부
+  members?: string[];     // 유니온 멤버들 (isUnion이 true일 때)
+  line: number;
+  column: number;
+}
+
+// Reified-Type-System: 컴파일 타임 크기 검증
+// @static_assert_size<User<int>, 24>  → 런타임 오버헤드 없이 타입 레이아웃 검증
+export interface StaticAssertDeclaration {
+  type: 'staticAssert';
+  targetType: string;     // 검증할 타입 (예: 'User<int>')
+  expectedSize: number;   // 기대 바이트 크기 (예: 24)
+  line: number;
+  column: number;
 }
 
 // Phase 16: Enum Declaration
@@ -332,8 +364,10 @@ export type Statement =
   | ContinueStatement  // Phase 16: Continue support
   | SecretDeclaration  // Secret-Link: 보안 변수
   | StyleDeclaration   // MOSS-Style: 스타일 선언
-  | TestBlock          // Self-Testing Compiler: 내장 테스트 블록
-  | AssertStatement;   // Self-Testing Compiler: expect 어서션
+  | TestBlock               // Self-Testing Compiler: 내장 테스트 블록
+  | AssertStatement         // Self-Testing Compiler: expect 어서션
+  | TypeAliasDeclaration    // Reified-Type-System: type X = A | B
+  | StaticAssertDeclaration; // Reified-Type-System: @static_assert_size<T, N>
 
 export interface ExpressionStatement {
   type: 'expression';

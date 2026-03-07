@@ -133,6 +133,12 @@ export enum Op {
   STORE_SECRET = 0xE0,  // 암호화 저장: arg: varname, stack: [value] → encrypted store
   LOAD_SECRET  = 0xE1,  // 복호화 로드: arg: varname → stack: [decrypted_value]
 
+  // Reified-Type-System: 타입 정보를 바이너리 레이아웃에 직접 반영
+  TYPE_DECL    = 0xE8,  // 타입 별칭 등록: arg: "alias=definition" (컴파일 타임 메타데이터)
+  NULL_CHECK   = 0xE9,  // nullable 타입 null 안전 검사: arg: varname (런타임 null 가드)
+  STATIC_ASSERT = 0xEA, // 컴파일 타임 크기 검증: arg: "TypeName:expectedSize"
+  GENERIC_INST  = 0xEB, // 제네릭 인스턴스화: arg: "StructName<ConcreteType>" (레이아웃 결정)
+
   // Debug (AI reads structured output)
   DUMP      = 0xF0,
 }

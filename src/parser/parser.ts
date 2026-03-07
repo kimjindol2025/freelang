@@ -181,14 +181,14 @@ export class Parser {
   /**
    * Get operator precedence from cache
    */
-  private getOperatorPrecedence(op: string): number {
+  private _getOperatorPrecedence(op: string): number {
     return this.precedenceCache.get(op) ?? 0;
   }
 
   /**
    * Allocate AST node from pool
    */
-  private allocateNode(type: string): any {
+  private _allocateNode(type: string): any {
     if (this.poolIndex >= this.nodePool.length) {
       // Pool exhausted, create new node
       return { type };
@@ -1242,7 +1242,6 @@ export class Parser {
       // This could be return type or body
       // Try to parse as type first
       if (this.check(TokenType.IDENT) || this.check(TokenType.LBRACKET)) {
-        const typeStart = this.current();
         try {
           const possibleType = this.parseType();
 
@@ -1472,8 +1471,6 @@ export class Parser {
 
       // 필드가 있는지 확인
       if (!this.check(TokenType.RBRACE)) {
-        const firstToken = this.current();
-
         // field: pattern 형식 확인
         if (this.check(TokenType.IDENT) && this.peek(1).type === TokenType.COLON) {
           isStruct = true;
