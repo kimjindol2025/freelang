@@ -165,6 +165,21 @@ export interface Module {
   imports: ImportStatement[];  // Import statements at top
   exports: ExportStatement[];  // Export statements
   statements: Statement[];     // Other statements (functions, variables, etc.)
+  lintConfig?: LintConfig;     // Native-Linter: @lint(...) 어노테이션
+}
+
+/**
+ * Native-Linter: @lint(...) 어노테이션 설정
+ *
+ * 예시:
+ *   @lint(no_unused: error, shadowing_check: warn, strict_pointers: true)
+ */
+export interface LintConfig {
+  no_unused?: 'error' | 'warn' | 'off';      // 미사용 변수 감지
+  shadowing_check?: 'error' | 'warn' | 'off'; // 변수 섀도잉 감지
+  strict_pointers?: boolean;                  // 포인터 안전성 강제
+  line: number;   // 어노테이션 소스 위치
+  column: number;
 }
 
 /**
@@ -266,6 +281,18 @@ export interface StyleDeclaration {
   extends?: string;       // 상속할 스타일 이름 (선택)
 }
 
+// Self-Testing Compiler: 내장 테스트 블록
+// - test 모드: 함수로 래핑하여 실행
+// - 릴리즈 빌드: IR Generator가 완전히 skip (0바이트)
+export interface TestBlock {
+  type: 'test';
+  name: string;        // test "이름"
+  body: Statement[];   // 블록 내용
+  modifier?: 'skip' | 'only';  // test.skip / test.only
+  line: number;        // 소스 위치 (오류 추적용)
+  column: number;
+}
+
 // 문장 (Statement)
 export type Statement =
   | ExpressionStatement
@@ -285,7 +312,8 @@ export type Statement =
   | BreakStatement     // Phase 16: Break support
   | ContinueStatement  // Phase 16: Continue support
   | SecretDeclaration  // Secret-Link: 보안 변수
-  | StyleDeclaration;  // MOSS-Style: 스타일 선언
+  | StyleDeclaration   // MOSS-Style: 스타일 선언
+  | TestBlock;         // Self-Testing Compiler: 내장 테스트 블록
 
 export interface ExpressionStatement {
   type: 'expression';

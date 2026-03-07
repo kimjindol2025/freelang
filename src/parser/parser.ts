@@ -73,7 +73,9 @@ import {
   ContinueStatement,  // Phase 16: Continue support
   SecretDeclaration,  // Secret-Link: 보안 변수
   StyleDeclaration,   // MOSS-Style: 스타일 선언
-  StyleProperty       // MOSS-Style: 스타일 속성
+  StyleProperty,      // MOSS-Style: 스타일 속성
+  TestBlock,          // Self-Testing Compiler: 내장 테스트 블록
+  LintConfig          // Native-Linter: @lint(...) 어노테이션
 } from './ast';
 
 /**
@@ -348,6 +350,62 @@ export class Parser {
    *
    * Returns Module with imports, exports, and statements
    */
+  /**
+   * Native-Linter: @lint(no_unused: error, shadowing_check: warn, strict_pointers: true) 파싱
+   *
+   * 호출 시점: AT 토큰을 확인한 직후, 다음 토큰이 'lint'인 경우
+   */
+  private parseLintAnnotation(): LintConfig {
+    const atToken = this.current();
+    // AT는 이미 소비됨 - 'lint' 식별자를 기대
+    const identToken = this.expect(TokenType.IDENT, 'Expected "lint" after "@"');
+    if (identToken.value !== 'lint') {
+      throw new ParseError(identToken.line, identToken.column, `Expected "lint", got "${identToken.value}"`);
+    }
+
+    const config: LintConfig = { line: atToken.line, column: atToken.column };
+
+    // '(' 소비
+    if (!this.check(TokenType.LPAREN)) {
+      return config;  // 인자 없는 @lint → 빈 설정
+    }
+    this.advance(); // '('
+
+    // 키=값 쌍 파싱: no_unused: error, shadowing_check: warn, strict_pointers: true
+    while (!this.check(TokenType.RPAREN) && !this.check(TokenType.EOF)) {
+      // 키 이름
+      const keyToken = this.expect(TokenType.IDENT, 'Expected lint rule name');
+      const key = keyToken.value;
+
+      // ':' 구분자
+      if (this.check(TokenType.COLON)) this.advance();
+
+      // 값
+      let value = '';
+      if (this.check(TokenType.IDENT)) {
+        value = this.advance().value;
+      } else if (this.check(TokenType.STRING)) {
+        value = this.advance().value;
+      }
+
+      // 규칙 적용
+      if (key === 'no_unused') {
+        config.no_unused = (value as 'error' | 'warn' | 'off') || 'warn';
+      } else if (key === 'shadowing_check') {
+        config.shadowing_check = (value as 'error' | 'warn' | 'off') || 'warn';
+      } else if (key === 'strict_pointers') {
+        config.strict_pointers = value === 'true' || value === '1';
+      }
+
+      // ',' 구분자 (선택적)
+      if (this.check(TokenType.COMMA)) this.advance();
+    }
+
+    if (this.check(TokenType.RPAREN)) this.advance(); // ')'
+
+    return config;
+  }
+
   public parseModule(): Module {
     // Performance optimization: reset node pool for this parse
     this.resetNodePool();
@@ -357,6 +415,21 @@ export class Parser {
     const imports: ImportStatement[] = [];
     const exports: ExportStatement[] = [];
     const statements: Statement[] = [];
+    let lintConfig: LintConfig | undefined;
+
+    // Native-Linter: 파일 최상단 @lint 어노테이션 파싱
+    if (this.check(TokenType.AT)) {
+      this.advance(); // '@' 소비
+      if (this.check(TokenType.IDENT) && this.current().value === 'lint') {
+        lintConfig = this.parseLintAnnotation();
+        if (process.env.DEBUG_PARSER) {
+          console.log('[PARSER] @lint annotation parsed:', JSON.stringify(lintConfig));
+        }
+      } else {
+        // @lint 아닌 다른 어노테이션 → 되돌리기 불가, '@' 스킵 처리
+        // (기존 @minimal 처리는 parse()에서 담당하므로 여기선 무시)
+      }
+    }
 
     // Parse all statements until EOF
     while (!this.check(TokenType.EOF)) {
@@ -365,6 +438,27 @@ export class Parser {
         const curToken = this.current();
         if (process.env.DEBUG_PARSER) {
           console.log(`[PARSER] Current token: type=${curToken.type}, value="${curToken.value}"`);
+        }
+
+        // Self-Monitoring Kernel: @monitor 등 어노테이션 수집 (함수 선언 앞)
+        const pendingAnnotations: string[] = [];
+        while (this.check(TokenType.AT)) {
+          this.advance(); // '@' 소비
+          if (this.check(TokenType.IDENT)) {
+            const annotName = this.current().value;
+            pendingAnnotations.push(annotName);
+            this.advance();
+            // @monitor(level: .detailed) 형태 파라미터 스킵
+            if (this.check(TokenType.LPAREN)) {
+              this.advance();
+              let depth = 1;
+              while (depth > 0 && !this.check(TokenType.EOF)) {
+                if (this.check(TokenType.LPAREN)) depth++;
+                else if (this.check(TokenType.RPAREN)) depth--;
+                this.advance();
+              }
+            }
+          }
         }
 
         // Phase J: Check for async keyword
@@ -378,6 +472,10 @@ export class Parser {
           if (process.env.DEBUG_PARSER) console.log(`[PARSER] Found ${isAsync ? 'ASYNC ' : ''}FN, parsing function declaration`);
           try {
             const fnStmt = this.parseFunctionDeclaration(isAsync);
+            // Self-Monitoring Kernel: 수집된 어노테이션 주입
+            if (pendingAnnotations.length > 0) {
+              (fnStmt as any).annotations = pendingAnnotations;
+            }
             statements.push(fnStmt as any);
             if (process.env.DEBUG_PARSER) console.log('[PARSER] Function declaration parsed successfully');
           } catch (fnError) {
@@ -413,7 +511,8 @@ export class Parser {
       path: 'program',
       imports,
       exports,
-      statements
+      statements,
+      lintConfig,  // Native-Linter: @lint(...) 어노테이션 설정
     };
   }
 
@@ -1471,6 +1570,12 @@ export class Parser {
       return this.parseStyleDeclaration();
     }
 
+    // Self-Testing Compiler: test 블록
+    // 릴리즈 모드에서는 IR Generator가 skip, --test 모드에서만 실행
+    if (this.check(TokenType.TEST)) {
+      return this.parseTestBlock();
+    }
+
     // 블록 문
     if (this.check(TokenType.LBRACE)) {
       return this.parseBlockStatement();
@@ -2284,6 +2389,65 @@ export class Parser {
       value,
       configKey
     };
+  }
+
+  /**
+   * Self-Testing Compiler: test 블록 파싱
+   *
+   * 문법:
+   *   test "테스트 이름" { statements... }
+   *   test.skip "건너뛸 테스트" { ... }
+   *   test.only "단독 실행" { ... }
+   *
+   * 컴파일 모드:
+   *   - 릴리즈: IR Generator가 skip → 0바이트
+   *   - --test: fn으로 래핑하여 실행
+   */
+  private parseTestBlock(): TestBlock {
+    const startToken = this.current();
+    this.advance(); // consume 'test'
+
+    // test.skip / test.only 처리
+    let modifier: 'skip' | 'only' | undefined;
+    if (this.check(TokenType.DOT)) {
+      this.advance(); // consume '.'
+      if (this.check(TokenType.IDENT)) {
+        const mod = this.current().value;
+        if (mod === 'skip') {
+          modifier = 'skip';
+          this.advance();
+        } else if (mod === 'only') {
+          modifier = 'only';
+          this.advance();
+        } else {
+          throw new ParseError(startToken.line, startToken.column,
+            `Unknown test modifier: "${mod}". Use test.skip or test.only`);
+        }
+      }
+    }
+
+    // 테스트 이름 (문자열 필수)
+    const nameToken = this.expect(TokenType.STRING, 'Expected test name string after "test"');
+    const name = nameToken.value;
+
+    // 블록 본문 파싱
+    this.expect(TokenType.LBRACE, 'Expected "{" after test name');
+    const body: Statement[] = [];
+
+    while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+      body.push(this.parseStatement());
+    }
+
+    this.expect(TokenType.RBRACE, 'Expected "}" to close test block');
+
+    return {
+      type: 'test',
+      name,
+      body,
+      modifier,
+      line: startToken.line,
+      column: startToken.column
+    } as TestBlock;
   }
 }
 
