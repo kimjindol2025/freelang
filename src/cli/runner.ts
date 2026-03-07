@@ -26,7 +26,11 @@ import { registerVCSFunctions } from '../stdlib/stdlib-vcs';
 import { installGate } from '../vcs/vcs-bridge';
 import { generateORMMeta } from '../codegen/orm-codegen';
 import { registerORMMeta } from '../stdlib/orm-native';
+import { generateValidatorMeta } from '../codegen/validator-codegen';
+import { registerValidatorMeta, registerValidatorNativeFunctions } from '../stdlib/validator-native';
 import { registerRateShieldFunctions } from '../stdlib/rate-shield';
+import { HotReloadEngine } from '../hot-reload/hot-reload-engine';
+import { registerHotReloadFunctions, setGlobalHotReloadEngine } from '../stdlib/stdlib-hot-reload';
 
 export interface RunResult {
   success: boolean;
@@ -43,6 +47,7 @@ export class ProgramRunner {
   private gen: IRGenerator;
   private vm: VM;
   private registry: FunctionRegistry;
+  private hotReloadEngine: HotReloadEngine;
 
   constructor(registry?: FunctionRegistry) {
     this.registry = registry || new FunctionRegistry();
@@ -65,6 +70,26 @@ export class ProgramRunner {
     registerVCSFunctions(this.vm.getNativeFunctionRegistry());
     // Native-Rate-Shield: shield_init/check/stats/reset/delete
     registerRateShieldFunctions(this.vm.getNativeFunctionRegistry());
+    // Native-Hot-Reload: hot_watch/hot_stop/hot_status/server_watch_and_run
+    this.hotReloadEngine = new HotReloadEngine(this.registry);
+    setGlobalHotReloadEngine(this.hotReloadEngine);
+    registerHotReloadFunctions(this.vm.getNativeFunctionRegistry(), this.hotReloadEngine);
+    // Compile-Time-Validator: validator_is_valid/get_errors/check_field/list_rules
+    registerValidatorNativeFunctions(this.vm.getNativeFunctionRegistry());
+  }
+
+  /**
+   * Native-Hot-Reload: 파일 감시 시작 (--watch 플래그 또는 FreeLang 코드 내 hot_watch() 호출)
+   */
+  watchFile(filePath: string): void {
+    this.hotReloadEngine.watch(path.resolve(filePath));
+  }
+
+  /**
+   * Native-Hot-Reload: 엔진 반환 (통계/콜백 등록 등)
+   */
+  getHotReloadEngine(): HotReloadEngine {
+    return this.hotReloadEngine;
   }
 
   /**
@@ -103,6 +128,14 @@ export class ProgramRunner {
       const ormMetas = generateORMMeta(module as any);
       if (ormMetas.length > 0) {
         registerORMMeta(ormMetas);
+      }
+
+      // 2.4.1. Compile-Time-Validator: @check struct 스캔 → 검증 함수 컴파일 타임 생성
+      // generateValidatorMeta는 런타임 이전 실행 → 런타임 룰 파싱 오버헤드 0
+      // SIMD 가속 정규표현식 사전 컴파일 → RegExp JIT 캐시 활용
+      const validatorMetas = generateValidatorMeta(module as any);
+      if (validatorMetas.length > 0) {
+        registerValidatorMeta(validatorMetas);
       }
 
       // 2.5. Phase 2: Register user-defined functions before execution

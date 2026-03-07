@@ -67,6 +67,7 @@ import {
   TryStatement,  // Phase I: Exception Handling
   CatchClause,   // Phase I: Exception Handling
   ThrowStatement,  // Phase I: Exception Handling
+  CheckConstraint,    // Compile-Time-Validator: @check 제약 조건
   StructDeclaration,  // Phase 16: Struct support
   EnumDeclaration,    // Phase 16: Enum support
   BreakStatement,     // Phase 16: Break support
@@ -480,6 +481,33 @@ export class Parser {
           }
           if (this.check(TokenType.RPAREN)) this.advance();
           topLevelAnnotations.push(`profile:rate=${rateValue},output=${outputValue}`);
+        } else if (annotName === 'rate_limit' && this.check(TokenType.LPAREN)) {
+          // Native-Rate-Shield: @rate_limit(window: 1s, max: 10, burst: 5)
+          // → "rate_limit:window=1000,max=10,burst=5"
+          this.advance(); // '(' 소비
+          let rlWindowMs = 1000; let rlMax = 10; let rlBurst = 0; let depth = 1;
+          while (depth > 0 && !this.check(TokenType.EOF)) {
+            if (this.check(TokenType.LPAREN)) { depth++; this.advance(); continue; }
+            if (this.check(TokenType.RPAREN)) { depth--; if (depth === 0) break; this.advance(); continue; }
+            if (this.check(TokenType.IDENT)) {
+              const kw = this.advance().value;
+              if (this.check(TokenType.COLON)) this.advance();
+              if (kw === 'window') {
+                if (this.check(TokenType.NUMBER)) {
+                  const num = Number(this.advance().value);
+                  if (this.check(TokenType.IDENT)) { const u = this.current().value; this.advance(); rlWindowMs = u === 's' ? num * 1000 : num; }
+                  else { rlWindowMs = num < 100 ? num * 1000 : num; }
+                }
+              } else if (kw === 'max') {
+                if (this.check(TokenType.NUMBER)) rlMax = Number(this.advance().value);
+              } else if (kw === 'burst') {
+                if (this.check(TokenType.NUMBER)) rlBurst = Number(this.advance().value);
+              }
+            } else if (this.check(TokenType.COMMA)) { this.advance(); } else { this.advance(); }
+          }
+          if (this.check(TokenType.RPAREN)) this.advance();
+          const rlEffBurst = rlBurst > 0 ? rlBurst : rlMax;
+          topLevelAnnotations.push(`rate_limit:window=${rlWindowMs},max=${rlMax},burst=${rlEffBurst}`);
         } else {
           topLevelAnnotations.push(annotName);
           // @monitor(level: .detailed) 형태 파라미터 스킵
@@ -2396,7 +2424,10 @@ export class Parser {
 
     while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
       // Compile-Time-ORM: 필드 앞 어노테이션 수집 (@db_id, @db_auto_inc, @db_column(...))
+      // Compile-Time-Validator: @check(min:N, max:N, pattern:"...") 어노테이션도 수집
       const fieldAnnotations: Array<{ name: string; args?: Record<string, string> }> = [];
+      let checkConstraint: CheckConstraint | undefined;
+
       while (this.check(TokenType.AT)) {
         this.advance(); // '@' 소비
         if (this.check(TokenType.IDENT)) {
@@ -2411,14 +2442,32 @@ export class Parser {
               let val = '';
               if (this.check(TokenType.DOT)) { this.advance(); }
               if (this.check(TokenType.IDENT)) val = this.advance().value;
-              else if (this.check(TokenType.STRING)) val = this.advance().value;
+              else if (this.check(TokenType.STRING)) {
+                // 따옴표 포함 문자열 그대로 저장 → 나중에 제거
+                val = String(this.advance().value);
+              }
               else if (this.check(TokenType.NUMBER)) val = String(this.advance().value);
               if (key) annotArgs[key] = val;
               if (this.check(TokenType.COMMA)) this.advance();
             }
             if (this.check(TokenType.RPAREN)) this.advance(); // ')'
           }
-          fieldAnnotations.push({ name: annotName, args: Object.keys(annotArgs).length > 0 ? annotArgs : undefined });
+          // Compile-Time-Validator: @check 어노테이션을 CheckConstraint로 변환
+          if (annotName === 'check') {
+            const constraint: CheckConstraint = {};
+            if ('min' in annotArgs) constraint.min = Number(annotArgs['min']);
+            if ('max' in annotArgs) constraint.max = Number(annotArgs['max']);
+            if ('pattern' in annotArgs) {
+              // 따옴표 제거: "^[a-z]+$" → ^[a-z]+$
+              constraint.pattern = annotArgs['pattern'].replace(/^["']|["']$/g, '');
+            }
+            if ('required' in annotArgs) {
+              constraint.required = annotArgs['required'] !== 'false';
+            }
+            checkConstraint = constraint;
+          } else {
+            fieldAnnotations.push({ name: annotName, args: Object.keys(annotArgs).length > 0 ? annotArgs : undefined });
+          }
         }
       }
 
@@ -2436,7 +2485,8 @@ export class Parser {
       fields.push({
         name: fieldName,
         fieldType,
-        ...(fieldAnnotations.length > 0 ? { annotations: fieldAnnotations } : {})
+        ...(fieldAnnotations.length > 0 ? { annotations: fieldAnnotations } : {}),
+        ...(checkConstraint ? { checkConstraints: checkConstraint } : {})
       });
 
       // 필드 구분자 (쉼표, 선택적)
