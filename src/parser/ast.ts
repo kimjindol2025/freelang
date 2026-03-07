@@ -168,6 +168,21 @@ export interface Module {
   lintConfig?: LintConfig;     // Native-Linter: @lint(...) 어노테이션
   allowOrigins?: string[];     // Hardware-CORS: @allow_origin("https://...") 도메인 화이트리스트
   cspPolicy?: string;          // Native-CSP-Shield: @csp_policy(...) 직렬화 문자열
+  validateSchemas?: Array<{ name: string; schema: string }>;  // Native-Request-Validator: @validate_schema(...)
+  localVault?: LocalVaultConfig; // Native-JSON-Vault: @local_vault(path: "...", autosave: true)
+}
+
+/**
+ * Native-JSON-Vault: @local_vault(...) 어노테이션 설정
+ *
+ * 예시:
+ *   @local_vault(path: "./data/config.json", autosave: true)
+ */
+export interface LocalVaultConfig {
+  path: string;        // vault 파일 경로
+  autosave: boolean;   // 쓰기 즉시 commit 여부
+  line: number;
+  column: number;
 }
 
 /**

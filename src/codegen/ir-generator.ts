@@ -145,6 +145,26 @@ export class IRGenerator {
       instructions.push({ op: Op.POP });
     }
 
+    // Step 4c: Native-Request-Validator - @validate_schema 있으면 스키마 등록 IR 주입
+    // validate_schema_register(name, schema_str) 호출을 프로그램 시작 시 자동 실행
+    if (module.validateSchemas && module.validateSchemas.length > 0) {
+      for (const vs of module.validateSchemas) {
+        instructions.push({ op: Op.PUSH, arg: vs.schema });
+        instructions.push({ op: Op.PUSH, arg: vs.name });
+        instructions.push({ op: Op.CALL, arg: 'validate_schema_register' });
+        instructions.push({ op: Op.POP });
+      }
+    }
+
+    // Step 4d: Native-JSON-Vault - @local_vault 있으면 vault_open IR 주입
+    // vault_open(path, autosave) → 파일 로드 + WAL crash recovery
+    if (module.localVault) {
+      instructions.push({ op: Op.PUSH, arg: String(module.localVault.autosave) });
+      instructions.push({ op: Op.PUSH, arg: module.localVault.path });
+      instructions.push({ op: Op.CALL, arg: 'vault_open' });
+      instructions.push({ op: Op.POP });
+    }
+
     // Step 5: 모듈 본체 IR 생성
     for (const stmt of module.statements) {
       this.traverse(stmt, instructions);

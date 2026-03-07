@@ -29,7 +29,10 @@ import { registerAuthFunctions } from './stdlib-auth';
 import { registerLogStreamerFunctions } from './stdlib-log-streamer';
 import { registerCspShieldFunctions } from './stdlib/csp-shield';
 import { registerNativeRequestStreamer } from './stdlib-native-request-streamer';
+import { globalRecorder, recorderPorts, registerNativeRequestRecorder } from './stdlib-native-request-recorder';
 import { registerAsyncOrchestratorFunctions } from './stdlib/async-orchestrator';
+import { registerNativeRequestValidator } from './stdlib/native-request-validator';
+import { registerVaultFunctions } from './stdlib/vault';
 import * as fs from 'fs';
 
 /**
@@ -677,6 +680,20 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
 
       // Set up request listener
       server.on('request', (req: any, res: any) => {
+        // Native-Request-Recorder: 요청 도착 시점 나노초 타임스탬프 (process.hrtime.bigint())
+        const __rec_t0 = process.hrtime.bigint();
+        if (recorderPorts.has(port)) {
+          res.on('finish', () => {
+            globalRecorder.push({
+              method:     req.method   || 'GET',
+              path:       (req.url || '/').split('?')[0],
+              status:     res.statusCode,
+              latencyNs:  process.hrtime.bigint() - __rec_t0,
+              contentLen: parseInt(String(res.getHeader('content-length') ?? '0'), 10) || 0,
+              ts:         __rec_t0,
+            });
+          });
+        }
         // Hardware-CORS Gate: Origin 검증 (애플리케이션 레이어 진입 전 차단)
         const origin: string = (req.headers['origin'] as string) || '';
         if (corsWhitelist.size > 0) {
@@ -4017,6 +4034,20 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   // async_timeout, parallel_filter, parallel_reduce, async_map_batch,
   // work_stealing_stats - Work-Stealing 스케줄러 내장
   registerAsyncOrchestratorFunctions(registry);
+
+  // Native-Request-Recorder: morgan 대체 Zero-copy 비동기 HTTP 로거
+  // AsyncRingBuffer(1024) + writev 스타일 배치 write, 외부 라이브러리 0개
+  registerNativeRequestRecorder(registry);
+
+  // Native-JSON-Vault: lowdb 대체 로컬 JSON 영구 저장소
+  // WAL + atomic commit (tmp→rename), crash recovery 내장, 외부 라이브러리 0개
+  // vault_open/get/set/delete/keys/has/commit/rollback/close/stats
+  registerVaultFunctions(registry);
+
+  // Native-Request-Validator: express-validator 대체
+  // validate_schema_register/list/validate_request/validate_field/validate_email/
+  // validate_min_max/validate_range/validate_required/validate_regex/validate_violation_list
+  registerNativeRequestValidator(registry);
 
   // Silent registration (no console output)
 }
