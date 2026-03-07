@@ -543,6 +543,141 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   });
 
   // ────────────────────────────────────────────────────────────
+  // Phase A-7: HTTP Server Functions (for PikaDB API)
+  // ────────────────────────────────────────────────────────────
+
+  const http = require('http');
+  const httpServers = new Map<number, any>();
+
+  registry.register({
+    name: 'http_server_create',
+    module: 'http',
+    signature: {
+      name: 'http_server_create',
+      returnType: 'object',
+      parameters: [
+        { name: 'port', type: 'number' }
+      ],
+      category: 'event'
+    },
+    executor: (args) => {
+      const port = Number(args[0]);
+      const server = http.createServer();
+
+      const serverObj = {
+        __type: 'HttpServer',
+        port: port,
+        server: server,
+        requestHandler: null,
+        isListening: false
+      };
+
+      httpServers.set(port, serverObj);
+
+      // Set up request listener
+      server.on('request', (req: any, res: any) => {
+        if (serverObj.requestHandler) {
+          try {
+            // Create request object for FreeLang
+            const requestObj = new Map<string, any>();
+            requestObj.set('method', req.method);
+            requestObj.set('path', req.url.split('?')[0]);
+            requestObj.set('url', req.url);
+
+            // Parse query string
+            const queryString = req.url.split('?')[1] || '';
+            const queryMap = new Map<string, string>();
+            if (queryString) {
+              const pairs = queryString.split('&');
+              for (const pair of pairs) {
+                const [k, v] = pair.split('=');
+                queryMap.set(k, v || '');
+              }
+            }
+            requestObj.set('query', queryMap);
+            requestObj.set('headers', new Map(Object.entries(req.headers)));
+
+            // Handle request body
+            let body = '';
+            req.on('data', (chunk: any) => {
+              body += chunk.toString();
+            });
+
+            req.on('end', () => {
+              requestObj.set('body', body);
+
+              // Call FreeLang handler
+              const response = serverObj.requestHandler([requestObj]);
+
+              // Send response
+              if (typeof response === 'string') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(response);
+              } else {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(response));
+              }
+            });
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e) }));
+          }
+        }
+      });
+
+      return serverObj;
+    }
+  });
+
+  registry.register({
+    name: 'http_on_request',
+    module: 'http',
+    signature: {
+      name: 'http_on_request',
+      returnType: 'object',
+      parameters: [
+        { name: 'server', type: 'object' },
+        { name: 'handler', type: 'any' }
+      ],
+      category: 'event'
+    },
+    executor: (args) => {
+      const serverObj = args[0] as any;
+      const handler = args[1] as any;
+
+      serverObj.requestHandler = handler;
+      return serverObj;
+    }
+  });
+
+  registry.register({
+    name: 'http_listen',
+    module: 'http',
+    signature: {
+      name: 'http_listen',
+      returnType: 'object',
+      parameters: [
+        { name: 'server', type: 'object' }
+      ],
+      category: 'event'
+    },
+    executor: (args) => {
+      const serverObj = args[0] as any;
+
+      if (serverObj.isListening) {
+        return serverObj;
+      }
+
+      serverObj.server.listen(serverObj.port, () => {
+        serverObj.isListening = true;
+        process.stdout.write(`HTTP Server listening on port ${serverObj.port}\n`);
+      });
+
+      return serverObj;
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────
   // Phase B-1: 파일 I/O 함수
   // ────────────────────────────────────────────────────────────
 
@@ -3200,6 +3335,196 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   // Date/time, currency, units, encoding, misc
   // ────────────────────────────────────────────────────────────
   registerUtilityFunctions(registry);
+
+  // ────────────────────────────────────────────────────────────
+  // Phase 6.2: Core Array/String/Type Functions (added to builtins.ts)
+  // These are now defined in engine/builtins.ts and auto-registered via
+  // the getBuiltinImpl mechanism. Registering here for completeness.
+  // ────────────────────────────────────────────────────────────
+
+  // Array operations
+  registry.register({
+    name: 'array_push',
+    module: 'core-array',
+    executor: (args) => {
+      const arr = args[0];
+      const val = args[1];
+      if (Array.isArray(arr)) {
+        arr.push(val);
+      }
+      return arr;
+    }
+  });
+
+  registry.register({
+    name: 'array_pop',
+    module: 'core-array',
+    executor: (args) => {
+      const arr = args[0];
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.pop();
+      }
+      return null;
+    }
+  });
+
+  registry.register({
+    name: 'array_length',
+    module: 'core-array',
+    executor: (args) => {
+      const arr = args[0];
+      return Array.isArray(arr) ? arr.length : 0;
+    }
+  });
+
+  registry.register({
+    name: 'array_shift',
+    module: 'core-array',
+    executor: (args) => {
+      const arr = args[0];
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.shift();
+      }
+      return null;
+    }
+  });
+
+  registry.register({
+    name: 'array_unshift',
+    module: 'core-array',
+    executor: (args) => {
+      const arr = args[0];
+      const val = args[1];
+      if (Array.isArray(arr)) {
+        arr.unshift(val);
+      }
+      return arr;
+    }
+  });
+
+  registry.register({
+    name: 'array_join',
+    module: 'core-array',
+    executor: (args) => {
+      const arr = args[0];
+      const sep = String(args[1] || ',');
+      if (!Array.isArray(arr)) return '';
+      return arr.map((x: any) => String(x)).join(sep);
+    }
+  });
+
+  // String operations
+  registry.register({
+    name: 'string_split',
+    module: 'core-string',
+    executor: (args) => {
+      const str = String(args[0]);
+      const sep = String(args[1] || '');
+      return str.split(sep || '');
+    }
+  });
+
+  registry.register({
+    name: 'string_trim',
+    module: 'core-string',
+    executor: (args) => {
+      const str = String(args[0]);
+      return str.trim();
+    }
+  });
+
+  registry.register({
+    name: 'string_replace',
+    module: 'core-string',
+    executor: (args) => {
+      const str = String(args[0]);
+      const old = String(args[1]);
+      const newStr = String(args[2]);
+      try {
+        return str.replace(new RegExp(old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), newStr);
+      } catch {
+        return str;
+      }
+    }
+  });
+
+  registry.register({
+    name: 'string_contains',
+    module: 'core-string',
+    executor: (args) => {
+      const str = String(args[0]);
+      const substr = String(args[1]);
+      return str.includes(substr);
+    }
+  });
+
+  registry.register({
+    name: 'to_string',
+    module: 'core-type',
+    executor: (args) => {
+      return String(args[0]);
+    }
+  });
+
+  registry.register({
+    name: 'to_number',
+    module: 'core-type',
+    executor: (args) => {
+      const n = parseFloat(String(args[0]));
+      return isNaN(n) ? 0 : n;
+    }
+  });
+
+  // Type checking
+  registry.register({
+    name: 'is_null',
+    module: 'core-type',
+    executor: (args) => {
+      const val = args[0];
+      return val === null || val === undefined;
+    }
+  });
+
+  registry.register({
+    name: 'is_array',
+    module: 'core-type',
+    executor: (args) => {
+      return Array.isArray(args[0]);
+    }
+  });
+
+  registry.register({
+    name: 'is_map',
+    module: 'core-type',
+    executor: (args) => {
+      const val = args[0];
+      return val !== null && typeof val === 'object' && !Array.isArray(val);
+    }
+  });
+
+  registry.register({
+    name: 'is_string',
+    module: 'core-type',
+    executor: (args) => {
+      return typeof args[0] === 'string';
+    }
+  });
+
+  registry.register({
+    name: 'is_number',
+    module: 'core-type',
+    executor: (args) => {
+      return typeof args[0] === 'number';
+    }
+  });
+
+  registry.register({
+    name: 'is_bool',
+    module: 'core-type',
+    executor: (args) => {
+      return typeof args[0] === 'boolean';
+    }
+  });
 
   // ────────────────────────────────────────────────────────────
   // Phase H: scikit-learn 스타일 ML Functions (8개)

@@ -2424,6 +2424,252 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
       return 0;
     },
   },
+
+  // ────────────────────────────────────────────────────────
+  // Phase 6.2: Array operations (new aliases + missing functions)
+  // ────────────────────────────────────────────────────────
+
+  array_push: {
+    name: 'array_push',
+    params: [
+      { name: 'arr', type: 'array<any>' },
+      { name: 'val', type: 'any' },
+    ],
+    return_type: 'array<any>',
+    c_name: 'freelang_array_push',
+    headers: ['freelang_stdlib.h'],
+    impl: (arr: any[], val: any) => {
+      if (Array.isArray(arr)) {
+        arr.push(val);
+      }
+      return arr;
+    },
+  },
+
+  array_pop: {
+    name: 'array_pop',
+    params: [{ name: 'arr', type: 'array<any>' }],
+    return_type: 'any',
+    c_name: 'freelang_array_pop',
+    headers: ['freelang_stdlib.h'],
+    impl: (arr: any[]) => {
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.pop();
+      }
+      return null;
+    },
+  },
+
+  array_length: {
+    name: 'array_length',
+    params: [{ name: 'arr', type: 'array<any>' }],
+    return_type: 'number',
+    c_name: 'freelang_array_length',
+    headers: ['freelang_stdlib.h'],
+    impl: (arr: any[]) => {
+      return Array.isArray(arr) ? arr.length : 0;
+    },
+  },
+
+  array_shift: {
+    name: 'array_shift',
+    params: [{ name: 'arr', type: 'array<any>' }],
+    return_type: 'any',
+    c_name: 'freelang_array_shift',
+    headers: ['freelang_stdlib.h'],
+    impl: (arr: any[]) => {
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.shift();
+      }
+      return null;
+    },
+  },
+
+  array_unshift: {
+    name: 'array_unshift',
+    params: [
+      { name: 'arr', type: 'array<any>' },
+      { name: 'val', type: 'any' },
+    ],
+    return_type: 'array<any>',
+    c_name: 'freelang_array_unshift',
+    headers: ['freelang_stdlib.h'],
+    impl: (arr: any[], val: any) => {
+      if (Array.isArray(arr)) {
+        arr.unshift(val);
+      }
+      return arr;
+    },
+  },
+
+  array_join: {
+    name: 'array_join',
+    params: [
+      { name: 'arr', type: 'array<any>' },
+      { name: 'sep', type: 'string' },
+    ],
+    return_type: 'string',
+    c_name: 'freelang_array_join',
+    headers: ['freelang_stdlib.h'],
+    impl: (arr: any[], sep: string) => {
+      if (!Array.isArray(arr)) return '';
+      return arr.map(x => String(x)).join(sep || ',');
+    },
+  },
+
+  // ────────────────────────────────────────────────────────
+  // Phase 6.2: String operations (new aliases)
+  // ────────────────────────────────────────────────────────
+
+  string_split: {
+    name: 'string_split',
+    params: [
+      { name: 'str', type: 'string' },
+      { name: 'sep', type: 'string' },
+    ],
+    return_type: 'array<string>',
+    c_name: 'freelang_string_split',
+    headers: ['freelang_stdlib.h'],
+    impl: (str: string, sep: string) => {
+      if (typeof str !== 'string') return [];
+      return str.split(sep || '');
+    },
+  },
+
+  string_trim: {
+    name: 'string_trim',
+    params: [{ name: 'str', type: 'string' }],
+    return_type: 'string',
+    c_name: 'freelang_string_trim',
+    headers: ['freelang_stdlib.h'],
+    impl: (str: string) => {
+      return typeof str === 'string' ? str.trim() : '';
+    },
+  },
+
+  string_replace: {
+    name: 'string_replace',
+    params: [
+      { name: 'str', type: 'string' },
+      { name: 'old', type: 'string' },
+      { name: 'new', type: 'string' },
+    ],
+    return_type: 'string',
+    c_name: 'freelang_string_replace',
+    headers: ['freelang_stdlib.h'],
+    impl: (str: string, old: string, newStr: string) => {
+      if (typeof str !== 'string') return '';
+      return str.replace(new RegExp(String(old).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), String(newStr));
+    },
+  },
+
+  string_contains: {
+    name: 'string_contains',
+    params: [
+      { name: 'str', type: 'string' },
+      { name: 'substr', type: 'string' },
+    ],
+    return_type: 'boolean',
+    c_name: 'freelang_string_contains',
+    headers: ['freelang_stdlib.h'],
+    impl: (str: string, substr: string) => {
+      if (typeof str !== 'string') return false;
+      return str.includes(String(substr));
+    },
+  },
+
+  to_string: {
+    name: 'to_string',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'string',
+    c_name: 'freelang_to_string',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return String(val);
+    },
+  },
+
+  to_number: {
+    name: 'to_number',
+    params: [{ name: 'str', type: 'string' }],
+    return_type: 'number',
+    c_name: 'freelang_to_number',
+    headers: ['freelang_stdlib.h'],
+    impl: (str: string) => {
+      const n = parseFloat(String(str));
+      return isNaN(n) ? 0 : n;
+    },
+  },
+
+  // ────────────────────────────────────────────────────────
+  // Phase 6.2: Type checking functions
+  // ────────────────────────────────────────────────────────
+
+  is_null: {
+    name: 'is_null',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'boolean',
+    c_name: 'freelang_is_null',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return val === null || val === undefined;
+    },
+  },
+
+  is_array: {
+    name: 'is_array',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'boolean',
+    c_name: 'freelang_is_array',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return Array.isArray(val);
+    },
+  },
+
+  is_map: {
+    name: 'is_map',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'boolean',
+    c_name: 'freelang_is_map',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return val !== null && typeof val === 'object' && !Array.isArray(val);
+    },
+  },
+
+  is_string: {
+    name: 'is_string',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'boolean',
+    c_name: 'freelang_is_string',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return typeof val === 'string';
+    },
+  },
+
+  is_number: {
+    name: 'is_number',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'boolean',
+    c_name: 'freelang_is_number',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return typeof val === 'number';
+    },
+  },
+
+  is_bool: {
+    name: 'is_bool',
+    params: [{ name: 'val', type: 'any' }],
+    return_type: 'boolean',
+    c_name: 'freelang_is_bool',
+    headers: ['freelang_stdlib.h'],
+    impl: (val: any) => {
+      return typeof val === 'boolean';
+    },
+  },
 };
 
 // ────────────────────────────────────────
