@@ -209,20 +209,83 @@ AST Structure Verified:
 
 ---
 
-## Task 3: Higher-Order Functions (fn_lit + map/filter/reduce)
+## Task 3: Higher-Order Functions (fn_lit + map/filter/reduce) ✅ COMPLETED
 
-### Status: NOT STARTED ⏳
+### Status: ✅ COMPLETE (100%)
 
-### Required Implementation
-1. **Compiler (compiler.ts)**: Handle `fn_lit` expression
-2. **VM (vm.ts)**: Closure Value type + CALL_CLOSURE opcode
-3. **Builtins**: map(), filter(), reduce() in callBuiltin
+### Implementation Summary
 
-### Scope (Planned)
+#### 1. Compiler (compiler.ts:658-665)
+**Added fn_lit case to compileExpr**:
+```typescript
+case "fn_lit": {
+  const fnConstIdx = this.chunk.addConstant(expr);
+  this.chunk.emit(Op.PUSH_FN, expr.line);
+  this.chunk.emitI32(fnConstIdx, expr.line);
+  break;
+}
+```
+
+#### 2. Opcode: PUSH_FN (0x7A)
+**File**: compiler.ts:127
+- Pushes fn_lit AST as closure Value to stack
+- Stored in constants as raw AST for runtime evaluation
+
+#### 3. VM Closure Execution (vm.ts:564-570, 1016-1095)
+**Value type updated** (line 25):
+```typescript
+| { tag: "fn"; val: any }  // fn_lit AST stored as value
+```
+
+**PUSH_FN handler** (lines 564-570):
+```typescript
+case Op.PUSH_FN: {
+  const constIdx = this.readI32(actor);
+  const fnLit = this.chunk.constants[constIdx];
+  actor.stack.push({ tag: "fn", val: fnLit });
+  break;
+}
+```
+
+**callClosure method** (lines 1016-1038):
+- Binds function parameters to argument values in environment
+- Evaluates fn_lit body expression
+
+**evalExpr method** (lines 1040-1094):
+- Evaluates expressions in closure context with parameter bindings
+- Supports: ident, int_lit, float_lit, str_lit, bool_lit, block_expr, binary operations
+- Handles parameter extraction from AST (expr.value / expr.val)
+
+#### 4. Higher-Order Functions (vm.ts:961-1004)
+**map()** (lines 963-976):
+- Method call: arr.map(fn)
+- args[0]=array, args[1]=closure
+- Applies function to each element, returns new array
+
+**filter()** (lines 977-991):
+- Method call: arr.filter(fn)
+- Returns elements where function returns true
+
+**reduce()** (lines 992-1004):
+- Method call: arr.reduce(fn, initial)
+- Accumulates values using closure function
+
+### Test Results ✅
+```
+Test 1: map() doubles [1,2,3] → [2,4,6] ✅
+Test 2: filter() keeps evens → [2,4,6] ✅
+Test 3: reduce() sums → 15 ✅
+Test 4: chaining map() calls → [3,5,7] ✅
+Test 5: filter + map combo → [9,12,15] ✅
+```
+
+### Scope (Verified)
 ```freeLang
-let double = fn(x) { x * 2 };           // fn_lit
+let double = fn(x) { x * 2 };
 let arr = [1, 2, 3];
-let result = arr.map(double);            // [2, 4, 6]
+let result = arr.map(double);    // [2, 4, 6] ✅
+let evens = [1,2,3,4,5,6].filter(fn(x) { x % 2 == 0 });  // [2,4,6] ✅
+let sum = [1,2,3,4,5].reduce(fn(acc, x) { acc + x }, 0); // 15 ✅
 ```
 
 ---
@@ -230,38 +293,43 @@ let result = arr.map(double);            // [2, 4, 6]
 ## Summary Statistics
 
 ### Code Changes
-- **Total Lines Added**: 77
-- **Files Modified**: 6
-- **Files Created for Testing**: 4
-- **Commits**: 2
+- **Total Lines Added**: 235 (77 + 158 for Task 3)
+- **Files Modified**: 6 (compiler.ts, vm.ts, types.ts, ast.ts, lexer.ts, parser.ts)
+- **Files Created for Testing**: 8 (pattern matching, try-catch, higher-order functions tests)
+- **Commits**: 3 (Pattern Matching + Error Handling + Higher-Order Functions)
 
 ### Implementation Status
 | Task | Status | Completion |
 |------|--------|-----------|
 | Pattern Matching | ✅ Complete | 100% |
 | Error Handling | 🟡 In Progress | 50% |
-| Higher-Order Functions | ⏳ Pending | 0% |
-| **Overall** | 🟡 **On Track** | **50%** |
+| Higher-Order Functions | ✅ **Complete** | **100%** |
+| **Overall** | 🟡 **On Track** | **83%** |
 
 ### Critical Path
-1. ✅ Task 1 provides foundation for pattern matching in match/try
-2. 🟡 Task 2 needs VM integration (1-2 hours)
-3. ⏳ Task 3 enables functional programming (2-3 hours)
+1. ✅ Task 1: Pattern matching foundation (Complete)
+2. 🟡 Task 2: Error handling with VM integration (50% - parsing/compilation done, runtime execution pending)
+3. ✅ Task 3: Functional programming support (Complete)
 
 ---
 
 ## Next Session Checklist
 
-### Complete Task 2
+### Complete Task 2: Runtime Exception Handling
 - [ ] Add exception handling to vm.ts:executeActor
-- [ ] Implement THROW opcode handling
+- [ ] Implement THROW opcode handling with error propagation
+- [ ] Implement try-catch dispatcher in executeActor
 - [ ] Test: `try { throw "error"; } catch (e) { println(e); }`
+- [ ] Test error propagation through function calls
+- [ ] Test nested try-catch blocks
 
-### Start Task 3
-- [ ] Add `fn_lit` case to compiler.ts:compileExpr
-- [ ] Define closure Value type in vm.ts
-- [ ] Implement map/filter/reduce in callBuiltin
-- [ ] Test: `[1,2,3].map(fn(x) { x * 2 })`
+### Task 3 Complete ✅
+- [x] Add `fn_lit` case to compiler.ts:compileExpr
+- [x] Define closure Value type in vm.ts
+- [x] Implement map/filter/reduce in callBuiltin
+- [x] Implement evalExpr for runtime expression evaluation
+- [x] Test all higher-order functions
+- [x] Test chaining and composition
 
 ---
 
@@ -299,6 +367,8 @@ let result = arr.map(double);            // [2, 4, 6]
 
 ---
 
-**Session End Time**: 2026-03-08 16:15 UTC+9
-**Elapsed Time**: ~50 minutes
-**Next Session Goal**: Complete Task 2 + Start Task 3
+**Previous Session**: 2026-03-08 15:45-16:15 UTC+9 (Tasks 1-2 framework)
+**Current Session**: 2026-03-08 16:15-17:30 UTC+9 (Task 3 complete)
+**Total Elapsed**: ~105 minutes
+**Session Summary**: Implemented fn_lit compilation, closure execution, and all three higher-order functions
+**Next Session Goal**: Complete Task 2 runtime exception handling and test error propagation
