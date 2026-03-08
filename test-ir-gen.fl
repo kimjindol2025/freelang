@@ -1,0 +1,42 @@
+// Phase 3 검증: IR Generator 테스트
+
+import "ir-generator"
+
+fn main() {
+  println("=== Phase 3: IR Generator Test ===");
+
+  // Test 1: 간단한 이진 연산 AST
+  println("Test 1: Binary operation (3 + 4)");
+  let expr = {
+    type: "binary",
+    op: "+",
+    left: { type: "number", value: 3 },
+    right: { type: "number", value: 4 }
+  };
+
+  let gen = createIRGen();
+  generateExpression(gen, expr);
+  println("Instructions count:");
+  println(gen.instructions.len(gen.instructions));
+
+  // Test 2: 모듈 컴파일
+  println("Test 2: Module compilation");
+  let module = {
+    statements: [
+      {
+        type: "let",
+        id: "x",
+        init: { type: "number", value: 5 }
+      }
+    ]
+  };
+
+  let gen2 = createIRGen();
+  generateModule(gen2, module);
+  println("Instructions generated:");
+  println(gen2.instructions.len(gen2.instructions));
+
+  println("✅ Phase 3 IR Generator test passed!");
+}
+
+main();

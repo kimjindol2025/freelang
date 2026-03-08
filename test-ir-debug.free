@@ -1,0 +1,17 @@
+// 디버그 테스트
+
+fn test1() {
+  println("Test 1: Simple array");
+  let arr = [1, 2, 3];
+  println(arr.len(arr));
+}
+
+fn test2() {
+  println("Test 2: Array push");
+  let arr = [1, 2];
+  let arr2 = arr.push(arr, 3);
+  println(arr2.len(arr2));
+}
+
+test1();
+test2();

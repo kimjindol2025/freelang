@@ -1,0 +1,10 @@
+// Phase J: Simple async/await test
+
+async fn getValue() -> number {
+  return 100
+}
+
+fn main() -> void {
+  let result = getValue();
+  println(result);
+}

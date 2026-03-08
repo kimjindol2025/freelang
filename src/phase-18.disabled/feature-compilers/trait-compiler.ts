@@ -71,8 +71,8 @@ class TraitCompiler extends IntegratedCompilerBase {
       include_runtime: true,
     } as any);
 
-    this.irGenerator = new IRGenerator();
-    this.parser = new Parser();
+    this.irGenerator = new IRGenerator()
+    this.parser = new Parser('default' as any);
   }
 
   /**
@@ -240,7 +240,7 @@ class TraitCompiler extends IntegratedCompilerBase {
         return {
           type: 'TraitImplementation',
           trait: match[1],
-          type: match[2],
+          target: match[2],
           methods: [],
         };
       }
@@ -464,5 +464,3 @@ class TraitCompiler extends IntegratedCompilerBase {
     return this.implementations;
   }
 }
-
-export { TraitCompiler };

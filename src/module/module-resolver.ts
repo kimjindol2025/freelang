@@ -108,11 +108,28 @@ export class ModuleResolver {
     // 상대 경로 처리
     if (modulePath.startsWith('./') || modulePath.startsWith('../')) {
       const dir = path.dirname(fromFile);
-      return path.resolve(dir, modulePath);
+      let resolved = path.resolve(dir, modulePath);
+
+      // .fl 확장자가 없으면 추가 (파일이 존재하지 않으면)
+      if (!fs.existsSync(resolved) && !resolved.endsWith('.fl')) {
+        const withExt = resolved + '.fl';
+        if (fs.existsSync(withExt)) {
+          resolved = withExt;
+        }
+      }
+
+      return resolved;
     }
 
-    // 절대 경로 처리 (그대로 반환)
+    // 절대 경로 처리
     if (modulePath.startsWith('/')) {
+      // .fl 확장자가 없으면 추가 (파일이 존재하지 않으면)
+      if (!fs.existsSync(modulePath) && !modulePath.endsWith('.fl')) {
+        const withExt = modulePath + '.fl';
+        if (fs.existsSync(withExt)) {
+          return withExt;
+        }
+      }
       return modulePath;
     }
 
@@ -192,32 +209,9 @@ export class ModuleResolver {
         // parser에 파일 경로 설정 (에러 메시지용)
         (parser as any).setCurrentFilePath?.(modulePath);
 
-        // parseProgram() 메서드가 있는지 확인하고, 없으면 parseStatement() 반복 사용
-        const statements = [];
-        while (true) {
-          try {
-            const stmt = parser.parseStatement();
-            if (stmt) {
-              statements.push(stmt);
-            } else {
-              break;
-            }
-          } catch (e) {
-            if (e instanceof ParseError) {
-              // 파일 끝에 도달했거나 다른 파싱 에러
-              break;
-            }
-            throw e;
-          }
-        }
-
-        // Module 구조로 변환
-        module = {
-          path: modulePath,
-          imports: statements.filter(s => s.type === 'import') as any[],
-          exports: statements.filter(s => s.type === 'export') as any[],
-          statements: statements
-        };
+        // parseModule() 메서드를 사용하여 전체 파일을 한번에 파싱
+        // (import/export를 정확히 추출하기 위함)
+        module = parser.parseModule();
       } catch (e) {
         if (e instanceof ParseError) {
           throw new Error(

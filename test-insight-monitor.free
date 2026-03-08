@@ -1,0 +1,35 @@
+// FreeLang v2 - Self-Monitoring Kernel 테스트
+// @monitor 어노테이션 → insight_enter/exit 자동 주입
+
+@monitor
+fn compute_sum(n) {
+  let i = 0
+  let s = 0
+  while i < n {
+    s = s + i
+    i = i + 1
+  }
+  return s
+}
+
+@monitor
+fn greet(name) {
+  return name
+}
+
+// 대시보드 시작 (포트 9999)
+insight_start_dashboard(9999)
+
+// 모니터링 대상 함수 여러 번 호출
+let r1 = compute_sum(100)
+let r2 = compute_sum(500)
+let r3 = compute_sum(1000)
+greet("FreeLang")
+greet("Insight")
+
+// 터미널 리포트 출력
+insight_report()
+
+// JSON 리포트
+let j = insight_json()
+println(j)

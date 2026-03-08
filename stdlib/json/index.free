@@ -102,8 +102,7 @@ export const json = {
    * @returns {string} Formatted JSON string
    */
   stringify_pretty: (obj, indent = 2) => {
-    // TODO: Implement pretty printing with indentation
-    return json.stringify(obj)
+    return stringifyPrettyInner(obj, indent, 0)
   },
 
   /**
@@ -249,6 +248,75 @@ function escapeJsonString(str) {
     .replace(/\t/g, "\\t")
     .replace(/\b/g, "\\b")
     .replace(/\f/g, "\\f")
+}
+
+// ===== Pretty Printing Helpers =====
+
+// Create indentation string (depth * spaces)
+function makeIndent(depth, spaces) {
+  let result = ""
+  let i = 0
+  while i < depth * spaces {
+    result += " "
+    i += 1
+  }
+  return result
+}
+
+// Stringify with pretty printing (recursive)
+function stringifyPrettyInner(obj, indent, depth) {
+  if obj == null
+    return "null"
+
+  let type = typeof obj
+  if type == "boolean"
+    return obj ? "true" : "false"
+
+  if type == "number"
+    return obj.toString()
+
+  if type == "string"
+    return '"' + escapeJsonString(obj) + '"'
+
+  if Array.isArray(obj) {
+    if obj.length == 0
+      return "[]"
+
+    let currentIndent = makeIndent(depth, indent)
+    let nextIndent = makeIndent(depth + 1, indent)
+    let result = "[\n"
+
+    for let i = 0; i < obj.length; i++
+      result += nextIndent + stringifyPrettyInner(obj[i], indent, depth + 1)
+      if i < obj.length - 1
+        result += ","
+      result += "\n"
+
+    result += currentIndent + "]"
+    return result
+  }
+
+  if type == "object" {
+    let keys = Object.keys(obj)
+    if keys.length == 0
+      return "{}"
+
+    let currentIndent = makeIndent(depth, indent)
+    let nextIndent = makeIndent(depth + 1, indent)
+    let result = "{\n"
+
+    for let i = 0; i < keys.length; i++
+      let key = keys[i]
+      result += nextIndent + '"' + key + '": ' + stringifyPrettyInner(obj[key], indent, depth + 1)
+      if i < keys.length - 1
+        result += ","
+      result += "\n"
+
+    result += currentIndent + "}"
+    return result
+  }
+
+  return "null"
 }
 
 export default json

@@ -1,0 +1,8 @@
+// Simple regex test (Minimal format)
+@minimal
+fn regex_test
+input: string
+output: bool
+intent: "Test if string contains digits"
+
+// Pattern: /[0-9]+/ -> matches one or more digits

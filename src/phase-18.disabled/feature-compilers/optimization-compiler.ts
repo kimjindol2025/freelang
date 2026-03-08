@@ -77,8 +77,8 @@ class OptimizationCompiler extends IntegratedCompilerBase {
       include_runtime: true,
     } as any);
 
-    this.irGenerator = new IRGenerator();
-    this.parser = new Parser();
+    this.irGenerator = new IRGenerator()
+    this.parser = new Parser('default' as any);
     this.initializePeepholePatterns();
   }
 
@@ -306,7 +306,7 @@ class OptimizationCompiler extends IntegratedCompilerBase {
     // Find entry points (function starts, labels, returns)
     for (let i = 0; i < this.instructions.length; i++) {
       const inst = this.instructions[i];
-      if (inst.op === 'FUNC_DEF' || inst.op === 'LABEL' || inst.op === 'RET') {
+      if ((inst.op as any) === 'FUNC_DEF' || (inst.op as any) === 'LABEL' || (inst.op as any) === 'RET') {
         isLive[i] = true;
       }
     }
@@ -355,8 +355,8 @@ class OptimizationCompiler extends IntegratedCompilerBase {
       const op = this.instructions[i + 2];
 
       // Pattern: PUSH a, PUSH b, (arithmetic op)
-      if (curr.op === 'PUSH' && next.op === 'PUSH' &&
-          ['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>='].includes(op.op as string)) {
+      if ((curr.op as any) === 'PUSH' && (next.op as any) === 'PUSH' &&
+          ['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>='].includes(op.op as any)) {
 
         const a = curr.arg;
         const b = next.arg;
@@ -364,7 +364,7 @@ class OptimizationCompiler extends IntegratedCompilerBase {
         if (typeof a === 'number' && typeof b === 'number') {
           let result: number;
 
-          switch (op.op) {
+          switch (op.op as any) {
             case '+': result = a + b; break;
             case '-': result = a - b; break;
             case '*': result = a * b; break;
@@ -380,7 +380,7 @@ class OptimizationCompiler extends IntegratedCompilerBase {
           }
 
           // Replace with single PUSH
-          this.instructions[i] = { op: 'PUSH', arg: result };
+          this.instructions[i] = { op: 'PUSH' as any, arg: result };
           this.instructions.splice(i + 1, 2);
           optimizations++;
         }
@@ -410,14 +410,14 @@ class OptimizationCompiler extends IntegratedCompilerBase {
     const functions = new Map<string, { start: number; end: number; size: number }>();
 
     for (let i = 0; i < this.instructions.length; i++) {
-      if (this.instructions[i].op === 'FUNC_DEF') {
+      if ((this.instructions[i].op as any) === 'FUNC_DEF') {
         const name = this.instructions[i].arg as string;
         let end = i + 1;
 
         // Find end of function (RET or next FUNC_DEF)
         while (end < this.instructions.length &&
-               this.instructions[end].op !== 'RET' &&
-               this.instructions[end].op !== 'FUNC_DEF') {
+               (this.instructions[end].op as any) !== 'RET' &&
+               (this.instructions[end].op as any) !== 'FUNC_DEF') {
           end++;
         }
 
@@ -493,5 +493,3 @@ class OptimizationCompiler extends IntegratedCompilerBase {
     return this.optimizationStats.passResults;
   }
 }
-
-export { OptimizationCompiler };

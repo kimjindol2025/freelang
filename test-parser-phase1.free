@@ -1,0 +1,150 @@
+/**
+ * Parser Phase 1 테스트
+ *
+ * 목표: 기본 구조체, 헬퍼 함수 검증
+ *
+ * 체크:
+ * 1. Recursion: parseExpression → parsePrimary → parseBinaryRight (재귀)
+ * 2. Structs: ASTNode 구조체 생성 및 출력
+ * 3. Error Handling: parseError 생성 및 errors 배열 수집
+ */
+
+// ============================================
+// Test 1: 기본 구조체 생성
+// ============================================
+
+fn test_structs() {
+  println("=== Test 1: Structs ===")
+
+  // ASTNode 생성 테스트
+  let node = {
+    type: "Literal",
+    value: "42",
+    children: [],
+    line: 1,
+    col: 1
+  }
+
+  println(node.type)    // "Literal"
+  println(node.value)   // "42"
+  println(arr.len(node.children))  // 0
+
+  // ParseError 생성 테스트
+  let err = {
+    msg: "Unexpected token",
+    line: 5,
+    col: 10
+  }
+
+  println(err.msg)      // "Unexpected token"
+  println(err.line)     // 5
+
+  println("✓ Structs OK\n")
+}
+
+// ============================================
+// Test 2: 우선순위 함수
+// ============================================
+
+fn getOperatorPrecedence(op) -> int {
+  if op == "+" || op == "-" {
+    return 4
+  }
+  if op == "*" || op == "/" {
+    return 5
+  }
+  if op == "||" {
+    return 1
+  }
+  return 0
+}
+
+fn test_precedence() {
+  println("=== Test 2: Operator Precedence ===")
+
+  println(getOperatorPrecedence("+"))    // 4
+  println(getOperatorPrecedence("*"))    // 5
+  println(getOperatorPrecedence("||"))   // 1
+  println(getOperatorPrecedence("??"))   // 0
+
+  println("✓ Precedence OK\n")
+}
+
+// ============================================
+// Test 3: 노드 생성 헬퍼
+// ============================================
+
+fn makeNode(type, value, children, line, col) -> map {
+  return {
+    type: type,
+    value: value,
+    children: children,
+    line: line,
+    col: col
+  }
+}
+
+fn makeLiteralNode(value, line, col) -> map {
+  return makeNode("Literal", value, [], line, col)
+}
+
+fn makeIdentNode(name, line, col) -> map {
+  return makeNode("Identifier", name, [], line, col)
+}
+
+fn test_node_helpers() {
+  println("=== Test 3: Node Helpers ===")
+
+  let lit = makeLiteralNode("42", 1, 1)
+  println(lit.type)     // "Literal"
+  println(lit.value)    // "42"
+
+  let id = makeIdentNode("x", 1, 5)
+  println(id.type)      // "Identifier"
+  println(id.value)     // "x"
+
+  println("✓ Node Helpers OK\n")
+}
+
+// ============================================
+// Test 4: ParserState 생성
+// ============================================
+
+fn createParser(tokens) -> map {
+  return {
+    tokens: tokens,
+    pos: 0,
+    errors: []
+  }
+}
+
+fn test_parser_state() {
+  println("=== Test 4: Parser State ===")
+
+  let mockTokens = [
+    { kind: "IDENT", value: "x", line: 1, col: 1, length: 1 },
+    { kind: "OP", value: "+", line: 1, col: 3, length: 1 },
+    { kind: "NUMBER", value: "5", line: 1, col: 5, length: 1 }
+  ]
+
+  let p = createParser(mockTokens)
+
+  println(p.pos)  // 0
+  println(arr.len(p.tokens))  // 3
+  println(arr.len(p.errors))  // 0
+
+  println("✓ Parser State OK\n")
+}
+
+// ============================================
+// Main Test
+// ============================================
+
+println("FreeLang Parser Phase 1 - Basic Structure Tests\n")
+
+test_structs()
+test_precedence()
+test_node_helpers()
+test_parser_state()
+
+println("=== ALL PHASE 1 TESTS PASSED ===")

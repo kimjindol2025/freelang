@@ -1,0 +1,107 @@
+// Test System Extended Functions
+
+// Test Event Emitter
+fn test_event_emitter() {
+  let emitter = event_emitter_create("test");
+  let received = false;
+  
+  event_on("test", "hello", fn(data) {
+    received = true;
+  });
+  
+  event_emit("test", "hello", "world");
+  print("Event emitter test:");
+  print(received);
+}
+
+// Test Event Once
+fn test_event_once() {
+  let emitter = event_emitter_create("once_test");
+  let count = 0;
+  
+  event_once("once_test", "trigger", fn(data) {
+    count = count + 1;
+  });
+  
+  event_emit("once_test", "trigger", "first");
+  event_emit("once_test", "trigger", "second");
+  
+  print("Event once test (should be 1):");
+  print(count);
+}
+
+// Test Logging
+fn test_logging() {
+  print("--- Logging Test ---");
+  log_info("Info message");
+  log_warn("Warning message");
+  log_debug("Debug message");
+}
+
+// Test Cache
+fn test_cache() {
+  print("--- Cache Test ---");
+  cache_create("my_cache");
+  cache_set("my_cache", "key1", "value1");
+  
+  let value = cache_get("my_cache", "key1");
+  print("Cache get test:");
+  print(value);
+  
+  let size = cache_size("my_cache");
+  print("Cache size:");
+  print(size);
+}
+
+// Test Validation
+fn test_validation() {
+  print("--- Validation Test ---");
+  let req_result = validate_required("hello");
+  print("validate_required test:");
+  print(req_result);
+  
+  let type_result = validate_type("hello", "string");
+  print("validate_type test:");
+  print(type_result);
+  
+  let email_result = validate_email("test@example.com");
+  print("validate_email test:");
+  print(email_result);
+}
+
+// Test Config
+fn test_config() {
+  print("--- Config Test ---");
+  config_set("app_name", "FreeLang");
+  
+  let name = config_get("app_name", "default");
+  print("Config get test:");
+  print(name);
+  
+  let has_name = config_has("app_name");
+  print("Config has test:");
+  print(has_name);
+}
+
+// Test Timer
+fn test_timer() {
+  print("--- Timer Test ---");
+  let timer_id = timer_set(1000, fn() {
+    print("Timer fired!");
+  });
+  
+  let elapsed = timer_elapsed(timer_id);
+  print("Timer elapsed (should be ~0):");
+  print(elapsed);
+}
+
+// Run all tests
+test_event_emitter();
+test_event_once();
+test_logging();
+test_cache();
+test_validation();
+test_config();
+test_timer();
+
+print("All System Extended tests completed!");

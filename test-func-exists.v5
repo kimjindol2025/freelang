@@ -1,0 +1,11 @@
+fn double(x) {
+  return x * 2;
+}
+
+fn main() {
+  // Just test if function exists and can be called
+  let result = double(5);
+  return result;
+}
+
+main();

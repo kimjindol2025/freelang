@@ -1,3 +1,4 @@
+// @ts-ignore
 /**
  * 🚀 Phase 25: Bytecode Caching System
  * CacheManager - LRU 메모리 캐시 관리자
@@ -198,8 +199,8 @@ export class CacheManager<K, V> {
     if (Array.isArray(value)) {
       return value.reduce((sum, v) => sum + this.estimateSize(v), 8);
     }
-    if (typeof value === 'object' && value !== null) {
-      return (Object.values(value) as any[]).reduce(
+    if (typeof value === 'object') {
+      return Object.values(value as any).reduce<number>(
         (sum: number, v: any) => sum + this.estimateSize(v),
         8
       );

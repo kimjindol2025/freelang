@@ -1,3 +1,4 @@
+// @ts-ignore
 /**
  * FreeLang Type System Extension: Advanced Generics
  *

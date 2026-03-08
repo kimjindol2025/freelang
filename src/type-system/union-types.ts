@@ -27,12 +27,14 @@ export interface DiscriminatedUnion {
 }
 
 /**
- * Type annotation (can be basic, union, or conditional)
+ * Type annotation (can be basic, union, conditional, or mapped)
  */
 export type TypeAnnotation =
   | string  // 'string', 'number', 'boolean', 'any', etc.
   | UnionType
-  | DiscriminatedUnion;
+  | DiscriminatedUnion
+  | { type: 'conditional' }  // ConditionalType
+  | { type: 'mapped'; key?: string; source?: any; value?: any; optional?: boolean; readonly?: boolean };  // MappedType
 
 /**
  * Condition for type narrowing

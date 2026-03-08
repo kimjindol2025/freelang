@@ -1,0 +1,36 @@
+/**
+ * Parser Phase 1 - 매우 간단한 테스트
+ *
+ * 목표: 기본 함수 정의 및 호출 검증
+ */
+
+// 테스트 1: 간단한 함수
+fn greet(name) {
+  println("Hello, " + name)
+}
+
+greet("Parser")
+
+// 테스트 2: 재귀 함수 (팩토리얼)
+fn factorial(n) {
+  if n <= 1 {
+    return 1
+  }
+  return n * factorial(n - 1)
+}
+
+println(factorial(5))  // 120
+
+// 테스트 3: 배열 처리
+fn sumArray(arr) {
+  let sum = 0
+  for i in arr {
+    sum = sum + i
+  }
+  return sum
+}
+
+let nums = [1, 2, 3, 4, 5]
+println(sumArray(nums))  // 15
+
+println("✓ Basic Parser Tests PASSED")

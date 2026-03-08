@@ -1,0 +1,17 @@
+// Module: math.fl
+// 수학 함수를 export하는 모듈
+
+export fn add(a: number, b: number) -> number {
+  return a + b;
+}
+
+export fn multiply(a: number, b: number) -> number {
+  return a * b;
+}
+
+export fn subtract(a: number, b: number) -> number {
+  return a - b;
+}
+
+export let PI: number = 3.14159;
+export let E: number = 2.71828;

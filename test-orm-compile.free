@@ -1,0 +1,57 @@
+// FreeLang v2 - Compile-Time-ORM 테스트
+// Sequelize 대체 - 외부 의존성 0%
+//
+// @db_table, @db_column 어노테이션 → 컴파일 타임 SQL 생성
+// orm_table_init / orm_insert / orm_find_all / orm_count
+//
+// 실행: node dist/cli.js run test-orm-compile.free
+
+@db_table(name: wash_logs)
+struct WashLog {
+  @db_id @db_auto_inc id: int,
+  @db_column(type: varchar) site_name: string,
+  @db_column(type: integer) machine_id: int,
+  @db_column(type: timestamp) created_at: int
+}
+
+fn main() {
+  // 1. 컴파일 타임에 생성된 SQL 확인 (런타임 파싱 0)
+  let create_sql = orm_raw_sql("WashLog", "create")
+  let insert_sql = orm_raw_sql("WashLog", "insert")
+  let select_sql = orm_raw_sql("WashLog", "select_all")
+
+  println("[ORM-CODEGEN] CREATE : " + create_sql)
+  println("[ORM-CODEGEN] INSERT : " + insert_sql)
+  println("[ORM-CODEGEN] SELECT : " + select_sql)
+
+  // 2. DB 연결
+  let db = db_open("/tmp/orm-test.db")
+
+  // 3. 테이블 초기화 (pre-compiled CREATE TABLE IF NOT EXISTS)
+  let ok = orm_table_init(db, "WashLog")
+  println("[ORM] table_init: " + ok)
+
+  // 4. 데이터 삽입 (pre-compiled INSERT)
+  let id1 = orm_insert(db, "WashLog", "강남지점", 1, 1741400000)
+  let id2 = orm_insert(db, "WashLog", "서초지점", 2, 1741400100)
+  let id3 = orm_insert(db, "WashLog", "잠실지점", 1, 1741400200)
+  println("[ORM] inserted ids: " + id1 + ", " + id2 + ", " + id3)
+
+  // 5. 전체 조회
+  let rows = orm_find_all(db, "WashLog", 10)
+  println("[ORM] find_all count: " + len(rows))
+
+  // 6. 단건 조회
+  let row = orm_find_one(db, "WashLog", id1)
+  println("[ORM] find_one id=" + id1 + ": " + row)
+
+  // 7. 카운트
+  let cnt = orm_count(db, "WashLog")
+  println("[ORM] count: " + cnt)
+
+  // 8. 셀프호스팅 증명: 컴파일 통계를 DB에 기록
+  let stats_ok = orm_insert(db, "WashLog", "FreeLang-v2-Compiler", 0, 1741400300)
+  println("[ORM] selfhost proof insert id: " + stats_ok)
+
+  println("[ORM] Compile-Time-ORM 검증 완료 - Sequelize 의존성: 0%")
+}

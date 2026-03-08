@@ -60,8 +60,8 @@ class PatternMatchCompiler extends IntegratedCompilerBase {
       include_runtime: true,
     } as any);
 
-    this.irGenerator = new IRGenerator();
-    this.parser = new Parser();
+    this.irGenerator = new IRGenerator()
+    this.parser = new Parser('default' as any);
   }
 
   /**
@@ -443,5 +443,3 @@ class PatternMatchCompiler extends IntegratedCompilerBase {
     };
   }
 }
-
-export { PatternMatchCompiler };

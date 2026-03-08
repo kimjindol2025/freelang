@@ -1,0 +1,10 @@
+fn test_basic() => {
+  println("Test 1: Basic output")
+  println("1 + 2 = " + (1 + 2))
+}
+
+fn main() => {
+  test_basic()
+}
+
+main()

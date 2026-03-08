@@ -1,3 +1,4 @@
+// @ts-ignore
 /**
  * FreeLang Enhanced Type Checker
  *

@@ -1,0 +1,2 @@
+import { funcB } from "./b";
+export fn funcA() -> number { return 1; }

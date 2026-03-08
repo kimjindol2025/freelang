@@ -315,3 +315,260 @@ fn getLastError(db: object) -> string {
   do
     return db.lastError
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// SQL Builder - Complete Functions
+// ═════════════════════════════════════════════════════════════════════════
+
+fn buildInsert(tableName: string, data: object) -> string {
+  intent: "Build INSERT SQL query"
+  output: string
+  do
+    let keys = Object.keys(data)
+    let columns = keys.join(", ")
+    let values = ""
+
+    let i = 0
+    while i < keys.length {
+      let key = keys[i]
+      let val = data[key]
+      let valStr = ""
+
+      if typeof val == "string" {
+        valStr = "'" + val.replace(/'/g, "''") + "'"
+      } else if typeof val == "number" {
+        valStr = val.toString()
+      } else if typeof val == "boolean" {
+        valStr = val ? "1" : "0"
+      } else {
+        valStr = "NULL"
+      }
+
+      values = values + valStr
+      if i < keys.length - 1 {
+        values = values + ", "
+      }
+      i = i + 1
+    }
+
+    return "INSERT INTO " + tableName + " (" + columns + ") VALUES (" + values + ")"
+}
+
+fn buildUpdate(tableName: string, data: object, whereColumn: string, whereValue) -> string {
+  intent: "Build UPDATE SQL query"
+  output: string
+  do
+    let keys = Object.keys(data)
+    let setClause = ""
+
+    let i = 0
+    while i < keys.length {
+      let key = keys[i]
+      let val = data[key]
+      let valStr = ""
+
+      if typeof val == "string" {
+        valStr = "'" + val.replace(/'/g, "''") + "'"
+      } else if typeof val == "number" {
+        valStr = val.toString()
+      } else if typeof val == "boolean" {
+        valStr = val ? "1" : "0"
+      } else {
+        valStr = "NULL"
+      }
+
+      setClause = setClause + key + " = " + valStr
+      if i < keys.length - 1 {
+        setClause = setClause + ", "
+      }
+      i = i + 1
+    }
+
+    let whereStr = whereColumn + " = '" + whereValue + "'"
+    return "UPDATE " + tableName + " SET " + setClause + " WHERE " + whereStr
+}
+
+fn buildDelete(tableName: string, whereColumn: string, whereValue) -> string {
+  intent: "Build DELETE SQL query"
+  output: string
+  do
+    let whereStr = whereColumn + " = '" + whereValue + "'"
+    return "DELETE FROM " + tableName + " WHERE " + whereStr
+}
+
+fn buildSelectWithJoin(builder: object, joinType: string, joinTable: string,
+                        onLeft: string, onRight: string) -> string {
+  intent: "Build SELECT query with JOIN"
+  output: string
+  do
+    let query = "SELECT " + builder.selectColumns.join(", ") + " FROM " + builder.tableName
+    query = query + " " + joinType + " JOIN " + joinTable + " ON " + onLeft + " = " + onRight
+
+    if builder.whereConditions.length > 0 {
+      query = query + " WHERE "
+      let i = 0
+      while i < builder.whereConditions.length {
+        let cond = builder.whereConditions[i]
+        query = query + cond.column + " " + cond.operator + " '" + cond.value + "'"
+        if i < builder.whereConditions.length - 1 {
+          query = query + " AND "
+        }
+        i = i + 1
+      }
+    }
+
+    if builder.orderByColumn != null {
+      query = query + " ORDER BY " + builder.orderByColumn
+      if builder.orderAscending {
+        query = query + " ASC"
+      } else {
+        query = query + " DESC"
+      }
+    }
+
+    if builder.limitValue > 0 {
+      query = query + " LIMIT " + builder.limitValue
+    }
+
+    return query
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// WHERE Clause Extensions
+// ═════════════════════════════════════════════════════════════════════════
+
+fn whereIn(builder: object, column: string, values: array) -> object {
+  intent: "Add WHERE ... IN (...) condition"
+  output: object
+  do
+    let valueStrs = ""
+    let i = 0
+    while i < values.length {
+      valueStrs = valueStrs + "'" + values[i] + "'"
+      if i < values.length - 1 {
+        valueStrs = valueStrs + ", "
+      }
+      i = i + 1
+    }
+
+    builder.whereConditions.push({
+      column: column,
+      operator: "IN",
+      value: "(" + valueStrs + ")"
+    })
+    return builder
+}
+
+fn whereNull(builder: object, column: string) -> object {
+  intent: "Add WHERE ... IS NULL condition"
+  output: object
+  do
+    builder.whereConditions.push({
+      column: column,
+      operator: "IS",
+      value: "NULL"
+    })
+    return builder
+}
+
+fn whereNotNull(builder: object, column: string) -> object {
+  intent: "Add WHERE ... IS NOT NULL condition"
+  output: object
+  do
+    builder.whereConditions.push({
+      column: column,
+      operator: "IS NOT",
+      value: "NULL"
+    })
+    return builder
+}
+
+fn whereLike(builder: object, column: string, pattern: string) -> object {
+  intent: "Add WHERE ... LIKE condition"
+  output: object
+  do
+    builder.whereConditions.push({
+      column: column,
+      operator: "LIKE",
+      value: pattern
+    })
+    return builder
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Query Result Type & Helper Functions
+// ═════════════════════════════════════════════════════════════════════════
+
+export struct QueryResult {
+  sql: string
+  rows: array
+  rowCount: number
+  error: string
+  isMock: bool
+}
+
+fn executeMock(builder: object) -> object {
+  intent: "Execute query mock (SQL generation without actual DB)"
+  output: object
+  do
+    let sql = build(builder)
+    return {
+      sql: sql,
+      rows: [],
+      rowCount: 0,
+      error: "",
+      isMock: true
+    }
+}
+
+fn rawQuery(sql: string) -> object {
+  intent: "Execute raw SQL query string"
+  output: object
+  do
+    // FFI_REQUIRED: Actual query execution
+    return {
+      sql: sql,
+      rows: [],
+      rowCount: 0,
+      error: "FFI_REQUIRED: Raw query execution not available",
+      isMock: true
+    }
+}
+
+fn validateSql(sql: string) -> bool {
+  intent: "Validate SQL query for common injection patterns"
+  output: bool
+  do
+    // Basic SQL injection checks
+    let lowerSql = sql
+
+    // Check for multiple semicolons (chained queries)
+    let semiCount = 0
+    let i = 0
+    while i < lowerSql.length {
+      if lowerSql[i] == ";" {
+        semiCount = semiCount + 1
+      }
+      i = i + 1
+    }
+
+    if semiCount > 1 {
+      return false
+    }
+
+    // Check for dangerous keywords
+    if lowerSql.indexOf("DROP") != -1 {
+      return false
+    }
+    if lowerSql.indexOf("TRUNCATE") != -1 {
+      return false
+    }
+    if lowerSql.indexOf("ALTER") != -1 {
+      return false
+    }
+    if lowerSql.indexOf("CREATE") != -1 && sql.indexOf("SELECT") == -1 {
+      return false
+    }
+
+    return true
+}

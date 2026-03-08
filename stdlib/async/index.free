@@ -80,7 +80,12 @@ export class Promise {
         try {
           if typeof onRejected == "function" {
             let result = onRejected(err)
-            resolve(result)
+            // If error handler returns a promise, chain it
+            if result instanceof Promise {
+              result.then(resolve, reject)
+            } else {
+              resolve(result)
+            }
           } else {
             reject(err)
           }
@@ -188,13 +193,10 @@ export class Promise {
  */
 export const sleep = (ms) => {
   return new Promise((resolve) => {
-    // TODO: Use setTimeout or libuv timer
-    // For now, simulate with busy-wait (not ideal)
-    let start = Date.now()
-    while Date.now() - start < ms {
-      // Busy wait
-    }
-    resolve()
+    // Use setTimeout for non-blocking delay
+    setTimeout(() => {
+      resolve()
+    }, ms)
   })
 }
 
@@ -301,15 +303,23 @@ export class Queue {
   }
 
   /**
-   * Add task to queue
+   * Enqueue task to the queue
+   * @param {Function} task - Async function to execute
    */
-  add(task) {
+  enqueue(task) {
     this.tasks.push(task)
-    this.process()
+    return this.process()
   }
 
   /**
-   * Process queue
+   * Alias for enqueue
+   */
+  add(task) {
+    return this.enqueue(task)
+  }
+
+  /**
+   * Process queue sequentially
    */
   async process() {
     if this.running || this.tasks.length == 0
@@ -329,10 +339,41 @@ export class Queue {
   }
 
   /**
-   * Get queue size
+   * Cancel all pending tasks
+   * @returns {number} Number of cancelled tasks
+   */
+  cancel() {
+    let cancelled = this.tasks.length
+    this.tasks = []
+    return cancelled
+  }
+
+  /**
+   * Get queue size (pending tasks)
    */
   size() {
     return this.tasks.length
+  }
+
+  /**
+   * Check if queue is currently processing
+   */
+  isRunning() {
+    return this.running
+  }
+
+  /**
+   * Check if queue is empty
+   */
+  isEmpty() {
+    return this.tasks.length == 0
+  }
+
+  /**
+   * Clear all tasks
+   */
+  clear() {
+    return this.cancel()
   }
 }
 
@@ -372,6 +413,219 @@ export class Semaphore {
   }
 }
 
+/**
+ * Uncaught rejection handler
+ * Global error handler for unhandled promise rejections
+ */
+let uncaughtRejectionHandlers = []
+
+export const onUncaughtRejection = (handler) => {
+  uncaughtRejectionHandlers.push(handler)
+}
+
+export const offUncaughtRejection = (handler) => {
+  uncaughtRejectionHandlers = uncaughtRejectionHandlers.filter((h) => h != handler)
+}
+
+/**
+ * Report uncaught rejection
+ * @internal
+ */
+export const reportUncaughtRejection = (reason) => {
+  uncaughtRejectionHandlers.forEach((handler) => {
+    try {
+      handler(reason)
+    } catch (e) {
+      console.error("[async] Error in uncaught rejection handler:", e)
+    }
+  })
+}
+
+/**
+ * EventEmitter - Event pub/sub pattern
+ */
+export class EventEmitter {
+  constructor() {
+    this.listeners = {}
+  }
+
+  on(event, handler) {
+    if !this.listeners[event] {
+      this.listeners[event] = []
+    }
+    this.listeners[event].push(handler)
+    return this
+  }
+
+  off(event, handler) {
+    if this.listeners[event] {
+      this.listeners[event] = this.listeners[event].filter((h) => h != handler)
+    }
+    return this
+  }
+
+  emit(event, data) {
+    if this.listeners[event] {
+      this.listeners[event].forEach((handler) => {
+        try {
+          handler(data)
+        } catch (e) {
+          console.error("[EventEmitter] Error in handler:", e)
+        }
+      })
+    }
+    return this
+  }
+
+  once(event, handler) {
+    let onceWrapper = (data) => {
+      handler(data)
+      this.off(event, onceWrapper)
+    }
+    return this.on(event, onceWrapper)
+  }
+
+  removeAllListeners(event) {
+    if event {
+      delete this.listeners[event]
+    } else {
+      this.listeners = {}
+    }
+    return this
+  }
+
+  listenerCount(event) {
+    return this.listeners[event] ? this.listeners[event].length : 0
+  }
+}
+
+/**
+ * Channel - Buffered communication channel
+ */
+export class Channel {
+  constructor(capacity) {
+    this.buffer = []
+    this.capacity = capacity || 1
+    this.closed = false
+    this.waiters = []
+  }
+
+  send(value) {
+    if this.closed {
+      throw new Error("Channel is closed")
+    }
+
+    if this.buffer.length < this.capacity {
+      this.buffer.push(value)
+
+      // Notify waiters
+      if this.waiters.length > 0 {
+        let resolver = this.waiters.shift()
+        resolver(value)
+      }
+
+      return true
+    }
+
+    return false
+  }
+
+  receive() {
+    if this.buffer.length > 0 {
+      return this.buffer.shift()
+    }
+
+    if this.closed {
+      throw new Error("Channel is closed")
+    }
+
+    // Return a promise that resolves when data arrives
+    return new Promise((resolve) => {
+      this.waiters.push(resolve)
+    })
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  isEmpty() {
+    return this.buffer.length == 0
+  }
+
+  isFull() {
+    return this.buffer.length >= this.capacity
+  }
+
+  len() {
+    return this.buffer.length
+  }
+}
+
+/**
+ * Promise.allSettled - Wait for all promises (including rejections)
+ */
+Promise.allSettled = (promises) => {
+  return new Promise((resolve) => {
+    let results = []
+    let completed = 0
+
+    if promises.length == 0 {
+      resolve([])
+      return
+    }
+
+    promises.forEach((promise, i) => {
+      Promise.resolve(promise).then(
+        (value) => {
+          results[i] = { status: "fulfilled", value: value }
+          completed += 1
+          if completed == promises.length {
+            resolve(results)
+          }
+        },
+        (reason) => {
+          results[i] = { status: "rejected", reason: reason }
+          completed += 1
+          if completed == promises.length {
+            resolve(results)
+          }
+        }
+      )
+    })
+  })
+}
+
+/**
+ * Promise.any - First fulfilled promise wins
+ */
+Promise.any = (promises) => {
+  return new Promise((resolve, reject) => {
+    let errors = []
+    let completed = 0
+
+    if promises.length == 0 {
+      reject(new Error("No promises provided"))
+      return
+    }
+
+    promises.forEach((promise, i) => {
+      Promise.resolve(promise).then(
+        (value) => {
+          resolve(value)
+        },
+        (reason) => {
+          errors[i] = reason
+          completed += 1
+          if completed == promises.length {
+            reject(new Error("All promises rejected"))
+          }
+        }
+      )
+    })
+  })
+}
+
 export default {
   Promise,
   sleep,
@@ -381,4 +635,9 @@ export default {
   throttle,
   Queue,
   Semaphore,
+  EventEmitter,
+  Channel,
+  onUncaughtRejection,
+  offUncaughtRejection,
+  reportUncaughtRejection,
 }

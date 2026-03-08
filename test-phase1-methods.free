@@ -1,0 +1,35 @@
+// Phase 1 검증: 메서드 함수 테스트
+
+fn main() {
+  // Test 1: arr.len()
+  let arr = [1, 2, 3, 4, 5];
+  println("Test 1: arr.len(arr)");
+  println(arr.len(arr));
+
+  // Test 2: str.len()
+  let str = "hello";
+  println("Test 2: str.len(str)");
+  println(str.len(str));
+
+  // Test 3: arr.push()
+  println("Test 3: arr.push(arr, 6)");
+  let arr2 = arr.push(arr, 6);
+  println(arr2.len(arr2));
+
+  // Test 4: arr.slice()
+  println("Test 4: arr.slice(arr, 1, 3)");
+  let slice = arr.slice(arr, 1, 3);
+  println(slice.len(slice));
+
+  // Test 5: map.keys()
+  let map = map.new();
+  map.set(map, "key1", "val1");
+  map.set(map, "key2", "val2");
+  println("Test 5: map.keys(map)");
+  let keys = map.keys(map);
+  println(keys.len(keys));
+
+  println("✅ All Phase 1 tests passed!");
+}
+
+main();

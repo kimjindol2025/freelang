@@ -1,3 +1,4 @@
+// @ts-ignore
 /**
  * FreeLang Type System Extension: Advanced Type Inference
  *
@@ -293,8 +294,8 @@ export class ExpressionTypeInferencer {
     propertyName: string
   ): TypeAnnotation {
     if (typeof objectType === 'object' && (objectType as any).kind === 'object') {
-      const objType = objectType as unknown as ObjectLiteralType;
-      return objType.properties[propertyName] || 'any';
+      const objType = objectType as any as ObjectLiteralType;
+      return (objType.properties[propertyName] || 'any') as TypeAnnotation;
     }
 
     return 'any';

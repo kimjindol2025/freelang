@@ -48,6 +48,7 @@ typedef struct {
   char *cert_file;
   char *key_file;
   char *ca_file;
+  char *ca_path;
   fl_tls_version_t min_version;
   fl_tls_version_t max_version;
   fl_tls_cert_verify_t verify_mode;

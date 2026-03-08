@@ -1,0 +1,57 @@
+/**
+ * 기본 함수 및 연산 테스트
+ */
+
+fn test_arithmetic() => {
+  println("=== 산술 연산 테스트 ===")
+  let a = 10
+  let b = 20
+  println("a = " + a)
+  println("b = " + b)
+  println("a + b = " + (a + b))
+  println("a * b = " + (a * b))
+  println("")
+}
+
+fn test_strings() => {
+  println("=== 문자열 연산 테스트 ===")
+  let greeting = "Hello"
+  let name = "FreeLang"
+  println(greeting + " " + name)
+  println("")
+}
+
+fn test_arrays() => {
+  println("=== 배열 테스트 ===")
+  let arr = [1, 2, 3, 4, 5]
+  println("Array length: " + arr.length)
+  println("First element: " + arr[0])
+  println("")
+}
+
+fn test_objects() => {
+  println("=== 객체 테스트 ===")
+  let obj = {
+    name: "FreeLang",
+    version: 2
+  }
+  println("Name: " + obj.name)
+  println("Version: " + obj.version)
+  println("")
+}
+
+fn main() => {
+  println("╔════════════════════════════════════════╗")
+  println("║   FreeLang Basic Functions Test      ║")
+  println("╚════════════════════════════════════════╝")
+  println("")
+
+  test_arithmetic()
+  test_strings()
+  test_arrays()
+  test_objects()
+
+  println("✅ All tests completed")
+}
+
+main()

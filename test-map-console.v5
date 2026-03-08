@@ -1,0 +1,12 @@
+fn double(x) {
+  return x * 2;
+}
+
+fn main() {
+  let nums = [1, 2, 3];
+  let doubled = nums.map(double);
+  // Try to return the result
+  return doubled;
+}
+
+main();

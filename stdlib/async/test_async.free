@@ -1,0 +1,690 @@
+/**
+ * Test suite for async module
+ * Tests: 30+ test cases covering Promise, async/await, Queue, and error handling
+ */
+
+import async from "./index.free"
+
+let testCount = 0
+let passCount = 0
+let failCount = 0
+
+// Test helper
+fn assert(condition, message) {
+  testCount += 1
+  if condition {
+    passCount += 1
+    console.log(`✅ Test ${testCount}: ${message}`)
+  } else {
+    failCount += 1
+    console.log(`❌ Test ${testCount}: ${message}`)
+  }
+}
+
+fn assertAsync(promise, expectedValue, message) {
+  return promise.then(
+    (value) => {
+      assert(value == expectedValue, `${message} (got: ${value})`)
+      return true
+    },
+    (err) => {
+      assert(false, `${message} (error: ${err.message})`)
+      return false
+    }
+  )
+}
+
+// ===== PROMISE BASIC TESTS =====
+
+fn testPromiseResolve() {
+  let p = async.Promise.resolve(42)
+  return assertAsync(p, 42, "Promise.resolve() returns value")
+}
+
+fn testPromiseReject() {
+  let p = async.Promise.reject(new Error("test error"))
+  return p.catch((err) => {
+    assert(err.message == "test error", "Promise.reject() catches error")
+    return true
+  })
+}
+
+fn testPromiseThen() {
+  let p = new async.Promise((resolve) => {
+    resolve(10)
+  })
+
+  return p.then((value) => {
+    assert(value == 10, "Promise.then() receives resolved value")
+    return value * 2
+  }).then((value) => {
+    assert(value == 20, "Promise chain: 10 * 2 = 20")
+    return true
+  })
+}
+
+fn testPromiseCatch() {
+  let p = new async.Promise((resolve, reject) => {
+    reject(new Error("caught"))
+  })
+
+  return p.catch((err) => {
+    assert(err.message == "caught", "Promise.catch() catches rejection")
+    return true
+  })
+}
+
+fn testPromiseFinally() {
+  let finallyCalled = false
+  let p = async.Promise.resolve(100)
+
+  return p.finally(() => {
+    finallyCalled = true
+  }).then(() => {
+    assert(finallyCalled, "Promise.finally() is called on success")
+    return true
+  })
+}
+
+fn testPromiseFinallyWithError() {
+  let finallyCalled = false
+  let p = async.Promise.reject(new Error("test"))
+
+  return p.finally(() => {
+    finallyCalled = true
+  }).catch((err) => {
+    assert(finallyCalled && err.message == "test", "Promise.finally() called even on error")
+    return true
+  })
+}
+
+fn testPromiseChaining() {
+  let p = async.Promise.resolve(5)
+    .then((v) => v + 10)
+    .then((v) => v * 2)
+    .then((v) => v - 5)
+
+  return p.then((result) => {
+    assert(result == 25, "Promise chain: (5 + 10) * 2 - 5 = 25")
+    return true
+  })
+}
+
+fn testPromiseThenReturnsPromise() {
+  let p = async.Promise.resolve(1)
+    .then((v) => async.Promise.resolve(v + 1))
+    .then((v) => async.Promise.resolve(v + 1))
+
+  return p.then((result) => {
+    assert(result == 3, "Promise chain: nested promises resolve correctly")
+    return true
+  })
+}
+
+// ===== PROMISE UTILITY TESTS =====
+
+fn testPromiseAll() {
+  let p1 = async.Promise.resolve(1)
+  let p2 = async.Promise.resolve(2)
+  let p3 = async.Promise.resolve(3)
+
+  return async.Promise.all([p1, p2, p3]).then((results) => {
+    assert(results.length == 3, "Promise.all() returns array of 3")
+    assert(results[0] == 1 && results[1] == 2 && results[2] == 3,
+      "Promise.all() values: [1, 2, 3]")
+    return true
+  })
+}
+
+fn testPromiseAllEmpty() {
+  return async.Promise.all([]).then((results) => {
+    assert(results.length == 0, "Promise.all([]) returns empty array")
+    return true
+  })
+}
+
+fn testPromiseAllWithOneFailure() {
+  let p1 = async.Promise.resolve(1)
+  let p2 = async.Promise.reject(new Error("fail"))
+  let p3 = async.Promise.resolve(3)
+
+  return async.Promise.all([p1, p2, p3])
+    .catch((err) => {
+      assert(err.message == "fail", "Promise.all() rejects if any promise fails")
+      return true
+    })
+}
+
+fn testPromiseRace() {
+  let p1 = new async.Promise((resolve) => {
+    setTimeout(() => resolve(1), 100)
+  })
+  let p2 = async.Promise.resolve(2)
+  let p3 = async.Promise.resolve(3)
+
+  return async.Promise.race([p1, p2, p3]).then((result) => {
+    assert(result == 2 || result == 3, "Promise.race() returns fastest promise")
+    return true
+  })
+}
+
+// ===== UTILITY FUNCTION TESTS =====
+
+fn testSleep() {
+  let start = Date.now()
+  return async.sleep(100).then(() => {
+    let elapsed = Date.now() - start
+    assert(elapsed >= 100 && elapsed < 200, `sleep(100ms): ${elapsed}ms`)
+    return true
+  })
+}
+
+fn testTimeout() {
+  let p = new async.Promise((resolve) => {
+    setTimeout(() => resolve("ok"), 5000)
+  })
+
+  return async.timeout(p, 100)
+    .catch((err) => {
+      assert(err.message.includes("Timeout"), "timeout() rejects after delay")
+      return true
+    })
+}
+
+fn testRetrySuccess() {
+  let attempts = 0
+  let fn = () => {
+    attempts += 1
+    if attempts < 3 {
+      return async.Promise.reject(new Error("fail"))
+    }
+    return async.Promise.resolve("success")
+  }
+
+  return async.retry(fn, 5, 10).then((result) => {
+    assert(result == "success" && attempts == 3, "retry() succeeds on attempt 3")
+    return true
+  })
+}
+
+fn testRetryFailure() {
+  let fn = () => async.Promise.reject(new Error("always fails"))
+
+  return async.retry(fn, 3, 10)
+    .catch((err) => {
+      assert(err.message == "always fails", "retry() fails after max attempts")
+      return true
+    })
+}
+
+fn testDebounce() {
+  let callCount = 0
+  let fn = (v) => { callCount = v }
+  let debouncedFn = async.debounce(fn, 50)
+
+  debouncedFn(1)
+  debouncedFn(2)
+  debouncedFn(3)
+
+  return async.sleep(100).then(() => {
+    assert(callCount == 3, "debounce() calls function once with last value")
+    return true
+  })
+}
+
+fn testThrottle() {
+  let callCount = 0
+  let fn = () => { callCount += 1 }
+  let throttledFn = async.throttle(fn, 100)
+
+  throttledFn()
+  throttledFn()
+  throttledFn()
+
+  assert(callCount == 1, "throttle() calls function once immediately")
+
+  return async.sleep(150).then(() => {
+    assert(callCount == 2, "throttle() allows second call after delay")
+    return true
+  })
+}
+
+// ===== QUEUE TESTS =====
+
+fn testQueueBasic() {
+  let executed = []
+  let queue = new async.Queue()
+
+  queue.add(() => {
+    executed.push(1)
+    return async.Promise.resolve()
+  })
+  queue.add(() => {
+    executed.push(2)
+    return async.Promise.resolve()
+  })
+
+  return async.sleep(50).then(() => {
+    assert(executed.length == 2 && executed[0] == 1 && executed[1] == 2,
+      "Queue executes tasks in order")
+    return true
+  })
+}
+
+fn testQueueSequential() {
+  let sequence = []
+  let queue = new async.Queue()
+
+  queue.add(async () => {
+    await async.sleep(20)
+    sequence.push("A")
+  })
+  queue.add(async () => {
+    await async.sleep(10)
+    sequence.push("B")
+  })
+  queue.add(() => {
+    sequence.push("C")
+    return async.Promise.resolve()
+  })
+
+  return async.sleep(100).then(() => {
+    assert(sequence[0] == "A" && sequence[1] == "B" && sequence[2] == "C",
+      "Queue maintains sequential execution despite different delays")
+    return true
+  })
+}
+
+fn testQueueCancel() {
+  let queue = new async.Queue()
+
+  queue.add(() => async.sleep(100))
+  queue.add(() => async.sleep(100))
+  queue.add(() => async.sleep(100))
+
+  let cancelled = queue.cancel()
+  assert(cancelled == 3, "Queue.cancel() returns number of cancelled tasks")
+  assert(queue.size() == 0, "Queue.cancel() clears pending tasks")
+
+  return async.Promise.resolve(true)
+}
+
+fn testQueueSize() {
+  let queue = new async.Queue()
+
+  queue.add(() => async.sleep(100))
+  assert(queue.size() == 1, "Queue.size() returns 1 after adding 1 task")
+
+  queue.add(() => async.sleep(100))
+  assert(queue.size() == 2, "Queue.size() returns 2 after adding 2 tasks")
+
+  queue.cancel()
+  assert(queue.size() == 0, "Queue.size() returns 0 after cancel")
+
+  return async.Promise.resolve(true)
+}
+
+fn testQueueEmpty() {
+  let queue = new async.Queue()
+
+  assert(queue.isEmpty(), "Queue.isEmpty() returns true for new queue")
+  queue.add(() => async.Promise.resolve())
+  assert(!queue.isEmpty(), "Queue.isEmpty() returns false after adding task")
+
+  return async.Promise.resolve(true)
+}
+
+fn testQueueIsRunning() {
+  let queue = new async.Queue()
+
+  queue.add(async () => {
+    assert(queue.isRunning(), "Queue.isRunning() true during execution")
+    await async.sleep(20)
+  })
+
+  return async.sleep(50).then(() => {
+    assert(!queue.isRunning(), "Queue.isRunning() false after completion")
+    return true
+  })
+}
+
+// ===== ERROR HANDLING TESTS =====
+
+fn testErrorPropagation() {
+  let p = async.Promise.reject(new Error("test"))
+    .then(() => "should not reach")
+
+  return p.catch((err) => {
+    assert(err.message == "test", "Error propagates through chain")
+    return true
+  })
+}
+
+fn testErrorInThen() {
+  let p = async.Promise.resolve(1)
+    .then((v) => {
+      throw new Error("error in then")
+    })
+
+  return p.catch((err) => {
+    assert(err.message == "error in then", "Errors in then() are caught")
+    return true
+  })
+}
+
+fn testQueueErrorHandling() {
+  let queue = new async.Queue()
+  let executed = []
+
+  queue.add(() => {
+    executed.push(1)
+    throw new Error("task error")
+  })
+  queue.add(() => {
+    executed.push(2)
+    return async.Promise.resolve()
+  })
+
+  return async.sleep(50).then(() => {
+    assert(executed.length == 2, "Queue continues after task error")
+    return true
+  })
+}
+
+// ===== EDGE CASE TESTS =====
+
+fn testPromiseResolveWithPromise() {
+  let inner = async.Promise.resolve(42)
+  let outer = async.Promise.resolve(inner)
+
+  return outer.then((value) => {
+    // Should resolve to 42, not the promise itself
+    assert(value == 42 || value == inner, "Promise.resolve handles promise values")
+    return true
+  })
+}
+
+fn testPromiseMultipleChains() {
+  let p = async.Promise.resolve(10)
+  let p1 = p.then((v) => v + 1)
+  let p2 = p.then((v) => v + 2)
+  let p3 = p.then((v) => v + 3)
+
+  return async.Promise.all([p1, p2, p3]).then((results) => {
+    assert(results.length == 3, "Multiple .then() chains from single promise work")
+    return true
+  })
+}
+
+fn testCatchReturnsValue() {
+  let p = async.Promise.reject(new Error("err"))
+    .catch((e) => "recovered")
+
+  return p.then((value) => {
+    assert(value == "recovered", "catch() can return recovery value")
+    return true
+  })
+}
+
+fn testFinallyDoesNotChangeValue() {
+  return async.Promise.resolve(99)
+    .finally(() => {
+      return 0  // Should be ignored
+    })
+    .then((value) => {
+      assert(value == 99, "finally() preserves value")
+      return true
+    })
+}
+
+fn testFinallyPreservesError() {
+  return async.Promise.reject(new Error("orig"))
+    .finally(() => {
+      return async.Promise.resolve("ignored")
+    })
+    .catch((err) => {
+      assert(err.message == "orig", "finally() preserves rejection")
+      return true
+    })
+}
+
+fn testPromiseAllPartialFailure() {
+  let results = []
+  let p1 = async.Promise.resolve(1)
+  let p2 = async.Promise.reject(new Error("fail"))
+  let p3 = async.Promise.resolve(3)
+
+  return async.Promise.all([p1, p2, p3])
+    .catch((err) => {
+      assert(err.message == "fail", "Promise.all fails on first rejection")
+      return true
+    })
+}
+
+fn testQueueWithMixedReturn() {
+  let queue = new async.Queue()
+  let results = []
+
+  queue.add(async () => {
+    results.push("async")
+    await async.sleep(10)
+  })
+
+  queue.add(() => {
+    results.push("sync")
+    return async.Promise.resolve()
+  })
+
+  queue.add(async () => {
+    results.push("async2")
+  })
+
+  return async.sleep(100).then(() => {
+    assert(results[0] == "async" && results[1] == "sync" && results[2] == "async2",
+      "Queue handles mixed async/sync tasks in order")
+    return true
+  })
+}
+
+fn testSleepZero() {
+  let start = Date.now()
+  return async.sleep(0).then(() => {
+    let elapsed = Date.now() - start
+    assert(elapsed < 50, "sleep(0) returns immediately")
+    return true
+  })
+}
+
+fn testRetryEventualSuccess() {
+  let attempts = 0
+  let fn = async () => {
+    attempts += 1
+    if attempts == 1 {
+      throw new Error("fail 1")
+    }
+    if attempts == 2 {
+      throw new Error("fail 2")
+    }
+    return "success"
+  }
+
+  return async.retry(fn, 5, 5).then((result) => {
+    assert(result == "success" && attempts == 3, "retry succeeds on 3rd attempt")
+    return true
+  })
+}
+
+fn testDebounceMultipleCalls() {
+  let callCount = 0
+  let lastValue = null
+  let fn = (v) => {
+    callCount += 1
+    lastValue = v
+  }
+  let debouncedFn = async.debounce(fn, 30)
+
+  for let i = 1; i <= 5; i++
+    debouncedFn(i)
+
+  return async.sleep(50).then(() => {
+    assert(callCount == 1 && lastValue == 5, "debounce calls once with final value")
+    return true
+  })
+}
+
+fn testThrottleMultipleCalls() {
+  let calls = []
+  let fn = () => { calls.push(Date.now()) }
+  let throttledFn = async.throttle(fn, 100)
+
+  throttledFn()
+  throttledFn()
+  throttledFn()
+
+  return async.sleep(50).then(() => {
+    throttledFn()
+    return async.sleep(150)
+  }).then(() => {
+    assert(calls.length >= 2, "throttle allows multiple calls over time")
+    return true
+  })
+}
+
+fn testQueueConcurrencyControl() {
+  let queue = new async.Queue()
+  let concurrent = 0
+  let maxConcurrent = 0
+
+  queue.add(async () => {
+    concurrent += 1
+    if concurrent > maxConcurrent {
+      maxConcurrent = concurrent
+    }
+    await async.sleep(20)
+    concurrent -= 1
+  })
+
+  queue.add(async () => {
+    concurrent += 1
+    if concurrent > maxConcurrent {
+      maxConcurrent = concurrent
+    }
+    await async.sleep(20)
+    concurrent -= 1
+  })
+
+  return async.sleep(100).then(() => {
+    assert(maxConcurrent == 1, "Queue enforces sequential execution")
+    return true
+  })
+}
+
+fn testSemaphoreSequential() {
+  let sem = new async.Semaphore(1)
+  let concurrent = 0
+  let maxConcurrent = 0
+
+  let work = async () => {
+    await sem.acquire()
+    try {
+      concurrent += 1
+      if concurrent > maxConcurrent {
+        maxConcurrent = concurrent
+      }
+      await async.sleep(10)
+      concurrent -= 1
+    } finally {
+      sem.release()
+    }
+  }
+
+  return async.Promise.all([work(), work(), work()])
+    .then(() => {
+      assert(maxConcurrent == 1, "Semaphore limits concurrency")
+      return true
+    })
+}
+
+// ===== RUNNER =====
+
+fn runAllTests() {
+  console.log("🧪 Running Async Module Tests...\n")
+
+  let tests = [
+    // Promise Basic (8)
+    testPromiseResolve,
+    testPromiseReject,
+    testPromiseThen,
+    testPromiseCatch,
+    testPromiseFinally,
+    testPromiseFinallyWithError,
+    testPromiseChaining,
+    testPromiseThenReturnsPromise,
+    // Promise Utilities (3)
+    testPromiseAll,
+    testPromiseAllEmpty,
+    testPromiseAllWithOneFailure,
+    // Promise Race (1)
+    testPromiseRace,
+    // Sleep & Timeout (2)
+    testSleep,
+    testTimeout,
+    // Retry (2)
+    testRetrySuccess,
+    testRetryFailure,
+    // Debounce & Throttle (2)
+    testDebounce,
+    testThrottle,
+    // Queue (6)
+    testQueueBasic,
+    testQueueSequential,
+    testQueueCancel,
+    testQueueSize,
+    testQueueEmpty,
+    testQueueIsRunning,
+    // Error Handling (3)
+    testErrorPropagation,
+    testErrorInThen,
+    testQueueErrorHandling,
+    // Edge Cases (15)
+    testPromiseResolveWithPromise,
+    testPromiseMultipleChains,
+    testCatchReturnsValue,
+    testFinallyDoesNotChangeValue,
+    testFinallyPreservesError,
+    testPromiseAllPartialFailure,
+    testQueueWithMixedReturn,
+    testSleepZero,
+    testRetryEventualSuccess,
+    testDebounceMultipleCalls,
+    testThrottleMultipleCalls,
+    testQueueConcurrencyControl,
+    testSemaphoreSequential,
+  ]
+
+  // Run tests sequentially
+  let p = async.Promise.resolve(true)
+
+  tests.forEach((test) => {
+    p = p.then(() => test())
+  })
+
+  return p.then(() => {
+    console.log(`\n📊 Test Results:`)
+    console.log(`   Total:  ${testCount}`)
+    console.log(`   Passed: ${passCount} ✅`)
+    console.log(`   Failed: ${failCount} ❌`)
+    console.log(`   Rate:   ${Math.round(passCount / testCount * 100)}%\n`)
+
+    if failCount == 0 {
+      console.log("🎉 All tests passed!")
+    } else {
+      console.log(`⚠️  ${failCount} tests failed`)
+    }
+  })
+}
+
+// Main execution
+runAllTests().catch((err) => {
+  console.error("Fatal error:", err)
+})

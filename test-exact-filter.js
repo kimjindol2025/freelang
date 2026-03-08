@@ -1,0 +1,23 @@
+const { ProgramRunner } = require('./dist/cli/runner');
+
+const code = `
+fn filterDistance(measurements) {
+  if measurements.length == 0 {
+    return 0.0
+  }
+  let sorted = measurements.sort()
+  let mid = sorted.length / 2
+  return sorted[mid]
+}
+
+let data = [10.0, 11.0, 12.0, 13.0, 14.0]
+println("About to call")
+let result = filterDistance(data)
+println("After call, result=" + str(result))
+`;
+
+const runner = new ProgramRunner();
+const result = runner.runString(code);
+console.log('\nSuccess:', result.success);
+console.log('Output:', result.output);
+console.log('Error:', result.error);

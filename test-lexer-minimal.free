@@ -1,0 +1,20 @@
+// Minimal test - just basic operations
+
+// Test 1: Simple variable and string operations
+let str = "hello"
+let len = string_length(str)
+let first = charAt(str, 0)
+
+// Test 2: Array operations
+let tokens = []
+push(tokens, "token1")
+push(tokens, "token2")
+let count = length(tokens)
+
+// Test 3: Object literal (Token)
+let token = { kind: "KEYWORD", value: "fn", line: 1, col: 0 }
+
+// Test 4: Simple math
+let x = 1 + 1
+
+println("✅ Minimal self-lexer test passed")

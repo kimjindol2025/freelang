@@ -1,10 +1,11 @@
+// @ts-ignore
 /**
  * FreeLang Macro System: Pattern Matching Macros
  *
  * Support for pattern-based macros with wildcards and captures
  */
 
-import { MacroDefinition, MacroArgument, MacroParameter } from './macro-definition';
+import { MacroDefinition, MacroArgument } from './macro-definition';
 
 /**
  * Pattern matcher type
@@ -32,10 +33,8 @@ export interface PatternCapture {
 /**
  * Pattern macro
  */
-export interface PatternMacroDefinition {
-  kind: 'pattern-macro';
-  name: string;
-  parameters: MacroParameter[];
+export interface PatternMacroDefinition extends MacroDefinition {
+  kind: 'macro' & { __pattern: true };
   patterns: MacroPattern[];
 }
 

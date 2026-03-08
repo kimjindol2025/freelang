@@ -416,7 +416,7 @@ int fl_json_object_set(fl_json_value_t *object, const char *key, fl_json_value_t
   }
 
   object->data.object.pairs[object->data.object.count].key = (char*)malloc(strlen(key) + 1);
-  SAFE_STRCPY((char*)object->data.object.pairs[object->data.object.count].key, key);
+  strcpy(object->data.object.pairs[object->data.object.count].key, key);
   object->data.object.pairs[object->data.object.count].value = value;
   object->data.object.count++;
 

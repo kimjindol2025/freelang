@@ -272,10 +272,11 @@ export class HashEngine {
     }
 
     // Convert to hex string with algorithm-specific length
-    let hex = Math.abs(hash).toString(16);
+    let hex = Math.abs(Number(hash)).toString(16);
     const target_length = this.algorithm === 'SHA256' ? 64 : 128;
+    let counter = 0;
     while (hex.length < target_length) {
-      hex += Math.abs((hash ^ 0)).toString(16);
+      hex += Math.abs(Number(hash) ^ (++counter)).toString(16);
     }
     return hex.slice(0, target_length);
   }

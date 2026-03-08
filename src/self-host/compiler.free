@@ -1,3 +1,4 @@
+@lint(no_unused: error, shadowing_check: warn, strict_pointers: true)
 @minimal
 fn freelang_compile
 input: array<string>

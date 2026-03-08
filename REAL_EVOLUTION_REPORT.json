@@ -1,0 +1,24 @@
+{
+  "start_time": "2026-03-06T22:39:41.867869",
+  "total_iterations": 1,
+  "completed": 1,
+  "success": 0,
+  "failed": 1,
+  "iterations": [
+    {
+      "number": 1,
+      "timestamp": "2026-03-06T22:39:41.867936",
+      "grammar": "handle",
+      "stages": {
+        "1_analyze": true,
+        "2_patch": false,
+        "3_test": false
+      },
+      "success": false,
+      "details": {
+        "error": "Parser patch failed"
+      }
+    }
+  ],
+  "end_time": "2026-03-06T22:39:49.354574"
+}
