@@ -506,7 +506,11 @@ export class Parser {
         if (!this.check(TokenType.RBRACE)) {
           do {
             const name = this.expectIdent("field name");
-            this.expect(TokenType.COLON, "expected ':' after field name");
+            // Support both struct literal (field: value) and constructor call (field = value)
+            if (!this.match(TokenType.COLON) && !this.match(TokenType.EQ)) {
+              const tok = this.peek();
+              this.error("expected ':' or '=' after field name", tok);
+            }
             const value = this.parseExpr(0);
             fields.push({ name, value });
           } while (this.match(TokenType.COMMA));
@@ -583,6 +587,33 @@ export class Parser {
     // 배열 리터럴: [ elem, ... ]
     if (tok.type === TokenType.LBRACKET) {
       return this.parseArrayLit();
+    }
+
+    // 익명 구조체 리터럴: { field: value, ... } (Type 이름 없음)
+    if (tok.type === TokenType.LBRACE) {
+      const openBrace = this.advance(); // {
+      const fields: { name: string; value: Expr }[] = [];
+      if (!this.check(TokenType.RBRACE)) {
+        do {
+          const name = this.expectIdent("field name");
+          // Support both : and = for struct construction
+          if (!this.match(TokenType.COLON) && !this.match(TokenType.EQ)) {
+            const tok = this.peek();
+            this.error("expected ':' or '=' after field name", tok);
+          }
+          const value = this.parseExpr(0);
+          fields.push({ name, value });
+        } while (this.match(TokenType.COMMA));
+      }
+      this.expect(TokenType.RBRACE, "expected '}'");
+      // Return anonymous struct literal (structName is empty string)
+      return {
+        kind: "struct_lit",
+        structName: "",
+        fields,
+        line: openBrace.line,
+        col: openBrace.col
+      };
     }
 
     // if 식 (식 위치)

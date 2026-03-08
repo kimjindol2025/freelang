@@ -1189,37 +1189,12 @@ export class VM {
         break;
       }
 
-      // ── Exception Handling (Phase I) ──
-      case Op.TRY_START: {
-        // arg: catch block offset
-        // Push try context to tryStack
-        this.tryStack.push({
-          catchOffset: arg as number,
-          errorVar: '_error'  // default error variable name
-        });
-        this.pc++;
-        break;
-      }
-
-      case Op.CATCH_START: {
-        // arg: error variable name
-        // Store the error message in the specified variable
-        if (this.stack.length > 0) {
-          const errorValue = this.stack[this.stack.length - 1];
-          this.vars.set(arg as string, errorValue);
-        }
-        this.pc++;
-        break;
-      }
-
-      case Op.CATCH_END: {
-        // Pop try context from tryStack
-        if (this.tryStack.length > 0) {
-          this.tryStack.pop();
-        }
-        this.pc++;
-        break;
-      }
+      // ── Exception Handling (Phase I - DEPRECATED) ──
+      // NOTE: Using new TRY_BEGIN/TRY_END implementation instead
+      // case Op.TRY_START:
+      // case Op.CATCH_START:
+      // case Op.CATCH_END:
+      //   [deprecated code removed]
 
       case Op.THROW: {
         // stack: [error_message] → throw error

@@ -908,68 +908,11 @@ export class IRGenerator {
         out.push({ op: Op.RET });
         break;
 
-      // ── Try-Catch-Finally Statement (Phase I) ───────────────
-      case 'TryStatement':
-      case 'try':
-        {
-          // Structure:
-          // TRY_START catch_offset
-          // [try body]
-          // JMP finally_or_end
-          // [catch blocks]
-          // [finally block]
-          // ...
-
-          const tryStartIdx = out.length;
-          out.push({ op: Op.TRY_START, arg: 0 }); // Patch catch offset later
-
-          // Generate try body
-          if (node.body && node.body.body) {
-            for (const stmt of node.body.body) {
-              this.traverse(stmt, out);
-            }
-          }
-
-          // Jump over catch blocks (if they exist)
-          const jumpOverCatchIdx = out.length;
-          out.push({ op: Op.JMP, arg: 0 }); // Patch offset later
-
-          // Patch try_start to point to catch block
-          const catchBlockStart = out.length;
-          out[tryStartIdx].arg = catchBlockStart;
-
-          // Generate catch blocks
-          if (node.catchClauses && node.catchClauses.length > 0) {
-            for (const catchClause of node.catchClauses) {
-              // CATCH_START with error variable name
-              out.push({
-                op: Op.CATCH_START,
-                arg: catchClause.parameter || '_error'
-              });
-
-              // Generate catch body
-              if (catchClause.body && catchClause.body.body) {
-                for (const stmt of catchClause.body.body) {
-                  this.traverse(stmt, out);
-                }
-              }
-
-              // CATCH_END (marks end of catch block)
-              out.push({ op: Op.CATCH_END });
-            }
-          }
-
-          // Patch jump-over-catch to point to finally (or end)
-          out[jumpOverCatchIdx].arg = out.length;
-
-          // Generate finally block if it exists
-          if (node.finallyBody && node.finallyBody.body) {
-            for (const stmt of node.finallyBody.body) {
-              this.traverse(stmt, out);
-            }
-          }
-        }
-        break;
+      // ── Try-Catch-Finally Statement (Phase I - DEPRECATED) ───────────────
+      // NOTE: Using new TRY_BEGIN/TRY_END implementation in compiler.ts instead
+      // case 'TryStatement':
+      // case 'try':
+      //   [deprecated code removed]
 
       // ── Throw Statement (Phase I) ────────────────────────────
       case 'ThrowStatement':
