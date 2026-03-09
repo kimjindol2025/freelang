@@ -1,0 +1,14 @@
+fn test() -> i32 {
+  var pos: i32 = 5
+  var len: i32 = 10
+  while pos < len {
+    if pos == 5 {
+      pos = pos + 1
+    } else {
+      pos = pos + 2
+    }
+  }
+  return 0
+}
+
+var x: i32 = test()

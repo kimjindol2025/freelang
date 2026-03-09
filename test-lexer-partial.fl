@@ -1,0 +1,101 @@
+// FreeLang Self-Hosting: Lexer Phase
+// 목표: FreeLang 소스 코드를 토큰화
+// 사용: var tokens = tokenize(source)
+
+struct Token {
+  type: string,
+  lexeme: string,
+  line: i32
+}
+
+// 문자가 알파벳(a-z, A-Z) 또는 언더스코어인지
+fn isAlpha(ch: string) -> bool {
+  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch == "_"
+}
+
+// 문자가 숫자(0-9)인지
+fn isDigit(ch: string) -> bool {
+  return ch >= "0" && ch <= "9"
+}
+
+// 문자가 알파벳 또는 숫자 또는 언더스코어인지
+fn isAlphaNumeric(ch: string) -> bool {
+  return isAlpha(ch) || isDigit(ch)
+}
+
+// 키워드인지 확인
+fn getKeywordType(lexeme: string) -> string {
+  if lexeme == "fn" {
+    return "FN"
+  } else if lexeme == "var" {
+    return "VAR"
+  } else if lexeme == "if" {
+    return "IF"
+  } else if lexeme == "else" {
+    return "ELSE"
+  } else if lexeme == "while" {
+    return "WHILE"
+  } else if lexeme == "for" {
+    return "FOR"
+  } else if lexeme == "return" {
+    return "RETURN"
+  } else if lexeme == "struct" {
+    return "STRUCT"
+  } else if lexeme == "true" {
+    return "TRUE"
+  } else if lexeme == "false" {
+    return "FALSE"
+  } else if lexeme == "break" {
+    return "BREAK"
+  } else if lexeme == "continue" {
+    return "CONTINUE"
+  }
+  return "IDENT"
+}
+
+// 주요 토큰화 함수
+fn tokenize(source: string) -> any {
+  var tokens: any = []
+  var pos: i32 = 0
+  var line: i32 = 1
+  var len: i32 = length(source)
+
+  while pos < len {
+    var ch: string = char_at(source, pos)
+
+    // 공백 및 개행 건너뛰기
+    if ch == " " || ch == "\t" || ch == "\r" {
+      pos = pos + 1
+      continue
+    }
+
+    if ch == "\n" {
+      pos = pos + 1
+      line = line + 1
+      continue
+    }
+
+    // 주석: // 로부터 줄 끝까지
+    if ch == "/" && pos + 1 < len && char_at(source, pos + 1) == "/" {
+      pos = pos + 2
+      while pos < len && char_at(source, pos) != "\n" {
+        pos = pos + 1
+      }
+      continue
+    }
+
+    // 문자열 리터럴: "..."
+    if ch == "\"" {
+      var start: i32 = pos
+      pos = pos + 1
+
+      while pos < len && char_at(source, pos) != "\"" {
+        if char_at(source, pos) == "\\" && pos + 1 < len {
+          pos = pos + 2
+        } else {
+          if char_at(source, pos) == "\n" {
+            line = line + 1
+          }
+          pos = pos + 1
+        }
+}

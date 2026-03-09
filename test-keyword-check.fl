@@ -1,0 +1,40 @@
+fn getKeywordType(lexeme: string) -> string {
+  if lexeme == "fn" {
+    return "FN"
+  } else if lexeme == "var" {
+    return "VAR"
+  } else if lexeme == "if" {
+    return "IF"
+  } else if lexeme == "else" {
+    return "ELSE"
+  } else if lexeme == "while" {
+    return "WHILE"
+  } else if lexeme == "for" {
+    return "FOR"
+  } else if lexeme == "return" {
+    return "RETURN"
+  } else if lexeme == "struct" {
+    return "STRUCT"
+  } else if lexeme == "true" {
+    return "TRUE"
+  } else if lexeme == "false" {
+    return "FALSE"
+  } else if lexeme == "break" {
+    return "BREAK"
+  } else if lexeme == "continue" {
+    return "CONTINUE"
+  }
+  return "IDENT"
+}
+
+fn test() -> i32 {
+  var x: i32 = 5
+  if x > 0 {
+    x = x + 1
+  } else {
+    x = x - 1
+  }
+  return 0
+}
+
+var y: i32 = test()

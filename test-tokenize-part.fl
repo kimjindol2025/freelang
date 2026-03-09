@@ -1,0 +1,41 @@
+fn tokenize(source: string) -> any {
+  var tokens: any = []
+  var pos: i32 = 0
+  var line: i32 = 1
+  var len: i32 = 10
+  
+  while pos < len {
+    var ch: string = "x"
+    
+    if ch == " " {
+      pos = pos + 1
+      continue
+    }
+    
+    if ch == "\n" {
+      pos = pos + 1
+      line = line + 1
+      continue
+    }
+    
+    if ch == "\"" {
+      var start: i32 = pos
+      pos = pos + 1
+      
+      while pos < len && ch != "\"" {
+        if ch == "\\" {
+          pos = pos + 2
+        } else {
+          if ch == "\n" {
+            line = line + 1
+          }
+          pos = pos + 1
+        }
+      }
+    }
+  }
+  
+  return tokens
+}
+
+var x: any = tokenize("hello")
