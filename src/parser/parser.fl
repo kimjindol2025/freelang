@@ -1,0 +1,1115 @@
+###############################################################################
+# FreeLang Parser Implementation
+#
+# Phase 1: Minimal Lexer (Tokenization)
+# Goal: Parse FreeLang source code into token stream
+# Target: Match TS parser output for golden test cases
+#
+# Status: In Progress
+# Started: 2026-03-10 17:30 UTC+9
+###############################################################################
+
+# ============================================================================
+# TokenType Constants
+# ============================================================================
+
+# Keywords (40+)
+fn token_type_keyword(name) {
+  return "KEYWORD_" + name
+}
+
+# TokenType enum (as string constants)
+let TOKEN_FN = "FN"
+let TOKEN_LET = "LET"
+let TOKEN_CONST = "CONST"
+let TOKEN_IF = "IF"
+let TOKEN_ELSE = "ELSE"
+let TOKEN_FOR = "FOR"
+let TOKEN_IN = "IN"
+let TOKEN_WHILE = "WHILE"
+let TOKEN_RETURN = "RETURN"
+let TOKEN_BREAK = "BREAK"
+let TOKEN_CONTINUE = "CONTINUE"
+let TOKEN_MATCH = "MATCH"
+let TOKEN_CASE = "CASE"
+let TOKEN_ASYNC = "ASYNC"
+let TOKEN_AWAIT = "AWAIT"
+let TOKEN_IMPORT = "IMPORT"
+let TOKEN_EXPORT = "EXPORT"
+let TOKEN_FROM = "FROM"
+let TOKEN_STRUCT = "STRUCT"
+let TOKEN_ENUM = "ENUM"
+let TOKEN_TRAIT = "TRAIT"
+let TOKEN_IMPL = "IMPL"
+let TOKEN_INPUT = "INPUT"
+let TOKEN_OUTPUT = "OUTPUT"
+let TOKEN_INTENT = "INTENT"
+let TOKEN_TRY = "TRY"
+let TOKEN_CATCH = "CATCH"
+let TOKEN_FINALLY = "FINALLY"
+let TOKEN_THROW = "THROW"
+let TOKEN_TRUE = "TRUE"
+let TOKEN_FALSE = "FALSE"
+let TOKEN_NULL = "NULL"
+let TOKEN_AS = "AS"
+let TOKEN_IS = "IS"
+let TOKEN_PUB = "PUB"
+let TOKEN_MUT = "MUT"
+let TOKEN_SELF = "SELF"
+let TOKEN_SUPER = "SUPER"
+let TOKEN_TYPE = "TYPE"
+
+# Literals
+let TOKEN_IDENT = "IDENT"
+let TOKEN_NUMBER = "NUMBER"
+let TOKEN_STRING = "STRING"
+let TOKEN_CHAR = "CHAR"
+
+# Operators
+let TOKEN_PLUS = "PLUS"
+let TOKEN_MINUS = "MINUS"
+let TOKEN_STAR = "STAR"
+let TOKEN_SLASH = "SLASH"
+let TOKEN_PERCENT = "PERCENT"
+let TOKEN_POWER = "POWER"
+
+let TOKEN_EQ = "EQ"
+let TOKEN_NE = "NE"
+let TOKEN_LT = "LT"
+let TOKEN_GT = "GT"
+let TOKEN_LE = "LE"
+let TOKEN_GE = "GE"
+
+let TOKEN_AND = "AND"
+let TOKEN_OR = "OR"
+let TOKEN_NOT = "NOT"
+
+let TOKEN_BIT_AND = "BIT_AND"
+let TOKEN_BIT_OR = "BIT_OR"
+let TOKEN_BIT_XOR = "BIT_XOR"
+let TOKEN_BIT_NOT = "BIT_NOT"
+let TOKEN_LSHIFT = "LSHIFT"
+let TOKEN_RSHIFT = "RSHIFT"
+
+let TOKEN_ASSIGN = "ASSIGN"
+let TOKEN_PLUS_ASSIGN = "PLUS_ASSIGN"
+let TOKEN_MINUS_ASSIGN = "MINUS_ASSIGN"
+let TOKEN_STAR_ASSIGN = "STAR_ASSIGN"
+let TOKEN_SLASH_ASSIGN = "SLASH_ASSIGN"
+
+# Delimiters
+let TOKEN_LPAREN = "LPAREN"
+let TOKEN_RPAREN = "RPAREN"
+let TOKEN_LBRACE = "LBRACE"
+let TOKEN_RBRACE = "RBRACE"
+let TOKEN_LBRACKET = "LBRACKET"
+let TOKEN_RBRACKET = "RBRACKET"
+
+let TOKEN_COLON = "COLON"
+let TOKEN_SEMICOLON = "SEMICOLON"
+let TOKEN_COMMA = "COMMA"
+let TOKEN_DOT = "DOT"
+let TOKEN_ARROW = "ARROW"
+let TOKEN_FAT_ARROW = "FAT_ARROW"
+let TOKEN_DOUBLE_COLON = "DOUBLE_COLON"
+
+# Special
+let TOKEN_EOF = "EOF"
+let TOKEN_NEWLINE = "NEWLINE"
+let TOKEN_INDENT = "INDENT"
+let TOKEN_DEDENT = "DEDENT"
+let TOKEN_COMMENT = "COMMENT"
+
+# ============================================================================
+# Token Data Structure
+# ============================================================================
+
+fn make_token(type, value, line, column) {
+  let token = map_new()
+  token["type"] = type
+  token["value"] = value
+  token["line"] = line
+  token["column"] = column
+  return token
+}
+
+fn debug_token(token) {
+  println(token["type"] + " '" + (token["value"] || "") + "' @" +
+          str(token["line"]) + ":" + str(token["column"]))
+}
+
+# ============================================================================
+# Helper: Character Classification
+# ============================================================================
+
+fn is_whitespace(ch) {
+  return ch == " " || ch == "\t" || ch == "\r" || ch == "\n"
+}
+
+fn is_newline(ch) {
+  return ch == "\n" || ch == "\r"
+}
+
+fn is_digit(ch) {
+  # '0' = 48, '9' = 57 (char codes)
+  return ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" ||
+         ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
+}
+
+fn is_alpha(ch) {
+  # Check a-z, A-Z, or _
+  return (ch >= "a" && ch <= "z") ||
+         (ch >= "A" && ch <= "Z") ||
+         ch == "_"
+}
+
+fn is_alnum(ch) {
+  return is_alpha(ch) || is_digit(ch)
+}
+
+# ============================================================================
+# Phase 1.1: skip_whitespace
+# ============================================================================
+
+fn skip_whitespace(src, pos, line, col) {
+  let result = map_new()
+  result["pos"] = pos
+  result["line"] = line
+  result["col"] = col
+
+  while pos < strlen(src) {
+    let ch = str_char_at(src, pos)
+
+    if ch == " " || ch == "\t" {
+      result["pos"] = pos + 1
+      result["col"] = col + 1
+      pos = pos + 1
+      col = col + 1
+
+    } else if ch == "\n" {
+      result["pos"] = pos + 1
+      result["line"] = line + 1
+      result["col"] = 1
+      pos = pos + 1
+      line = line + 1
+
+    } else if ch == "\r" {
+      # Handle \r or \r\n
+      let next_pos = pos + 1
+      if next_pos < strlen(src) && str_char_at(src, next_pos) == "\n" {
+        result["pos"] = next_pos + 1
+      } else {
+        result["pos"] = next_pos
+      }
+      result["line"] = line + 1
+      result["col"] = 1
+      pos = result["pos"]
+      line = line + 1
+
+    } else if ch == "#" {
+      # Single-line comment: skip to end of line
+      while pos < strlen(src) && str_char_at(src, pos) != "\n" {
+        pos = pos + 1
+      }
+      result["pos"] = pos
+      result["col"] = col + (pos - result["pos"])
+
+    } else {
+      # Non-whitespace found
+      return result
+    }
+  }
+
+  return result
+}
+
+# ============================================================================
+# Phase 1.2: read_identifier
+# ============================================================================
+
+fn read_identifier(src, pos) {
+  let value = ""
+
+  while pos < strlen(src) {
+    let ch = str_char_at(src, pos)
+    if is_alnum(ch) {
+      value = value + ch
+      pos = pos + 1
+    } else {
+      break
+    }
+  }
+
+  return {
+    "value": value,
+    "pos": pos
+  }
+}
+
+fn is_keyword(word) {
+  let keywords = map_new()
+  keywords["fn"] = TOKEN_FN
+  keywords["let"] = TOKEN_LET
+  keywords["const"] = TOKEN_CONST
+  keywords["if"] = TOKEN_IF
+  keywords["else"] = TOKEN_ELSE
+  keywords["for"] = TOKEN_FOR
+  keywords["in"] = TOKEN_IN
+  keywords["while"] = TOKEN_WHILE
+  keywords["return"] = TOKEN_RETURN
+  keywords["break"] = TOKEN_BREAK
+  keywords["continue"] = TOKEN_CONTINUE
+  keywords["match"] = TOKEN_MATCH
+  keywords["case"] = TOKEN_CASE
+  keywords["async"] = TOKEN_ASYNC
+  keywords["await"] = TOKEN_AWAIT
+  keywords["import"] = TOKEN_IMPORT
+  keywords["export"] = TOKEN_EXPORT
+  keywords["from"] = TOKEN_FROM
+  keywords["struct"] = TOKEN_STRUCT
+  keywords["enum"] = TOKEN_ENUM
+  keywords["trait"] = TOKEN_TRAIT
+  keywords["impl"] = TOKEN_IMPL
+  keywords["input"] = TOKEN_INPUT
+  keywords["output"] = TOKEN_OUTPUT
+  keywords["intent"] = TOKEN_INTENT
+  keywords["try"] = TOKEN_TRY
+  keywords["catch"] = TOKEN_CATCH
+  keywords["finally"] = TOKEN_FINALLY
+  keywords["throw"] = TOKEN_THROW
+  keywords["true"] = TOKEN_TRUE
+  keywords["false"] = TOKEN_FALSE
+  keywords["null"] = TOKEN_NULL
+  keywords["as"] = TOKEN_AS
+  keywords["is"] = TOKEN_IS
+  keywords["pub"] = TOKEN_PUB
+  keywords["mut"] = TOKEN_MUT
+  keywords["self"] = TOKEN_SELF
+  keywords["super"] = TOKEN_SUPER
+  keywords["type"] = TOKEN_TYPE
+
+  if map_has(keywords, word) {
+    return keywords[word]
+  }
+  return null
+}
+
+# ============================================================================
+# Phase 1.3: read_number
+# ============================================================================
+
+fn read_number(src, pos) {
+  let value = ""
+
+  # Integer part
+  while pos < strlen(src) {
+    let ch = str_char_at(src, pos)
+    if is_digit(ch) {
+      value = value + ch
+      pos = pos + 1
+    } else {
+      break
+    }
+  }
+
+  # Decimal part (if any)
+  if pos < strlen(src) && str_char_at(src, pos) == "." {
+    let next_pos = pos + 1
+    if next_pos < strlen(src) && is_digit(str_char_at(src, next_pos)) {
+      value = value + "."
+      pos = next_pos
+      while pos < strlen(src) {
+        let ch = str_char_at(src, pos)
+        if is_digit(ch) {
+          value = value + ch
+          pos = pos + 1
+        } else {
+          break
+        }
+      }
+    }
+  }
+
+  return {
+    "value": value,
+    "pos": pos
+  }
+}
+
+# ============================================================================
+# Phase 1.4: read_string
+# ============================================================================
+
+fn read_string(src, pos, quote_char) {
+  let value = ""
+  pos = pos + 1  # Skip opening quote
+
+  while pos < strlen(src) {
+    let ch = str_char_at(src, pos)
+
+    if ch == quote_char {
+      # End of string
+      pos = pos + 1
+      let result = map_new()
+      result["value"] = value
+      result["pos"] = pos
+      result["error"] = null
+      return result
+    } else if ch == "\\" {
+      # Escape sequence
+      pos = pos + 1
+      if pos < strlen(src) {
+        let next_ch = str_char_at(src, pos)
+        if next_ch == "n" {
+          value = value + "\n"
+        } else if next_ch == "t" {
+          value = value + "\t"
+        } else if next_ch == "r" {
+          value = value + "\r"
+        } else if next_ch == "\\" {
+          value = value + "\\"
+        } else if next_ch == quote_char {
+          value = value + quote_char
+        } else {
+          value = value + next_ch
+        }
+        pos = pos + 1
+      }
+    } else {
+      value = value + ch
+      pos = pos + 1
+    }
+  }
+
+  let result = map_new()
+  result["value"] = value
+  result["pos"] = pos
+  result["error"] = "Unterminated string"
+  return result
+}
+
+# ============================================================================
+# Phase 1.5: Main Tokenizer
+# ============================================================================
+
+fn tokenize(src) {
+  let tokens = []
+  let pos = 0
+  let line = 1
+  let col = 1
+
+  while pos < strlen(src) {
+    # Skip whitespace
+    let skip_result = skip_whitespace(src, pos, line, col)
+    pos = skip_result["pos"]
+    line = skip_result["line"]
+    col = skip_result["col"]
+
+    if pos >= strlen(src) {
+      break
+    }
+
+    let ch = str_char_at(src, pos)
+
+    # Identifiers and keywords
+    if is_alpha(ch) {
+      let ident_result = read_identifier(src, pos)
+      let value = ident_result["value"]
+      let token_type = is_keyword(value)
+      if token_type == null {
+        token_type = TOKEN_IDENT
+      }
+      tokens = push(tokens, make_token(token_type, value, line, col))
+      pos = ident_result["pos"]
+      col = col + strlen(value)
+
+    # Numbers
+    } else if is_digit(ch) {
+      let num_result = read_number(src, pos)
+      tokens = push(tokens, make_token(TOKEN_NUMBER, num_result["value"], line, col))
+      pos = num_result["pos"]
+      col = col + strlen(num_result["value"])
+
+    # Strings
+    } else if ch == "\"" || ch == "'" {
+      let str_result = read_string(src, pos, ch)
+      if str_result["error"] != null {
+        # TODO: Better error handling
+        tokens = push(tokens, make_token("ERROR", str_result["error"], line, col))
+      } else {
+        tokens = push(tokens, make_token(TOKEN_STRING, str_result["value"], line, col))
+      }
+      pos = str_result["pos"]
+      col = col + (pos - col + 1)
+
+    # Two-character operators
+    } else if pos + 1 < strlen(src) {
+      let ch2 = str_char_at(src, pos + 1)
+      let two_char = ch + ch2
+
+      if two_char == "==" {
+        tokens = push(tokens, make_token(TOKEN_EQ, "==", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "!=" {
+        tokens = push(tokens, make_token(TOKEN_NE, "!=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "<=" {
+        tokens = push(tokens, make_token(TOKEN_LE, "<=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == ">=" {
+        tokens = push(tokens, make_token(TOKEN_GE, ">=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "&&" {
+        tokens = push(tokens, make_token(TOKEN_AND, "&&", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "||" {
+        tokens = push(tokens, make_token(TOKEN_OR, "||", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "**" {
+        tokens = push(tokens, make_token(TOKEN_POWER, "**", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "+=" {
+        tokens = push(tokens, make_token(TOKEN_PLUS_ASSIGN, "+=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "-=" {
+        tokens = push(tokens, make_token(TOKEN_MINUS_ASSIGN, "-=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "*=" {
+        tokens = push(tokens, make_token(TOKEN_STAR_ASSIGN, "*=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "/=" {
+        tokens = push(tokens, make_token(TOKEN_SLASH_ASSIGN, "/=", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "->" {
+        tokens = push(tokens, make_token(TOKEN_ARROW, "->", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "=>" {
+        tokens = push(tokens, make_token(TOKEN_FAT_ARROW, "=>", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "::" {
+        tokens = push(tokens, make_token(TOKEN_DOUBLE_COLON, "::", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == "<<" {
+        tokens = push(tokens, make_token(TOKEN_LSHIFT, "<<", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else if two_char == ">>" {
+        tokens = push(tokens, make_token(TOKEN_RSHIFT, ">>", line, col))
+        pos = pos + 2
+        col = col + 2
+      } else {
+        # Single-character operators
+        # Handle below after this block
+        if ch == "+" {
+          tokens = push(tokens, make_token(TOKEN_PLUS, "+", line, col))
+        } else if ch == "-" {
+          tokens = push(tokens, make_token(TOKEN_MINUS, "-", line, col))
+        } else if ch == "*" {
+          tokens = push(tokens, make_token(TOKEN_STAR, "*", line, col))
+        } else if ch == "/" {
+          tokens = push(tokens, make_token(TOKEN_SLASH, "/", line, col))
+        } else if ch == "%" {
+          tokens = push(tokens, make_token(TOKEN_PERCENT, "%", line, col))
+        } else if ch == "=" {
+          tokens = push(tokens, make_token(TOKEN_ASSIGN, "=", line, col))
+        } else if ch == "<" {
+          tokens = push(tokens, make_token(TOKEN_LT, "<", line, col))
+        } else if ch == ">" {
+          tokens = push(tokens, make_token(TOKEN_GT, ">", line, col))
+        } else if ch == "!" {
+          tokens = push(tokens, make_token(TOKEN_NOT, "!", line, col))
+        } else if ch == "&" {
+          tokens = push(tokens, make_token(TOKEN_BIT_AND, "&", line, col))
+        } else if ch == "|" {
+          tokens = push(tokens, make_token(TOKEN_BIT_OR, "|", line, col))
+        } else if ch == "^" {
+          tokens = push(tokens, make_token(TOKEN_BIT_XOR, "^", line, col))
+        } else if ch == "~" {
+          tokens = push(tokens, make_token(TOKEN_BIT_NOT, "~", line, col))
+        } else if ch == "(" {
+          tokens = push(tokens, make_token(TOKEN_LPAREN, "(", line, col))
+        } else if ch == ")" {
+          tokens = push(tokens, make_token(TOKEN_RPAREN, ")", line, col))
+        } else if ch == "{" {
+          tokens = push(tokens, make_token(TOKEN_LBRACE, "{", line, col))
+        } else if ch == "}" {
+          tokens = push(tokens, make_token(TOKEN_RBRACE, "}", line, col))
+        } else if ch == "[" {
+          tokens = push(tokens, make_token(TOKEN_LBRACKET, "[", line, col))
+        } else if ch == "]" {
+          tokens = push(tokens, make_token(TOKEN_RBRACKET, "]", line, col))
+        } else if ch == ":" {
+          tokens = push(tokens, make_token(TOKEN_COLON, ":", line, col))
+        } else if ch == ";" {
+          tokens = push(tokens, make_token(TOKEN_SEMICOLON, ";", line, col))
+        } else if ch == "," {
+          tokens = push(tokens, make_token(TOKEN_COMMA, ",", line, col))
+        } else if ch == "." {
+          tokens = push(tokens, make_token(TOKEN_DOT, ".", line, col))
+        } else {
+          # Unknown character
+          tokens = push(tokens, make_token("UNKNOWN", ch, line, col))
+        }
+
+        pos = pos + 1
+        col = col + 1
+      }
+
+    } else {
+      # Single-character operators (at end of file)
+      if ch == "+" {
+        tokens = push(tokens, make_token(TOKEN_PLUS, "+", line, col))
+      } else if ch == "-" {
+        tokens = push(tokens, make_token(TOKEN_MINUS, "-", line, col))
+      } else if ch == "*" {
+        tokens = push(tokens, make_token(TOKEN_STAR, "*", line, col))
+      } else if ch == "/" {
+        tokens = push(tokens, make_token(TOKEN_SLASH, "/", line, col))
+      } else if ch == "%" {
+        tokens = push(tokens, make_token(TOKEN_PERCENT, "%", line, col))
+      } else if ch == "=" {
+        tokens = push(tokens, make_token(TOKEN_ASSIGN, "=", line, col))
+      } else if ch == "<" {
+        tokens = push(tokens, make_token(TOKEN_LT, "<", line, col))
+      } else if ch == ">" {
+        tokens = push(tokens, make_token(TOKEN_GT, ">", line, col))
+      } else if ch == "!" {
+        tokens = push(tokens, make_token(TOKEN_NOT, "!", line, col))
+      } else if ch == "&" {
+        tokens = push(tokens, make_token(TOKEN_BIT_AND, "&", line, col))
+      } else if ch == "|" {
+        tokens = push(tokens, make_token(TOKEN_BIT_OR, "|", line, col))
+      } else if ch == "^" {
+        tokens = push(tokens, make_token(TOKEN_BIT_XOR, "^", line, col))
+      } else if ch == "~" {
+        tokens = push(tokens, make_token(TOKEN_BIT_NOT, "~", line, col))
+      } else if ch == "(" {
+        tokens = push(tokens, make_token(TOKEN_LPAREN, "(", line, col))
+      } else if ch == ")" {
+        tokens = push(tokens, make_token(TOKEN_RPAREN, ")", line, col))
+      } else if ch == "{" {
+        tokens = push(tokens, make_token(TOKEN_LBRACE, "{", line, col))
+      } else if ch == "}" {
+        tokens = push(tokens, make_token(TOKEN_RBRACE, "}", line, col))
+      } else if ch == "[" {
+        tokens = push(tokens, make_token(TOKEN_LBRACKET, "[", line, col))
+      } else if ch == "]" {
+        tokens = push(tokens, make_token(TOKEN_RBRACKET, "]", line, col))
+      } else if ch == ":" {
+        tokens = push(tokens, make_token(TOKEN_COLON, ":", line, col))
+      } else if ch == ";" {
+        tokens = push(tokens, make_token(TOKEN_SEMICOLON, ";", line, col))
+      } else if ch == "," {
+        tokens = push(tokens, make_token(TOKEN_COMMA, ",", line, col))
+      } else if ch == "." {
+        tokens = push(tokens, make_token(TOKEN_DOT, ".", line, col))
+      } else {
+        # Unknown character
+        tokens = push(tokens, make_token("UNKNOWN", ch, line, col))
+      }
+
+      pos = pos + 1
+      col = col + 1
+    }
+  }
+
+  # Add EOF token
+  tokens = push(tokens, make_token(TOKEN_EOF, "", line, col))
+  return tokens
+}
+
+# ============================================================================
+# Debug & Testing
+# ============================================================================
+
+fn debug_tokens(tokens) {
+  let i = 0
+  while i < array_length(tokens) {
+    debug_token(tokens[i])
+    i = i + 1
+  }
+}
+
+fn debug_token(token) {
+  println("Token: " + token["type"] + " = " + token["value"])
+}
+
+# ============================================================================
+# Parser Phase 2: Minimal Statement / Expression Parser
+# ============================================================================
+# Goal: Parse FreeLang source into AST (map-based)
+# Target: hello.fl + arithmetic.fl should produce valid AST
+# Started: 2026-03-10 18:15 UTC+9
+# ============================================================================
+
+# --- Parser State ---
+let parser_pos = 0
+let parser_tokens = []
+
+fn parser_init(tokens) {
+  parser_tokens = tokens
+  parser_pos = 0
+}
+
+fn current_token() {
+  if parser_pos < array_length(parser_tokens) {
+    return parser_tokens[parser_pos]
+  }
+  return make_token(TOKEN_EOF, "", 0, 0)
+}
+
+fn peek() {
+  return current_token()
+}
+
+fn peek_type() {
+  return peek()["type"]
+}
+
+fn advance() {
+  parser_pos = parser_pos + 1
+}
+
+fn consume(expected_type) {
+  let tok = current_token()
+  if tok["type"] != expected_type {
+    error("Expected " + expected_type + ", got " + tok["type"] + " (line " + str(tok["line"]) + ")")
+  }
+  advance()
+  return tok
+}
+
+fn match(types) {
+  let current = peek_type()
+  let i = 0
+  while i < array_length(types) {
+    let t = types[i]
+    if current == t {
+      let tok = current_token()
+      advance()
+      return tok
+    }
+    i = i + 1
+  }
+  return null
+}
+
+fn error(msg) {
+  let tok = current_token()
+  println("❌ Parse error at line " + str(tok["line"]) + ":" + str(tok["column"]) + " - " + msg)
+}
+
+# --- AST Node Creation ---
+fn node(type, properties) {
+  let n = map_new()
+  n["type"] = type
+  # properties를 merge_properties로 추가
+  return merge_properties(n, properties)
+}
+
+# 임시 헬퍼: properties merge (map_merge 없을 경우)
+fn merge_properties(n, properties) {
+  # properties가 map일 때, n에 모든 키-값 추가
+  if properties["op"] != null {
+    n["op"] = properties["op"]
+  }
+  if properties["left"] != null {
+    n["left"] = properties["left"]
+  }
+  if properties["right"] != null {
+    n["right"] = properties["right"]
+  }
+  if properties["value"] != null {
+    n["value"] = properties["value"]
+  }
+  if properties["raw"] != null {
+    n["raw"] = properties["raw"]
+  }
+  if properties["name"] != null {
+    n["name"] = properties["name"]
+  }
+  if properties["kind"] != null {
+    n["kind"] = properties["kind"]
+  }
+  if properties["init"] != null {
+    n["init"] = properties["init"]
+  }
+  if properties["body"] != null {
+    n["body"] = properties["body"]
+  }
+  if properties["expression"] != null {
+    n["expression"] = properties["expression"]
+  }
+  if properties["arguments"] != null {
+    n["arguments"] = properties["arguments"]
+  }
+  if properties["callee"] != null {
+    n["callee"] = properties["callee"]
+  }
+  if properties["test"] != null {
+    n["test"] = properties["test"]
+  }
+  if properties["consequent"] != null {
+    n["consequent"] = properties["consequent"]
+  }
+  if properties["alternate"] != null {
+    n["alternate"] = properties["alternate"]
+  }
+
+  return n
+}
+
+fn simple_node(type, op, left, right) {
+  let n = map_new()
+  n["type"] = type
+  n["op"] = op
+  n["left"] = left
+  n["right"] = right
+  return n
+}
+
+fn literal_node(value, raw) {
+  let n = map_new()
+  n["type"] = "Literal"
+  n["value"] = value
+  n["raw"] = raw
+  return n
+}
+
+fn identifier_node(name) {
+  let n = map_new()
+  n["type"] = "Identifier"
+  n["name"] = name
+  return n
+}
+
+# --- Main Entry Point ---
+fn parse(source) {
+  let tokens = tokenize(source)
+  parser_init(tokens)
+  let program = parseProgram()
+  return program
+}
+
+# --- Program & Statements ---
+fn parseProgram() {
+  let stmts = []
+
+  while peek_type() != TOKEN_EOF {
+    let stmt = parseStatement()
+    if stmt != null {
+      stmts = array_push(stmts, stmt)
+    }
+  }
+
+  let prog = map_new()
+  prog["type"] = "Program"
+  prog["body"] = stmts
+  return prog
+}
+
+fn parseStatement() {
+  let tok_type = peek_type()
+
+  if tok_type == TOKEN_FN {
+    return parseFunctionDeclaration()
+  }
+
+  if tok_type == TOKEN_LET || tok_type == TOKEN_CONST {
+    return parseVariableDeclaration()
+  }
+
+  if tok_type == TOKEN_IF {
+    return parseIfStatement()
+  }
+
+  if tok_type == TOKEN_RETURN {
+    return parseReturnStatement()
+  }
+
+  if tok_type == TOKEN_LBRACE {
+    return parseBlockStatement()
+  }
+
+  # Expression statement
+  let expr = parseExpression()
+
+  # Optional semicolon
+  if peek_type() == TOKEN_SEMICOLON {
+    consume(TOKEN_SEMICOLON)
+  }
+
+  let stmt = map_new()
+  stmt["type"] = "ExpressionStatement"
+  stmt["expression"] = expr
+  return stmt
+}
+
+# --- Variable Declaration ---
+fn parseVariableDeclaration() {
+  let is_const = peek_type() == TOKEN_CONST
+
+  if is_const {
+    consume(TOKEN_CONST)
+  } else {
+    consume(TOKEN_LET)
+  }
+
+  let name_tok = consume(TOKEN_IDENT)
+  let name = name_tok["value"]
+
+  let init = null
+  if peek_type() == TOKEN_ASSIGN {
+    consume(TOKEN_ASSIGN)
+    init = parseExpression()
+  }
+
+  # Optional semicolon
+  if peek_type() == TOKEN_SEMICOLON {
+    consume(TOKEN_SEMICOLON)
+  }
+
+  let decl = map_new()
+  decl["type"] = "VariableDeclaration"
+  decl["kind"] = if is_const "const" else "let"
+  decl["id"] = identifier_node(name)
+  decl["init"] = init
+  return decl
+}
+
+# --- Function Declaration ---
+fn parseFunctionDeclaration() {
+  consume(TOKEN_FN)
+
+  let name_tok = consume(TOKEN_IDENT)
+  let name = name_tok["value"]
+
+  let params = []
+
+  # Parse input parameters (FreeLang-specific)
+  while peek_type() == TOKEN_INPUT {
+    consume(TOKEN_INPUT)
+    let param_name = consume(TOKEN_IDENT)["value"]
+
+    # Skip type annotation for now (: string, : number)
+    if peek_type() == TOKEN_COLON {
+      consume(TOKEN_COLON)
+      consume(TOKEN_IDENT)  # consume type name
+    }
+
+    params = array_push(params, param_name)
+  }
+
+  # Skip output type
+  if peek_type() == TOKEN_OUTPUT {
+    consume(TOKEN_OUTPUT)
+    consume(TOKEN_IDENT)  # consume return type
+  }
+
+  # Skip intent
+  if peek_type() == TOKEN_INTENT {
+    consume(TOKEN_INTENT)
+    consume(TOKEN_STRING)  # consume intent description
+  }
+
+  # Parse body (statements until eof or next fn)
+  let body = []
+  while peek_type() != TOKEN_EOF && peek_type() != TOKEN_FN {
+    let stmt = parseStatement()
+    if stmt != null {
+      body = array_push(body, stmt)
+    }
+  }
+
+  let func = map_new()
+  func["type"] = "FunctionDeclaration"
+  func["id"] = identifier_node(name)
+  func["params"] = params
+  func["body"] = body
+  return func
+}
+
+# --- If Statement ---
+fn parseIfStatement() {
+  consume(TOKEN_IF)
+
+  let test = parseExpression()
+
+  let consequent = null
+  if peek_type() == TOKEN_LBRACE {
+    consequent = parseBlockStatement()
+  } else {
+    let stmt = parseStatement()
+    let block = map_new()
+    block["type"] = "BlockStatement"
+    block["body"] = [stmt]
+    consequent = block
+  }
+
+  let alternate = null
+  if peek_type() == TOKEN_ELSE {
+    consume(TOKEN_ELSE)
+    if peek_type() == TOKEN_LBRACE {
+      alternate = parseBlockStatement()
+    } else {
+      let stmt = parseStatement()
+      let block = map_new()
+      block["type"] = "BlockStatement"
+      block["body"] = [stmt]
+      alternate = block
+    }
+  }
+
+  let if_stmt = map_new()
+  if_stmt["type"] = "IfStatement"
+  if_stmt["test"] = test
+  if_stmt["consequent"] = consequent
+  if_stmt["alternate"] = alternate
+  return if_stmt
+}
+
+# --- Return Statement ---
+fn parseReturnStatement() {
+  consume(TOKEN_RETURN)
+
+  let argument = null
+  if peek_type() != TOKEN_SEMICOLON && peek_type() != TOKEN_EOF {
+    argument = parseExpression()
+  }
+
+  # Optional semicolon
+  if peek_type() == TOKEN_SEMICOLON {
+    consume(TOKEN_SEMICOLON)
+  }
+
+  let ret = map_new()
+  ret["type"] = "ReturnStatement"
+  ret["argument"] = argument
+  return ret
+}
+
+# --- Block Statement ---
+fn parseBlockStatement() {
+  consume(TOKEN_LBRACE)
+
+  let stmts = []
+  while peek_type() != TOKEN_RBRACE && peek_type() != TOKEN_EOF {
+    let stmt = parseStatement()
+    if stmt != null {
+      stmts = array_push(stmts, stmt)
+    }
+  }
+
+  consume(TOKEN_RBRACE)
+
+  let block = map_new()
+  block["type"] = "BlockStatement"
+  block["body"] = stmts
+  return block
+}
+
+# --- Expression Parsing (Basic) ---
+fn parseExpression() {
+  return parseAdditive()
+}
+
+fn parseAdditive() {
+  let left = parseMultiplicative()
+
+  while peek_type() == TOKEN_PLUS || peek_type() == TOKEN_MINUS {
+    let op_tok = current_token()
+    let op = op_tok["value"]
+    advance()
+
+    let right = parseMultiplicative()
+    left = simple_node("BinaryExpression", op, left, right)
+  }
+
+  return left
+}
+
+fn parseMultiplicative() {
+  let left = parsePrimary()
+
+  while peek_type() == TOKEN_STAR || peek_type() == TOKEN_SLASH {
+    let op_tok = current_token()
+    let op = op_tok["value"]
+    advance()
+
+    let right = parsePrimary()
+    left = simple_node("BinaryExpression", op, left, right)
+  }
+
+  return left
+}
+
+fn parsePrimary() {
+  let tok_type = peek_type()
+
+  # Literals
+  if tok_type == TOKEN_NUMBER {
+    let tok = consume(TOKEN_NUMBER)
+    return literal_node(tok["value"], tok["value"])
+  }
+
+  if tok_type == TOKEN_STRING {
+    let tok = consume(TOKEN_STRING)
+    return literal_node(tok["value"], tok["value"])
+  }
+
+  # Identifiers & Calls
+  if tok_type == TOKEN_IDENT {
+    let name_tok = consume(TOKEN_IDENT)
+    let name = name_tok["value"]
+
+    # Function call
+    if peek_type() == TOKEN_LPAREN {
+      consume(TOKEN_LPAREN)
+
+      let args = []
+      while peek_type() != TOKEN_RPAREN && peek_type() != TOKEN_EOF {
+        args = array_push(args, parseExpression())
+
+        if peek_type() == TOKEN_COMMA {
+          consume(TOKEN_COMMA)
+        }
+      }
+
+      consume(TOKEN_RPAREN)
+
+      let call = map_new()
+      call["type"] = "CallExpression"
+      call["callee"] = identifier_node(name)
+      call["arguments"] = args
+      return call
+    }
+
+    # Simple identifier
+    return identifier_node(name)
+  }
+
+  # Parenthesized expression
+  if tok_type == TOKEN_LPAREN {
+    consume(TOKEN_LPAREN)
+    let expr = parseExpression()
+    consume(TOKEN_RPAREN)
+    return expr
+  }
+
+  error("Unexpected token: " + tok_type)
+  return null
+}
