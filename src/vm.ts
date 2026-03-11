@@ -78,6 +78,7 @@ export class VM {
   private typeWarnings: TypeWarning[] = [];  // Phase 21: track type warnings
   private nativeFunctionRegistry = new NativeFunctionRegistry();  // Phase 3: FFI native functions
   private tryStack: Array<{ catchOffset: number; errorVar: string }> = [];  // Phase I: Exception handling
+  private irCache = new Map<string, Inst[]>();  // IR cache: funcName → compiled IR
 
   // Performance optimization (Phase C): Hot path instruction handlers
   private instructionHandlers = new Map<Op, (inst: Inst, program: Inst[]) => void>();
@@ -685,21 +686,21 @@ export class VM {
                 this.vars.set(fn.params[i], args[i]);
               }
 
-              // Execute function body
-              const gen = new IRGenerator();
+              // Execute function body with IR caching
               let returnValue: any = undefined;
 
               if (!fn.body) {
                 throw new Error('function_body_undefined:' + funcName);
               }
 
-              const bodyNode = fn.body || { type: 'block', statements: [] };
-              if (!bodyNode.type) {
-                bodyNode.type = 'block';
+              let bodyIR = this.irCache.get(funcName);
+              if (!bodyIR) {
+                const gen = new IRGenerator();
+                const bodyNode = fn.body || { type: 'block', statements: [] };
+                if (!bodyNode.type) bodyNode.type = 'block';
+                bodyIR = gen.generateIR(bodyNode, fn.params);
+                this.irCache.set(funcName, bodyIR);
               }
-
-              // Pass function parameters as local scope to IR generator
-              const bodyIR = gen.generateIR(bodyNode, fn.params);
 
               const isMonitoredAsync = fn.annotations && fn.annotations.includes('monitor');
               if (isMonitoredAsync && this.nativeFunctionRegistry.exists('insight_enter')) {
@@ -743,27 +744,22 @@ export class VM {
               this.vars.set(fn.params[i], args[i]);
             }
 
-            // Execute function body - Process statements individually
-            // This ensures proper variable scoping for each statement
-            const gen = new IRGenerator();
+            // Execute function body with IR caching
             let returnValue: any = undefined;
 
             if (!fn.body) {
               throw new Error('function_body_undefined:' + funcName);
             }
 
-            // Execute entire function body as a block
-            // Treat fn.body as a block-type node and process all statements together
-            const bodyNode = fn.body || { type: 'block', statements: [] };
-
-            // Ensure it has type 'block' for proper IR generation
-            if (!bodyNode.type) {
-              bodyNode.type = 'block';
+            // IR Cache: reuse compiled IR for the same function
+            let bodyIR = this.irCache.get(funcName);
+            if (!bodyIR) {
+              const gen = new IRGenerator();
+              const bodyNode = fn.body || { type: 'block', statements: [] };
+              if (!bodyNode.type) bodyNode.type = 'block';
+              bodyIR = gen.generateIR(bodyNode, fn.params);
+              this.irCache.set(funcName, bodyIR);
             }
-
-            // Generate IR for the entire block (all statements at once)
-            // CRITICAL FIX: Pass function parameters to IR generator for proper scoping
-            const bodyIR = gen.generateIR(bodyNode, fn.params);
 
             // Native-State-Hydration: @cached_query(ttl: Xs, stale_time: Ys) 처리
             // annotation 형태: "cached_query:ttl=300000,stale=30000"
