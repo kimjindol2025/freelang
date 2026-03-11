@@ -509,6 +509,19 @@ export class IRGenerator {
               this.traverse(node.value, out);
               out.push({ op: Op.POP });
             }
+          } else if (node.target.type === 'member' && node.target.computed) {
+            // computed member assignment: arr[i] = val  or  obj[key] = val
+            // Stack order: [key, val] → ARR_SET with container variable name
+            const objNode = node.target.object;
+            if (objNode?.type === 'identifier' && objNode.name) {
+              this.traverse(node.target.property, out); // push key/index
+              this.traverse(node.value, out);            // push value
+              out.push({ op: Op.ARR_SET, arg: objNode.name });
+            } else {
+              // fallback: nested computed access — evaluate and discard
+              this.traverse(node.value, out);
+              out.push({ op: Op.POP });
+            }
           } else {
             // fallback: evaluate value
             this.traverse(node.value, out);
@@ -1017,6 +1030,12 @@ export class IRGenerator {
         // 보안 영역에 저장 (일반 STORE가 아닌 STORE_SECRET)
         out.push({ op: Op.STORE_SECRET, arg: node.name });
         break;
+
+      // ── MOSS-Style: 제로-런타임 스타일 선언 ─────────────────
+      // style { ... } → 컴파일 타임에 상수 데이터로 변환, 런타임에서는 NOP
+      case 'style':
+      case 'StyleDeclaration':
+        break;  // NOP: 컴파일 타임 스타일 정의, 런타임에서는 실행 없음
 
       // ── Return Statement ────────────────────────────────────
       case 'ReturnStatement':

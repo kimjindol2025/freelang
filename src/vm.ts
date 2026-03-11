@@ -955,6 +955,13 @@ export class VM {
               }
             }
 
+            // Propagate changes to parent-scope variables back before restoring
+            // This fixes: global variable reassignment from within functions
+            for (const [key, val] of this.vars) {
+              if (savedVars.has(key) && !fn.params.includes(key)) {
+                savedVars.set(key, val);
+              }
+            }
             // Restore caller's variables
             this.vars = savedVars;
 
@@ -1382,6 +1389,34 @@ export class VM {
       // ── Debug ──
       case Op.DUMP:
         // AI reads this programmatically, no console.log
+        this.pc++;
+        break;
+
+      // ── Struct Operations ────────────────────────────────────
+      case Op.STRUCT_NEW: {
+        // Create struct type definition object and store it
+        const structName = arg as string;
+        const structDef = { __type: 'struct_def', name: structName, fields: [] as string[] };
+        this.stack.push(structDef);
+        this.pc++;
+        break;
+      }
+
+      case Op.STRUCT_FIELD: {
+        // Add field to struct type on stack top
+        const fieldSpec = arg as string;
+        const fieldName = fieldSpec.includes(':') ? fieldSpec.substring(0, fieldSpec.indexOf(':')) : fieldSpec;
+        const structOnStack = this.stack[this.stack.length - 1] as any;
+        if (structOnStack && structOnStack.__type === 'struct_def') {
+          structOnStack.fields.push(fieldName);
+        }
+        this.pc++;
+        break;
+      }
+
+      case Op.GENERIC_INST:
+      case Op.TYPE_DECL:
+        // Metadata ops: NOP at runtime
         this.pc++;
         break;
 
