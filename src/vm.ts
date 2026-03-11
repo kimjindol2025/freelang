@@ -28,7 +28,7 @@ import {
   CachedQueryConfig,
 } from './stdlib-native-query';
 
-const MAX_CYCLES = 10_000_000;
+const MAX_CYCLES = 100_000_000;
 const MAX_STACK  = 10_000;
 
 // ── Result<T, E> & Option<T> 타입 정의 ──
@@ -182,6 +182,10 @@ export class VM {
     this.callStack = [];
     this.tryStack = [];  // Phase I: Reset exception stack
     const t0 = performance.now();
+
+    // Initialize global variables: process.env, __dirname, etc.
+    this.vars.set('process', { env: process.env });
+    this.vars.set('__dirname', process.cwd());
 
     try {
       // Performance optimization: hot path execution
@@ -968,10 +972,8 @@ export class VM {
               }
             }
 
-            // Push return value (skip if undefined)
-            if (returnValue !== undefined) {
-              this.stack.push(returnValue);
-            }
+            // Always push return value (null if undefined) to match POP after CALL
+            this.stack.push(returnValue !== undefined ? returnValue : null);
             this.functionRegistry!.trackCall(funcName);
             // Phase 4: Track function call for JIT hotspot detection
             if (funcName) {
@@ -1418,7 +1420,7 @@ export class VM {
 
     try {
       while (this.pc < program.length) {
-        if (this.cycles++ > 100_000) {
+        if (this.cycles++ > MAX_CYCLES) {
           this.pc = savedPc;
           this.stack = savedStack;  // Restore stack before returning
           return this.fail(Op.HALT, 1, 'cycle_limit');

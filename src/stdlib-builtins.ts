@@ -71,6 +71,202 @@ export function registerStdlibFunctions(registry: NativeFunctionRegistry): void 
   });
 
   // ────────────────────────────────────────────────────────────
+  // Phase A-1b: 핵심 컬렉션/문자열 함수
+  // ────────────────────────────────────────────────────────────
+
+  registry.register({
+    name: 'length',
+    module: 'builtins',
+    executor: (args) => {
+      const obj = args[0];
+      if (Array.isArray(obj)) return obj.length;
+      if (typeof obj === 'string') return obj.length;
+      if (obj instanceof Map) return obj.size;
+      if (obj instanceof Set) return obj.size;
+      return 0;
+    }
+  });
+
+  registry.register({
+    name: 'len',
+    module: 'builtins',
+    executor: (args) => {
+      const obj = args[0];
+      if (Array.isArray(obj)) return obj.length;
+      if (typeof obj === 'string') return obj.length;
+      if (obj instanceof Map) return obj.size;
+      return 0;
+    }
+  });
+
+  registry.register({
+    name: 'push',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => {
+      const arr = args[0];
+      if (Array.isArray(arr)) { arr.push(args[1]); return arr; }
+      return arr;
+    }
+  });
+
+  registry.register({
+    name: 'pop',
+    module: 'builtins',
+    executor: (args) => {
+      const arr = args[0];
+      if (Array.isArray(arr)) return arr.pop();
+      return null;
+    }
+  });
+
+  registry.register({
+    name: 'char_at',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => {
+      const str = String(args[0]);
+      const idx = Math.floor(Number(args[1]));
+      return str[idx] || '';
+    }
+  });
+
+  registry.register({
+    name: 'substr',
+    module: 'builtins',
+    paramCount: 3,
+    executor: (args) => {
+      const str = String(args[0]);
+      const start = Math.floor(Number(args[1]));
+      const end = args[2] !== undefined ? Math.floor(Number(args[2])) : str.length;
+      return str.slice(start, end);
+    }
+  });
+
+  registry.register({
+    name: 'slice',
+    module: 'builtins',
+    paramCount: 3,
+    executor: (args) => {
+      const obj = args[0];
+      const start = Math.floor(Number(args[1]));
+      const end = args[2] !== undefined ? Math.floor(Number(args[2])) : undefined;
+      if (Array.isArray(obj)) return obj.slice(start, end);
+      if (typeof obj === 'string') return obj.slice(start, end);
+      return obj;
+    }
+  });
+
+  registry.register({
+    name: 'indexOf',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => {
+      const obj = args[0];
+      const search = args[1];
+      if (Array.isArray(obj)) return obj.indexOf(search);
+      if (typeof obj === 'string') return obj.indexOf(String(search));
+      return -1;
+    }
+  });
+
+  registry.register({
+    name: 'includes',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => {
+      const obj = args[0];
+      const search = args[1];
+      if (Array.isArray(obj)) return obj.includes(search);
+      if (typeof obj === 'string') return obj.includes(String(search));
+      return false;
+    }
+  });
+
+  registry.register({
+    name: 'keys',
+    module: 'builtins',
+    executor: (args) => {
+      const obj = args[0];
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        return obj instanceof Map ? [...obj.keys()] : Object.keys(obj);
+      }
+      return [];
+    }
+  });
+
+  registry.register({
+    name: 'values',
+    module: 'builtins',
+    executor: (args) => {
+      const obj = args[0];
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        return obj instanceof Map ? [...obj.values()] : Object.values(obj);
+      }
+      return [];
+    }
+  });
+
+  registry.register({
+    name: 'concat',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => {
+      if (Array.isArray(args[0])) return args[0].concat(args[1]);
+      return String(args[0]) + String(args[1]);
+    }
+  });
+
+  registry.register({
+    name: 'join',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => {
+      if (Array.isArray(args[0])) return args[0].join(String(args[1] ?? ','));
+      return String(args[0]);
+    }
+  });
+
+  registry.register({
+    name: 'split',
+    module: 'builtins',
+    paramCount: 2,
+    executor: (args) => String(args[0]).split(String(args[1] ?? ''))
+  });
+
+  registry.register({
+    name: 'replace',
+    module: 'builtins',
+    paramCount: 3,
+    executor: (args) => String(args[0]).replace(String(args[1]), String(args[2]))
+  });
+
+  registry.register({
+    name: 'trim',
+    module: 'builtins',
+    executor: (args) => String(args[0]).trim()
+  });
+
+  registry.register({
+    name: 'reverse',
+    module: 'builtins',
+    executor: (args) => {
+      if (Array.isArray(args[0])) return [...args[0]].reverse();
+      if (typeof args[0] === 'string') return args[0].split('').reverse().join('');
+      return args[0];
+    }
+  });
+
+  registry.register({
+    name: 'sort',
+    module: 'builtins',
+    executor: (args) => {
+      if (Array.isArray(args[0])) return [...args[0]].sort();
+      return args[0];
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────
   // Phase A-1a: I/O 함수 (I/O)
   // ────────────────────────────────────────────────────────────
 
