@@ -32,6 +32,7 @@ import { registerValidatorMeta, registerValidatorNativeFunctions } from '../stdl
 import { registerRateShieldFunctions } from '../stdlib/rate-shield';
 import { HotReloadEngine } from '../hot-reload/hot-reload-engine';
 import { registerHotReloadFunctions, setGlobalHotReloadEngine } from '../stdlib/stdlib-hot-reload';
+import { registerCLIFunctions } from '../stdlib-cli';
 
 export interface RunResult {
   success: boolean;
@@ -77,6 +78,8 @@ export class ProgramRunner {
     registerHotReloadFunctions(this.vm.getNativeFunctionRegistry(), this.hotReloadEngine);
     // Compile-Time-Validator: validator_is_valid/get_errors/check_field/list_rules
     registerValidatorNativeFunctions(this.vm.getNativeFunctionRegistry());
+    // CLI: native CLI 함수 (cli_parse, cli_help, cli_print 등)
+    registerCLIFunctions(this.vm.getNativeFunctionRegistry());
   }
 
   /**

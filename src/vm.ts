@@ -471,7 +471,7 @@ export class VM {
         }
 
         this.guardStack();
-        this.stack.push(value);
+        this.stack.push(value !== undefined ? value : null);
         this.pc++;
         break;
       }
@@ -955,13 +955,6 @@ export class VM {
               }
             }
 
-            // Propagate changes to parent-scope variables back before restoring
-            // This fixes: global variable reassignment from within functions
-            for (const [key, val] of this.vars) {
-              if (savedVars.has(key) && !fn.params.includes(key)) {
-                savedVars.set(key, val);
-              }
-            }
             // Restore caller's variables
             this.vars = savedVars;
 

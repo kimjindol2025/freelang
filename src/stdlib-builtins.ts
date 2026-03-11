@@ -37,6 +37,20 @@ import * as fs from 'fs';
  */
 export function registerStdlibFunctions(registry: NativeFunctionRegistry): void {
   // ────────────────────────────────────────────────────────────
+  // native_call: .fl 파일에서 native 함수를 직접 호출하는 디스패처
+  // ────────────────────────────────────────────────────────────
+  registry.register({
+    name: 'native_call',
+    module: 'builtin',
+    paramCount: 2,
+    executor: (args) => {
+      const funcName = String(args[0]);
+      const funcArgs = Array.isArray(args[1]) ? args[1] : (args[1] !== null && args[1] !== undefined ? [args[1]] : []);
+      return registry.call(funcName, funcArgs);
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────
   // Phase A-1: 타입 변환 함수
   // ────────────────────────────────────────────────────────────
 
