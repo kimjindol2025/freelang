@@ -312,7 +312,10 @@ fn traverse(node, out) {
   // ── Expression statement ──
   if t == "expr_stmt" {
     traverse(node.expr, out);
-    push(out, inst(OP_POP, null));
+    // assign/var already consume stack value via STORE, skip POP
+    if node.expr.type != "assign" {
+      push(out, inst(OP_POP, null));
+    }
     return;
   }
 

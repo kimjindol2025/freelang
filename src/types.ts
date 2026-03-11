@@ -43,6 +43,7 @@ export enum Op {
   // Variables
   STORE     = 0x40,
   LOAD      = 0x41,
+  DECLARE   = 0x42,  // New variable declaration (let/const) — always current scope
 
   // Control
   JMP       = 0x50,

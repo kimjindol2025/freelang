@@ -66,6 +66,7 @@ export interface TypeWarning {
 export class VM {
   private stack: (number | Iterator | string | number[] | object | Result | Option)[] = [];
   private vars: Map<string, number | number[] | Iterator | string | object | Result | Option> = new Map();
+  private scopeChain: Map<string, any>[] = [];  // parent scope chain for STORE walk-up
   private pc = 0;
   private cycles = 0;
   private callStack: number[] = [];  // for CALL/RET
@@ -178,6 +179,7 @@ export class VM {
   run(program: Inst[]): VMResult {
     this.stack = [];
     this.vars = new Map();
+    this.scopeChain = [];
     this.pc = 0;
     this.cycles = 0;
     this.callStack = [];
@@ -259,14 +261,16 @@ export class VM {
       return;
     }
 
-    // LOAD: common variable access
+    // LOAD: variable access — walk scope chain
     if (op === Op.LOAD) {
       const varName = inst.arg as string;
-      const v = this.vars.get(varName);
-      if (process.env.DEBUG_STORE) {
-        console.log(`[DEBUG LOAD] Getting vars["${varName}"]`);
-        console.log(`[DEBUG LOAD] vars keys available:`, Array.from(this.vars.keys()));
-        console.log(`[DEBUG LOAD] Result:`, v);
+      let v = this.vars.get(varName);
+      if (v === undefined) {
+        // Walk parent scopes
+        for (let i = this.scopeChain.length - 1; i >= 0; i--) {
+          v = this.scopeChain[i].get(varName);
+          if (v !== undefined) break;
+        }
       }
       if (v === undefined) throw new Error('undef_var:' + varName);
       this.guardStack();
@@ -275,19 +279,36 @@ export class VM {
       return;
     }
 
-    // STORE: common variable assignment
+    // DECLARE: new variable in current scope only (let/const)
+    if (op === Op.DECLARE) {
+      this.need(1);
+      this.vars.set(inst.arg as string, this.stack.pop()!);
+      this.pc++;
+      return;
+    }
+
+    // STORE: variable reassignment — walk scope chain to find existing variable
     if (op === Op.STORE) {
       this.need(1);
       const varName = inst.arg as string;
       const value = this.stack.pop()!;
-      if (process.env.DEBUG_STORE) {
-        console.log(`[DEBUG STORE] Setting vars["${varName}"] = ${JSON.stringify(value)}`);
-        console.log(`[DEBUG STORE] vars keys before:`, Array.from(this.vars.keys()));
-      }
-      this.vars.set(varName, value);
-      if (process.env.DEBUG_STORE) {
-        console.log(`[DEBUG STORE] vars keys after:`, Array.from(this.vars.keys()));
-        console.log(`[DEBUG STORE] vars["${varName}"] =`, this.vars.get(varName));
+      // Check current scope first
+      if (this.vars.has(varName)) {
+        this.vars.set(varName, value);
+      } else {
+        // Walk parent scopes to find the variable
+        let found = false;
+        for (let i = this.scopeChain.length - 1; i >= 0; i--) {
+          if (this.scopeChain[i].has(varName)) {
+            this.scopeChain[i].set(varName, value);
+            found = true;
+            break;
+          }
+        }
+        // If not found in any scope, set in current scope (implicit declaration)
+        if (!found) {
+          this.vars.set(varName, value);
+        }
       }
       this.pc++;
       return;
@@ -387,18 +408,45 @@ export class VM {
         break;
 
       // ── Variables ──
-      case Op.STORE:
+      case Op.DECLARE:
         this.need(1);
         this.vars.set(arg as string, this.stack.pop()!);
         this.pc++;
         break;
 
+      case Op.STORE: {
+        this.need(1);
+        const storeVar = arg as string;
+        const storeVal = this.stack.pop()!;
+        if (this.vars.has(storeVar)) {
+          this.vars.set(storeVar, storeVal);
+        } else {
+          let storeFound = false;
+          for (let si = this.scopeChain.length - 1; si >= 0; si--) {
+            if (this.scopeChain[si].has(storeVar)) {
+              this.scopeChain[si].set(storeVar, storeVal);
+              storeFound = true;
+              break;
+            }
+          }
+          if (!storeFound) this.vars.set(storeVar, storeVal);
+        }
+        this.pc++;
+        break;
+      }
+
       case Op.LOAD: {
-        const v = this.vars.get(arg as string);
-        if (v === undefined) throw new Error('undef_var:' + arg);
-        // Push any value type to stack (number, string, array, object)
+        const loadName = arg as string;
+        let loadVal = this.vars.get(loadName);
+        if (loadVal === undefined) {
+          for (let li = this.scopeChain.length - 1; li >= 0; li--) {
+            loadVal = this.scopeChain[li].get(loadName);
+            if (loadVal !== undefined) break;
+          }
+        }
+        if (loadVal === undefined) throw new Error('undef_var:' + loadName);
         this.guardStack();
-        this.stack.push(v);
+        this.stack.push(loadVal);
         this.pc++;
         break;
       }
@@ -749,9 +797,11 @@ export class VM {
             this.pc++;
           } else {
             // Normal (sync) function execution
-            // Create function scope with parameters
+            // Create function scope — only params in local scope
+            // LOAD/STORE walk scopeChain for parent variables
             const savedVars = this.vars;
-            this.vars = new Map(savedVars);
+            this.scopeChain.push(savedVars);
+            this.vars = new Map();
             for (let i = 0; i < fn.params.length; i++) {
               this.vars.set(fn.params[i], args[i]);
             }
@@ -955,7 +1005,8 @@ export class VM {
               }
             }
 
-            // Restore caller's variables
+            // Restore caller's variables and pop scope chain
+            this.scopeChain.pop();
             this.vars = savedVars;
 
             // Native-CSP-Shield: 응답 객체에 CSP 헤더 자동 주입

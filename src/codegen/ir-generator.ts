@@ -1009,11 +1009,11 @@ export class IRGenerator {
           // No initializer: push undefined (or 0)
           out.push({ op: Op.PUSH, arg: 0 });
         }
-        // Store in variable
+        // Declare new variable (DECLARE = current scope only, unlike STORE which walks scope chain)
         if (process.env.DEBUG_TRAVERSE) {
-          console.log(`[DEBUG TRAVERSE] Generating STORE for "${(node as any).name}"`);
+          console.log(`[DEBUG TRAVERSE] Generating DECLARE for "${(node as any).name}"`);
         }
-        out.push({ op: Op.STORE, arg: node.name });
+        out.push({ op: Op.DECLARE, arg: node.name });
         break;
 
       // ── Secret-Link: 보안 변수 선언 (암호화 메모리) ─────────
