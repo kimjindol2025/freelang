@@ -275,6 +275,7 @@ export class Parser {
     TokenType.SECRET, TokenType.ASYNC, TokenType.AWAIT,
     TokenType.LOOP, TokenType.BREAK, TokenType.CONTINUE,
     TokenType.NULL, TokenType.TRUE, TokenType.FALSE,
+    TokenType.LET, TokenType.CONST,  // var/let/const as identifier (e.g., let var = ...)
   ]);
 
   /**
@@ -649,8 +650,8 @@ export class Parser {
         if (process.env.DEBUG_PARSER) {
           console.log('[PARSER] @local_vault parsed:', JSON.stringify(localVault));
         }
-      } else if (this.check(TokenType.IDENT)) {
-        // @monitor, @api 등 → 이름 수집 후 다음 fn에 적용
+      } else if (this.isIdentLike()) {
+        // @monitor, @api, @test 등 → 이름 수집 후 다음 fn에 적용
         const annotName = this.advance().value;
         if (annotName === 'profile' && this.check(TokenType.LPAREN)) {
           // @profile(sampling_rate: N, output: .X) → "profile:rate=N,output=X"
@@ -777,7 +778,7 @@ export class Parser {
         topLevelAnnotations.length = 0;  // 첫 번째 fn에 소비
         while (this.check(TokenType.AT)) {
           this.advance(); // '@' 소비
-          if (this.check(TokenType.IDENT)) {
+          if (this.isIdentLike()) {
             const annotName = this.current().value;
             this.advance();
             // Commit-Gate: @git_hook(event: .pre_commit) 파라미터 캡처
@@ -1013,6 +1014,15 @@ export class Parser {
                 }
                 pendingAnnotations.push(annotName);
               }
+            } else if (this.check(TokenType.DOT)) {
+              // @test.skip / @test.only 등 dot-modifier
+              this.advance(); // consume '.'
+              let modifier = '';
+              if (this.isIdentLike()) {
+                modifier = this.current().value;
+                this.advance();
+              }
+              pendingAnnotations.push(modifier ? `${annotName}.${modifier}` : annotName);
             } else {
               pendingAnnotations.push(annotName);
             }
@@ -1542,7 +1552,12 @@ export class Parser {
     while (this.check(TokenType.DOT) || this.check(TokenType.LBRACKET) || this.check(TokenType.LPAREN)) {
       if (this.check(TokenType.DOT)) {
         this.advance(); // consume .
-        const propName = this.expectIdent('Expected property name').value;
+        // 키워드도 property name으로 허용 (obj.fn, obj.type, obj.delete 등)
+        if (this.check(TokenType.EOF)) {
+          throw new ParseError(this.current().line, this.current().column, 'Expected property name');
+        }
+        const propName = this.current().value;
+        this.advance();
         left = {
           type: 'member',
           object: left,
@@ -1629,6 +1644,28 @@ export class Parser {
       } as any;
     }
 
+    // Unary minus (negation): -expr
+    if (this.check(TokenType.MINUS)) {
+      this.advance(); // consume '-'
+      const argument = this.parsePrimaryExpression();
+      return {
+        type: 'unary',
+        operator: '-',
+        argument
+      } as any;
+    }
+
+    // Unary NOT: !expr
+    if (this.check(TokenType.NOT)) {
+      this.advance(); // consume '!'
+      const argument = this.parsePrimaryExpression();
+      return {
+        type: 'unary',
+        operator: '!',
+        argument
+      } as any;
+    }
+
     // 리터럴 (숫자, 문자열, 불린)
     if (this.check(TokenType.NUMBER)) {
       const value = parseFloat(token.value);
@@ -1640,7 +1677,7 @@ export class Parser {
       } as LiteralExpression;
     }
 
-    if (this.check(TokenType.STRING)) {
+    if (this.check(TokenType.STRING) || this.check(TokenType.CHAR)) {
       const value = token.value;
       this.advance();
       return {
@@ -1729,8 +1766,14 @@ export class Parser {
       } as any;
     }
 
-    // 식별자 또는 함수 호출
-    if (this.check(TokenType.IDENT)) {
+    // Lambda Expression (must check before isIdentLike since FN is excluded from KEYWORD_IDENT_TYPES)
+    // Format: fn(param1, param2) -> body
+    if (this.check(TokenType.FN)) {
+      return this.parseLambda();
+    }
+
+    // 식별자 또는 함수 호출 (키워드도 식별자로 허용: test, from, query 등)
+    if (this.isIdentLike()) {
       const name = token.value;
       this.advance();
 
@@ -1768,13 +1811,6 @@ export class Parser {
       const expr = this.parseExpression();
       this.expect(TokenType.RPAREN, 'Expected ")" after expression');
       return expr;
-    }
-
-    // Phase 3 Step 3: Lambda Expression
-    // Format: fn(param1: type1, param2: type2) -> returnType -> body
-    // or: fn(param1, param2) -> body
-    if (this.check(TokenType.FN)) {
-      return this.parseLambda();
     }
 
     throw new ParseError(
@@ -1962,8 +1998,8 @@ export class Parser {
         );
       }
 
-      // Body 파싱
-      const body = this.parseExpression();
+      // Body 파싱: { ... } 블록이면 parseBlockStatement, 아니면 parseExpression
+      const body = (this.check(TokenType.LBRACE) ? this.parseBlockStatement() : this.parseExpression()) as any;
 
       arms.push({ pattern, guard, body });
 
@@ -2224,8 +2260,12 @@ export class Parser {
 
     // Self-Testing Compiler: test 블록
     // 릴리즈 모드에서는 IR Generator가 skip, --test 모드에서만 실행
-    if (this.check(TokenType.TEST)) {
+    // test() 함수 호출과 구분: 다음 토큰이 STRING이면 test 블록, '('이면 함수 호출
+    if (this.check(TokenType.TEST) && this.peek(1).type === TokenType.STRING) {
       return this.parseTestBlock();
+    }
+    if (this.check(TokenType.TEST) && this.peek(1).type === TokenType.DOT) {
+      return this.parseTestBlock();  // test.skip / test.only
     }
 
     // Self-Testing Compiler: expect 어서션
@@ -2393,11 +2433,46 @@ export class Parser {
         body,
         isLet
       };
+    } else if (this.check(TokenType.ASSIGN) || this.check(TokenType.SEMICOLON)) {
+      // C-style for loop: for i = 0; i < n; i = i + 1 { ... }
+      let init: any = undefined;
+      if (this.check(TokenType.ASSIGN)) {
+        this.advance(); // consume '='
+        const initValue = this.parseExpression();
+        init = { type: 'assignment', target: { type: 'identifier', name: variable }, value: initValue };
+      }
+
+      // consume first ';'
+      this.expect(TokenType.SEMICOLON, 'Expected ";" after for init');
+
+      // condition
+      const condition = this.parseExpression();
+
+      // consume second ';'
+      this.expect(TokenType.SEMICOLON, 'Expected ";" after for condition');
+
+      // update
+      const update = this.parseExpression();
+
+      if (hasParens) {
+        this.expect(TokenType.RPAREN, 'Expected ")"');
+      }
+
+      const body = this.parseBlockStatement();
+
+      return {
+        type: 'forC',
+        variable,
+        init,
+        condition,
+        update,
+        body
+      } as any;
     } else {
       throw new ParseError(
         this.current().line,
         this.current().column,
-        'Expected "in" or "of" in for statement'
+        'Expected "in", "of", or "=" in for statement'
       );
     }
   }
@@ -2455,15 +2530,19 @@ export class Parser {
     while (this.check(TokenType.CATCH)) {
       this.advance(); // consume 'catch'
 
-      // Optional: (err) 파라미터
+      // Optional: (err) 또는 err 파라미터 (괄호 없는 형식도 지원)
       let parameter: string | undefined;
       if (this.check(TokenType.LPAREN)) {
         this.advance(); // consume '('
-        if (this.check(TokenType.IDENT)) {
+        if (this.isIdentLike()) {
           parameter = this.current().value;
           this.advance();
         }
         this.expect(TokenType.RPAREN, 'Expected ")"');
+      } else if (this.isIdentLike()) {
+        // catch e { ... } 형식 (괄호 없는)
+        parameter = this.current().value;
+        this.advance();
       }
 
       // catch 블록
@@ -2609,6 +2688,12 @@ export class Parser {
       this.expect(TokenType.AS, 'Expected "as" after "*"');
       namespace = this.expect(TokenType.IDENT, 'Expected namespace name').value;
       isNamespace = true;
+    }
+    // import name from "path" 형식 (default import)
+    else if (this.isIdentLike() && this.peek(1).type === TokenType.FROM) {
+      const defaultName = this.current().value;
+      this.advance(); // consume ident
+      imports.push({ name: 'default', alias: defaultName });
     }
     // import { name1, name2, ... } 형식
     else if (this.check(TokenType.LBRACE)) {

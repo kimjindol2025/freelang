@@ -653,7 +653,19 @@ export class VM {
         // Phase 21: Add type checking and validation
         // Phase 3 FFI: Support native functions (C FFI)
         // Phase J: Support async functions
-        const funcName = inst.arg as string;
+        // arg format: "funcName:argCount" or "funcName" (legacy)
+        let funcName = inst.arg as string;
+        let encodedArgCount: number | undefined;
+        if (typeof funcName === 'string') {
+          const lastColon = funcName.lastIndexOf(':');
+          if (lastColon > 0) {
+            const maybeCount = funcName.substring(lastColon + 1);
+            if (/^\d+$/.test(maybeCount)) {
+              encodedArgCount = parseInt(maybeCount);
+              funcName = funcName.substring(0, lastColon);
+            }
+          }
+        }
 
         // Try user-defined function first
         if (this.functionRegistry && funcName && this.functionRegistry.exists(funcName)) {
@@ -990,6 +1002,9 @@ export class VM {
           if (nativeFunc.paramCount !== undefined) {
             // 명시적 paramCount 우선 (executor.length 오버라이드)
             paramCount = nativeFunc.paramCount;
+          } else if (encodedArgCount !== undefined) {
+            // Use IR-encoded arg count (most accurate, from call site)
+            paramCount = encodedArgCount;
           } else if (nativeFunc.signature) {
             paramCount = nativeFunc.signature.parameters.length;
           } else if (nativeFunc.executor) {
@@ -1194,6 +1209,25 @@ export class VM {
       // case Op.CATCH_END:
       //   [deprecated code removed]
 
+      case Op.TRY_BEGIN: {
+        // Push catch context: arg = "catchOffset:errorVar"
+        const argStr = String(arg);
+        const colonIdx = argStr.indexOf(':');
+        const catchOffset = colonIdx >= 0 ? parseInt(argStr.substring(0, colonIdx)) : parseInt(argStr);
+        const errorVar = colonIdx >= 0 ? argStr.substring(colonIdx + 1) : '_error';
+        this.tryStack.push({ catchOffset, errorVar });
+        this.pc++;
+        break;
+      }
+
+      case Op.TRY_END: {
+        // Pop catch context (try block completed normally)
+        this.tryStack.pop();
+        // arg = endOffset (skip catch block)
+        this.pc = arg as number;
+        break;
+      }
+
       case Op.THROW: {
         // stack: [error_message] → throw error
         this.need(1);
@@ -1201,11 +1235,10 @@ export class VM {
 
         // Look for an active try block
         if (this.tryStack.length > 0) {
-          // Push error to stack for catch block
-          this.guardStack();
-          this.stack.push(errorMsg!);
+          const tryContext = this.tryStack.pop()!;
+          // Store error in errorVar for catch block
+          this.vars.set(tryContext.errorVar, errorMsg!);
           // Jump to catch block
-          const tryContext = this.tryStack[this.tryStack.length - 1];
           this.pc = tryContext.catchOffset;
         } else {
           // No try block, throw JavaScript error

@@ -492,20 +492,38 @@ export class IRGenerator {
           // New format: { type: 'assignment', target: identifier, value: expr }
           if (node.target.type === 'identifier' && node.target.name) {
             varName = node.target.name;
+            // Evaluate the value expression
+            this.traverse(node.value, out);
+            // Store in variable
+            out.push({ op: Op.STORE, arg: varName });
+          } else if (node.target.type === 'member' && !node.target.computed) {
+            // member assignment: obj.prop = value  → OBJ_SET "varName:propName"
+            // Get root object variable name
+            const objNode = node.target.object;
+            const propName = (node.target.property as any)?.name || (node.target.property as any)?.value;
+            if (objNode?.type === 'identifier' && objNode.name && propName) {
+              this.traverse(node.value, out);
+              out.push({ op: Op.OBJ_SET, arg: `${objNode.name}:${propName}` });
+            } else {
+              // fallback: just evaluate and pop
+              this.traverse(node.value, out);
+              out.push({ op: Op.POP });
+            }
           } else {
-            throw new Error('Assignment target must be an identifier');
+            // fallback: evaluate value
+            this.traverse(node.value, out);
+            out.push({ op: Op.POP });
           }
         } else if (node.name) {
           // Old format: { type: 'assignment', name: string, value: expr }
           varName = node.name;
+          // Evaluate the value expression
+          this.traverse(node.value, out);
+          // Store in variable
+          out.push({ op: Op.STORE, arg: varName });
         } else {
           throw new Error('Assignment must have a target or name');
         }
-
-        // Evaluate the value expression
-        this.traverse(node.value, out);
-        // Store in variable
-        out.push({ op: Op.STORE, arg: varName });
         break;
 
       // ── Member Expression (obj.property, obj[index]) ──────────
@@ -747,6 +765,7 @@ export class IRGenerator {
           }
         } else {
           // Regular function call
+          const argCount = node.arguments ? node.arguments.length : 0;
           if (node.arguments && Array.isArray(node.arguments)) {
             for (const arg of node.arguments) {
               this.traverse(arg, out);
@@ -755,8 +774,9 @@ export class IRGenerator {
 
           // Phase 4 Step 5: Cross-module function call support
           // 예: math.add(1, 2) → qualified name으로 처리
+          // arg format: "funcName:argCount" (argCount encodes actual arg count for native functions)
           const calleeNameWithContext = this.resolveCalleeForModule(node.callee);
-          out.push({ op: Op.CALL, arg: calleeNameWithContext, sub: [] });
+          out.push({ op: Op.CALL, arg: `${calleeNameWithContext}:${argCount}`, sub: [] });
         }
         break;
 
@@ -812,6 +832,50 @@ export class IRGenerator {
         // 8. Patch exit jump
         out[forJmpIdx].arg = out.length;
         break;
+
+      // ── C-style For Statement (for i = init; cond; update { body }) ──
+      case 'forC': {
+        // 1. Init: i = initValue
+        if (node.init) {
+          this.traverse(node.init, out);
+        } else {
+          // declare variable as 0 if no init
+          out.push({ op: Op.PUSH, arg: 0 });
+          out.push({ op: Op.STORE, arg: node.variable });
+        }
+
+        // 2. Loop start (condition check)
+        const forCStart = out.length;
+        this.traverse(node.condition, out);
+
+        // 3. Jump if condition false
+        const forCExitIdx = out.length;
+        out.push({ op: Op.JMP_NOT, arg: 0 }); // placeholder
+
+        // 4. Loop body
+        this.loopStack.push({ start: forCStart, breaks: [] });
+        this.traverse(node.body, out);
+        const loopInfo = this.loopStack.pop()!;
+
+        // 5. Update expression
+        this.traverse(node.update, out);
+        // If update is an assignment, it leaves nothing on stack (ok). Otherwise pop.
+        if (node.update?.type !== 'assignment') {
+          out.push({ op: Op.POP });
+        }
+
+        // 6. Jump back to condition
+        out.push({ op: Op.JMP, arg: forCStart });
+
+        // 7. Patch exit
+        out[forCExitIdx].arg = out.length;
+
+        // 8. Patch breaks
+        for (const breakIdx of loopInfo.breaks) {
+          out[breakIdx].arg = out.length;
+        }
+        break;
+      }
 
       // ── For...Of Statement (Array iteration with index) ────────
       // Phase 2: Convert for...of to index-based while loop
@@ -967,11 +1031,43 @@ export class IRGenerator {
         out.push({ op: Op.RET });
         break;
 
-      // ── Try-Catch-Finally Statement (Phase I - DEPRECATED) ───────────────
-      // NOTE: Using new TRY_BEGIN/TRY_END implementation in compiler.ts instead
-      // case 'TryStatement':
-      // case 'try':
-      //   [deprecated code removed]
+      // ── Try-Catch-Finally Statement ─────────────────────────────────────
+      case 'TryStatement':
+      case 'try': {
+        const catchClauses = node.catchClauses || node.handlers || [];
+        const firstCatch = catchClauses[0];
+        const errorVar = firstCatch?.parameter || '_error';
+
+        // 1. TRY_BEGIN: arg = "catchOffset:errorVar" (catchOffset patched later)
+        const tryBeginIdx = out.length;
+        out.push({ op: Op.TRY_BEGIN, arg: `0:${errorVar}` }); // placeholder
+
+        // 2. Try body
+        this.traverse(node.body, out);
+
+        // 3. TRY_END: arg = endOffset (skip catch, patched later)
+        const tryEndIdx = out.length;
+        out.push({ op: Op.TRY_END, arg: 0 }); // placeholder
+
+        // 4. Catch start: patch TRY_BEGIN
+        const catchStart = out.length;
+        out[tryBeginIdx].arg = `${catchStart}:${errorVar}`;
+
+        // 5. Catch body
+        if (firstCatch) {
+          this.traverse(firstCatch.body, out);
+        }
+
+        // 6. End of catch: patch TRY_END
+        const endOffset = out.length;
+        out[tryEndIdx].arg = endOffset;
+
+        // 7. Finally (if present)
+        if (node.finallyBody || node.finalizer) {
+          this.traverse(node.finallyBody || node.finalizer, out);
+        }
+        break;
+      }
 
       // ── Throw Statement (Phase I) ────────────────────────────
       case 'ThrowStatement':
@@ -1641,8 +1737,9 @@ export class IRGenerator {
         break;
       case 'literal':
       case 'LiteralPattern':
-        // For literal patterns, test equality
-        this.traverse(pattern.value, out);
+        // pattern.value is a raw primitive (string, number, boolean) from parsePattern
+        // Push the raw value directly, then test equality with scrutinee on stack
+        out.push({ op: Op.PUSH, arg: pattern.value });
         out.push({ op: Op.EQ });
         break;
       case 'identifier':
