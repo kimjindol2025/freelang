@@ -1,0 +1,237 @@
+// Phase 7: Code Generator E2E Integration Tests (Day 6-7)
+
+import CodeGenerator from './codegen.free'
+import X86Backend from './x86_64.free'
+
+component CodeGeneratorIntegrationTests {
+  let totalTests = 0
+  let passedTests = 0
+
+  fn assert(condition, message) -> void {
+    totalTests = totalTests + 1
+    if (condition) {
+      passedTests = passedTests + 1
+      println("✓ " + message)
+    } else {
+      println("✗ " + message)
+    }
+  }
+
+  // E2E Test 1: 간단한 함수 정의 및 호출
+  fn test_e2e_simple_function() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "PUSH", arg: 10 },
+        { opcode: "PUSH", arg: 20 },
+        { opcode: "ADD", arg: 0 },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("push 10"), "E2E 1: function - push 10")
+    assert(asm.contains("push 20"), "E2E 1: function - push 20")
+    assert(asm.contains("add rax"), "E2E 1: function - add")
+    assert(asm.contains("ret"), "E2E 1: function - ret")
+  }
+
+  // E2E Test 2: 조건부 분기
+  fn test_e2e_conditional_branch() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "PUSH", arg: 5 },
+        { opcode: "CMP", arg1: "rax", arg2: 0 },
+        { opcode: "JEQ", arg: "zero_label" },
+        { opcode: "PUSH", arg: 1 },
+        { opcode: "JMP", arg: "end_label" },
+        { opcode: "LABEL", arg: "zero_label" },
+        { opcode: "PUSH", arg: 0 },
+        { opcode: "LABEL", arg: "end_label" },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("cmp rax"), "E2E 2: conditional - cmp")
+    assert(asm.contains("je zero_label"), "E2E 2: conditional - je")
+    assert(asm.contains("jmp end_label"), "E2E 2: conditional - jmp")
+  }
+
+  // E2E Test 3: 루프
+  fn test_e2e_loop() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "MOV", arg1: "rcx", arg2: 5 },
+        { opcode: "LABEL", arg: "loop_start" },
+        { opcode: "PUSH", arg: 1 },
+        { opcode: "ADD", arg: 0 },
+        { opcode: "DEC", arg: "rcx" },
+        { opcode: "JNE", arg: "loop_start" },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("mov rcx, 5"), "E2E 3: loop - initialization")
+    assert(asm.contains("loop_start:"), "E2E 3: loop - label")
+    assert(asm.contains("jne loop_start"), "E2E 3: loop - branch")
+  }
+
+  // E2E Test 4: 함수 호출 (System V ABI)
+  fn test_e2e_function_call_abi() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "PUSH", arg: 100 },  // rdi (arg1)
+        { opcode: "PUSH", arg: 200 },  // rsi (arg2)
+        { opcode: "PUSH", arg: 300 },  // rdx (arg3)
+        { opcode: "CALL", arg: "my_function" },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("push 100"), "E2E 4: ABI - arg1")
+    assert(asm.contains("push 200"), "E2E 4: ABI - arg2")
+    assert(asm.contains("call my_function"), "E2E 4: ABI - call")
+  }
+
+  // E2E Test 5: 메모리 연산
+  fn test_e2e_memory_operations() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "MOV", arg1: "rax", arg2: 42 },
+        { opcode: "STORE", arg: 0x1000 },
+        { opcode: "LOAD", arg: 0x1000 },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("mov rax, 42"), "E2E 5: memory - mov")
+    assert(asm.contains("mov [0x1000], rax"), "E2E 5: memory - store")
+    assert(asm.contains("mov rax, [0x1000]"), "E2E 5: memory - load")
+  }
+
+  // E2E Test 6: 산술 연산 체인
+  fn test_e2e_arithmetic_chain() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "PUSH", arg: 10 },
+        { opcode: "PUSH", arg: 20 },
+        { opcode: "ADD", arg: 0 },     // 10 + 20 = 30
+        { opcode: "PUSH", arg: 2 },
+        { opcode: "MUL", arg: 0 },     // 30 * 2 = 60
+        { opcode: "PUSH", arg: 3 },
+        { opcode: "DIV", arg: 0 },     // 60 / 3 = 20
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("add rax"), "E2E 6: arithmetic - add")
+    assert(asm.contains("imul rax"), "E2E 6: arithmetic - mul")
+    assert(asm.contains("idiv"), "E2E 6: arithmetic - div")
+  }
+
+  // E2E Test 7: 논리 연산
+  fn test_e2e_logical_operations() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "MOV", arg1: "rax", arg2: 0xFF },
+        { opcode: "AND", arg1: "rax", arg2: 0x0F },
+        { opcode: "OR", arg1: "rax", arg2: 0xF0 },
+        { opcode: "XOR", arg1: "rax", arg2: 0xAA },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("and rax"), "E2E 7: logical - and")
+    assert(asm.contains("or rax"), "E2E 7: logical - or")
+    assert(asm.contains("xor rax"), "E2E 7: logical - xor")
+  }
+
+  // E2E Test 8: 스택 프레임 관리
+  fn test_e2e_stack_frame() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "LABEL", arg: "main" },
+        { opcode: "PUSH", arg: 1 },
+        { opcode: "PUSH", arg: 2 },
+        { opcode: "PUSH", arg: 3 },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("push rbp"), "E2E 8: stack - push rbp")
+    assert(asm.contains("mov rbp, rsp"), "E2E 8: stack - mov rbp")
+    assert(asm.contains("sub rsp"), "E2E 8: stack - sub rsp")
+  }
+
+  // E2E Test 9: 최적화 검증
+  fn test_e2e_optimization() -> void {
+    let instrs = [
+      { opcode: "PUSH", arg: 100 },
+      { opcode: "POP", arg: "rax" },
+      { opcode: "ADD", arg: 0 },
+      { opcode: "MUL", arg: 1 }
+    ]
+    let optimized = CodeGenerator.optimizeInstructions(instrs)
+    assert(optimized[0].opcode == "MOV", "E2E 9: optimization - push/pop → mov")
+    assert(optimized.length == 2, "E2E 9: optimization - reduced from 4 to 2")
+  }
+
+  // E2E Test 10: 복합 프로그램 (factorial)
+  fn test_e2e_factorial_function() -> void {
+    let ir = {
+      instructions: [
+        { opcode: "LABEL", arg: "factorial" },
+        // rdi = n (System V ABI arg1)
+        { opcode: "CMP", arg1: "rdi", arg2: 1 },
+        { opcode: "JLE", arg: "base_case" },
+        // recursive case: n * factorial(n-1)
+        { opcode: "PUSH", arg: "rdi" },
+        { opcode: "MOV", arg1: "rax", arg2: "rdi" },
+        { opcode: "ADD", arg: -1 },
+        { opcode: "MOV", arg1: "rdi", arg2: "rax" },
+        { opcode: "CALL", arg: "factorial" },
+        { opcode: "POP", arg: "rdi" },
+        { opcode: "MUL", arg: 0 },
+        { opcode: "RET" },
+        // base case: return 1
+        { opcode: "LABEL", arg: "base_case" },
+        { opcode: "MOV", arg1: "rax", arg2: 1 },
+        { opcode: "RET" }
+      ]
+    }
+    let asm = CodeGenerator.generate(ir)
+    assert(asm.contains("factorial:"), "E2E 10: factorial - label")
+    assert(asm.contains("cmp"), "E2E 10: factorial - comparison")
+    assert(asm.contains("call factorial"), "E2E 10: factorial - recursive call")
+  }
+
+  // 모든 E2E 테스트 실행
+  fn runAllE2ETests() -> void {
+    println("\n╔════════════════════════════════════════════╗")
+    println("║  Phase 7: E2E Integration Tests (Day 6-7) ║")
+    println("╚════════════════════════════════════════════╝\n")
+
+    test_e2e_simple_function()
+    test_e2e_conditional_branch()
+    test_e2e_loop()
+    test_e2e_function_call_abi()
+    test_e2e_memory_operations()
+    test_e2e_arithmetic_chain()
+    test_e2e_logical_operations()
+    test_e2e_stack_frame()
+    test_e2e_optimization()
+    test_e2e_factorial_function()
+
+    println("\n╔════════════════════════════════════════════╗")
+    println("║   E2E 결과: " + str(passedTests) + "/" + str(totalTests) + " PASS        ║")
+    println("║   고급 통합 테스트 완료 (Day 6-7)         ║")
+    println("╚════════════════════════════════════════════╝\n")
+  }
+
+  export { runAllE2ETests }
+}
+
+// E2E 테스트 실행 진입점
+fn main() {
+  CodeGeneratorIntegrationTests.runAllE2ETests()
+}
+
+main()

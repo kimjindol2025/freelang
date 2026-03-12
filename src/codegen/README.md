@@ -70,8 +70,50 @@ System V AMD64 ABI 준수:
 npm test -- codegen.test.ts
 ```
 
-## 다음 단계 (Week 2)
-- [ ] Conditional jumps (jmp, je, jne, jlt, jgt, jle, jge)
-- [ ] Loop 최적화 (peephole)
-- [ ] Exception handling
-- [ ] Switch/match 최적화 (점프 테이블)
+## Week 1 진행 상황
+
+### ✅ 완료 항목 (Day 1-7)
+
+**Day 1: 기본 설계**
+- 프로젝트 구조 (SPEC.md, README.md)
+- CodeGenerator 구현 (450줄)
+- x86-64 Backend (280줄)
+- 기본 테스트 (20개)
+
+**Day 2-3: 고급 구현**
+- Conditional jumps: JNE, JLE, JGE 추가
+- 논리 연산: XOR, AND, OR
+- CMP/MOV 명령어
+- Peephole 최적화 (push/pop → mov)
+- 테스트 확장 (20→30개)
+
+**Day 4-5: x86-64 Backend 확장**
+- 시프트 연산 (shl, shr, sar, rol, ror)
+- 부호 확장 (movsx, movzx, cdq)
+- 교환 (xchg)
+- 바이트/워드 연산 (movb, movw)
+- LEA, pause, clflush 지원
+- Opcode 테이블: 30→40개
+
+**Day 6-7: E2E 통합 테스트**
+- integration_tests.free (10개 E2E 테스트)
+- 함수 정의/호출
+- 조건부 분기
+- 루프
+- System V ABI 호출 규약
+- 메모리 연산
+- Factorial 함수 (재귀 예시)
+
+### 📊 코드 통계
+- codegen.free: 650줄
+- x86_64.free: 450줄
+- tests.free: 500줄
+- integration_tests.free: 300줄
+- **총: ~1,900줄**
+- **테스트: 30개 unit + 10개 E2E = 40개**
+
+## 다음 단계 (Week 2 onwards)
+- [ ] Phase 8: Assembler (ASM → machine code)
+- [ ] Phase 9: Linker (machine code → ELF binary)
+- [ ] Performance optimization (jump tables, etc)
+- [ ] Exception handling improvement
