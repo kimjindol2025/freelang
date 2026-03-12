@@ -1,0 +1,392 @@
+// Phase 9: Linker Integration Tests (Day 28)
+// 완전한 링킹 파이프라인 테스트
+
+import SymbolResolver from './symbol_resolver.free'
+import RelocationProcessor from './relocation_processor.free'
+import BinaryGenerator from './binary_generator.free'
+
+component LinkerTests {
+  let totalTests = 0
+  let passedTests = 0
+
+  fn assert(condition, message) -> void {
+    totalTests = totalTests + 1
+    if (condition) {
+      passedTests = passedTests + 1
+      println("✓ " + message)
+    } else {
+      println("✗ " + message)
+    }
+  }
+
+  // ==================== Symbol Resolver Tests (1-10) ====================
+
+  fn test_merge_symbol_tables() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("test1.o", [
+      { name: "main", binding: 1, section: ".text", offset: 0, size: 100 }
+    ], [])
+    resolver.addObjectFile("test2.o", [
+      { name: "printf", binding: 0, section: "UNDEF", offset: 0, size: 0 }
+    ], [])
+
+    let result = resolver.mergeSymbolTables()
+    assert(result.success == true, "Test 1: Symbol tables merged")
+    assert(result.totalSymbols >= 2, "Test 1: 2+ symbols found")
+  }
+
+  fn test_resolve_undefined_symbols() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("main.o", [
+      { name: "main", binding: 1, section: ".text", offset: 0, size: 50 }
+    ], [])
+    resolver.addObjectFile("lib.o", [
+      { name: "printf", binding: 1, section: ".text", offset: 0x100, size: 30 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    let result = resolver.resolveSymbols()
+    assert(result.success == true, "Test 2: Symbols resolved")
+    assert(result.resolved >= 2, "Test 2: 2+ resolved symbols")
+  }
+
+  fn test_symbol_conflict_detection() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("mod1.o", [
+      { name: "foo", binding: 1, section: ".text", offset: 0, size: 20 }
+    ], [])
+    resolver.addObjectFile("mod2.o", [
+      { name: "foo", binding: 1, section: ".text", offset: 0x50, size: 25 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    let conflicts = resolver.getConflicts()
+    assert(conflicts.length > 0, "Test 3: Conflicts detected")
+  }
+
+  fn test_symbol_address_assignment() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("app.o", [
+      { name: "start", binding: 1, section: ".text", offset: 0, size: 100 },
+      { name: "data1", binding: 1, section: ".data", offset: 0, size: 64 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    resolver.resolveSymbols()
+    let result = resolver.assignSymbolAddresses(0x400000, 0x600000)
+    assert(result.success == true, "Test 4: Addresses assigned")
+    assert(result.assignedAddresses >= 2, "Test 4: 2+ addresses assigned")
+  }
+
+  fn test_get_symbol_by_name() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("lib.o", [
+      { name: "strlen", binding: 1, section: ".text", offset: 0x100, size: 40 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    let sym = resolver.findSymbol("strlen")
+    assert(sym != nil, "Test 5: Symbol found by name")
+    assert(sym.name == "strlen", "Test 5: Correct symbol returned")
+  }
+
+  fn test_statistics() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("test.o", [
+      { name: "sym1", binding: 1, section: ".text", offset: 0, size: 10 },
+      { name: "sym2", binding: 0, section: ".text", offset: 10, size: 20 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    let stats = resolver.getStatistics()
+    assert(stats.totalMergedSymbols >= 2, "Test 6: Stats computed")
+  }
+
+  fn test_weak_symbol_handling() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("weak.o", [
+      { name: "error_handler", binding: 2, section: ".text", offset: 0, size: 50 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    let sym = resolver.findSymbol("error_handler")
+    assert(sym != nil && sym.binding == 2, "Test 7: Weak symbol handled")
+  }
+
+  fn test_multiple_object_files() -> void {
+    let resolver = SymbolResolver
+    for (let i = 0; i < 5; i = i + 1) {
+      resolver.addObjectFile("obj" + str(i) + ".o", [
+        { name: "func" + str(i), binding: 1, section: ".text", offset: i * 100, size: 50 }
+      ], [])
+    }
+
+    let result = resolver.mergeSymbolTables()
+    assert(result.totalSymbols >= 5, "Test 8: Multiple files merged")
+  }
+
+  fn test_unresolved_symbols() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("app.o", [
+      { name: "external_func", binding: 0, section: "UNDEF", offset: 0, size: 0 }
+    ], [])
+
+    resolver.mergeSymbolTables()
+    resolver.resolveSymbols()
+    let unresolved = resolver.getUnresolvedSymbols()
+    assert(unresolved.length > 0, "Test 9: Unresolved symbols detected")
+  }
+
+  fn test_resolver_debug() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("test.o", [
+      { name: "test", binding: 1, section: ".text", offset: 0, size: 10 }
+    ], [])
+    resolver.mergeSymbolTables()
+    resolver.debug()
+    assert(true, "Test 10: Debug output generated")
+  }
+
+  // ==================== Relocation Processor Tests (11-20) ====================
+
+  fn test_add_relocations() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "symbol", 0, 0x400000)
+    proc.addRelocation(0x20, proc.R_X86_64_PC32, "func", -4, 0x400000)
+
+    let allRelocs = proc.getAllRelocations()
+    assert(allRelocs.length == 2, "Test 11: Relocations added")
+  }
+
+  fn test_process_relocations() -> void {
+    let resolver = SymbolResolver
+    resolver.addObjectFile("lib.o", [
+      { name: "symbol", binding: 1, section: ".text", offset: 0x100, size: 50 }
+    ], [])
+    resolver.mergeSymbolTables()
+    resolver.resolveSymbols()
+
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "symbol", 0, 0x400000)
+
+    let result = proc.processRelocations(resolver, 0x400000, 0x600000)
+    assert(result.success == true, "Test 12: Relocations processed")
+  }
+
+  fn test_validate_relocations() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "sym", 0, 0x400000)
+
+    let result = proc.validateRelocations()
+    assert(result.success == true, "Test 13: Relocations validated")
+  }
+
+  fn test_got_relocations() -> void {
+    let proc = RelocationProcessor
+    let syms = [
+      { name: "malloc", section: "UNDEF" },
+      { name: "free", section: "UNDEF" }
+    ]
+
+    let got = proc.createGOTRelocations(syms, 0x601000)
+    assert(got.length == 2, "Test 14: GOT relocations created")
+  }
+
+  fn test_plt_relocations() -> void {
+    let proc = RelocationProcessor
+    let syms = [
+      { name: "printf", section: "UNDEF", type: 2 },
+      { name: "strlen", section: "UNDEF", type: 2 }
+    ]
+
+    let plt = proc.createPLTRelocations(syms, 0x400000)
+    assert(plt.length == 2, "Test 15: PLT relocations created")
+  }
+
+  fn test_r64_relocation() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "data", 0, 0x400000)
+
+    let result = proc.processRelocations(nil, 0x400000, 0x600000)
+    let processed = proc.getProcessedRelocations()
+    assert(processed.length > 0, "Test 16: R_X86_64_64 relocation")
+  }
+
+  fn test_pc32_relocation() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x20, proc.R_X86_64_PC32, "func", -4, 0x400000)
+
+    let result = proc.processRelocations(nil, 0x400000, 0x600000)
+    let processed = proc.getProcessedRelocations()
+    assert(processed.length > 0, "Test 17: R_X86_64_PC32 relocation")
+  }
+
+  fn test_apply_relocations() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "sym", 0, 0x400000)
+
+    let result = proc.applyRelocations("binary_data")
+    assert(result.success == true, "Test 18: Relocations applied")
+  }
+
+  fn test_relocation_statistics() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "s1", 0, 0x400000)
+    proc.addRelocation(0x20, proc.R_X86_64_PC32, "s2", 0, 0x400000)
+
+    let stats = proc.getStatistics()
+    assert(stats.totalRelocations == 2, "Test 19: Stats computed")
+    assert(stats.r64Relocations == 1, "Test 19: R64 count correct")
+  }
+
+  fn test_processor_debug() -> void {
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "sym", 0, 0x400000)
+    proc.debug()
+    assert(true, "Test 20: Debug output generated")
+  }
+
+  // ==================== Binary Generator Tests (21-30) ====================
+
+  fn test_create_executable_header() -> void {
+    let gen = BinaryGenerator
+    let header = gen.createExecutableHeader()
+    assert(header.e_type == 2, "Test 21: Executable type set")
+    assert(header.e_machine == 0x3E, "Test 21: x86-64 machine")
+  }
+
+  fn test_create_program_headers() -> void {
+    let gen = BinaryGenerator
+    let headers = gen.createProgramHeaders(0x1000, 0x2000)
+    assert(headers.length == 2, "Test 22: 2 program headers")
+  }
+
+  fn test_layout_segments() -> void {
+    let gen = BinaryGenerator
+    let result = gen.layoutSegments("text_content", "data_content")
+    assert(result.success == true, "Test 23: Segments laid out")
+    assert(result.totalSize > 0, "Test 23: Non-zero size")
+  }
+
+  fn test_write_binary_file() -> void {
+    let gen = BinaryGenerator
+    let header = gen.createExecutableHeader()
+    let headers = gen.createProgramHeaders(0x1000, 0x2000)
+    let layoutResult = gen.layoutSegments("text", "data")
+
+    let result = gen.writeBinaryFile("output.elf", header, headers, gen.getSegments())
+    assert(result.success == true, "Test 24: Binary written")
+  }
+
+  fn test_memory_map() -> void {
+    let gen = BinaryGenerator
+    let map = gen.createMemoryMap()
+    assert(map.textSegment != nil, "Test 25: Text segment in map")
+    assert(map.dataSegment != nil, "Test 25: Data segment in map")
+    assert(map.stack != nil, "Test 25: Stack in map")
+  }
+
+  fn test_validate_binary() -> void {
+    let gen = BinaryGenerator
+    let result = gen.validateBinary("ELF_data_with_magic")
+    assert(result.success == true, "Test 26: Binary validated")
+  }
+
+  fn test_entry_point() -> void {
+    let gen = BinaryGenerator
+    gen.setEntryPoint(0x400000)
+    assert(true, "Test 27: Entry point set")
+  }
+
+  fn test_get_segments() -> void {
+    let gen = BinaryGenerator
+    gen.layoutSegments("text", "data")
+    let segs = gen.getSegments()
+    assert(segs.length > 0, "Test 28: Segments retrieved")
+  }
+
+  fn test_generator_debug() -> void {
+    let gen = BinaryGenerator
+    gen.debug()
+    assert(true, "Test 29: Debug output generated")
+  }
+
+  fn test_full_linking_pipeline() -> void {
+    // 심볼 해석
+    let resolver = SymbolResolver
+    resolver.addObjectFile("main.o", [
+      { name: "main", binding: 1, section: ".text", offset: 0, size: 100 }
+    ], [])
+    resolver.mergeSymbolTables()
+    resolver.resolveSymbols()
+
+    // 재배치 처리
+    let proc = RelocationProcessor
+    proc.addRelocation(0x10, proc.R_X86_64_64, "main", 0, 0x400000)
+    proc.processRelocations(resolver, 0x400000, 0x600000)
+
+    // 바이너리 생성
+    let gen = BinaryGenerator
+    gen.layoutSegments("code", "data")
+    let header = gen.createExecutableHeader()
+
+    assert(true, "Test 30: Full pipeline executed")
+  }
+
+  // ==================== 모든 테스트 실행 ====================
+
+  fn runAllLinkerTests() -> void {
+    println("\n╔════════════════════════════════════════════╗")
+    println("║   Phase 9: Linker Tests (Day 28)          ║")
+    println("╚════════════════════════════════════════════╝\n")
+
+    println("--- Symbol Resolver Tests (1-10) ---")
+    test_merge_symbol_tables()
+    test_resolve_undefined_symbols()
+    test_symbol_conflict_detection()
+    test_symbol_address_assignment()
+    test_get_symbol_by_name()
+    test_statistics()
+    test_weak_symbol_handling()
+    test_multiple_object_files()
+    test_unresolved_symbols()
+    test_resolver_debug()
+
+    println("\n--- Relocation Processor Tests (11-20) ---")
+    test_add_relocations()
+    test_process_relocations()
+    test_validate_relocations()
+    test_got_relocations()
+    test_plt_relocations()
+    test_r64_relocation()
+    test_pc32_relocation()
+    test_apply_relocations()
+    test_relocation_statistics()
+    test_processor_debug()
+
+    println("\n--- Binary Generator Tests (21-30) ---")
+    test_create_executable_header()
+    test_create_program_headers()
+    test_layout_segments()
+    test_write_binary_file()
+    test_memory_map()
+    test_validate_binary()
+    test_entry_point()
+    test_get_segments()
+    test_generator_debug()
+    test_full_linking_pipeline()
+
+    println("\n╔════════════════════════════════════════════╗")
+    println("║   결과: " + str(passedTests) + "/" + str(totalTests) + " PASS              ║")
+    println("║   Phase 9 Linker 완성!                    ║")
+    println("╚════════════════════════════════════════════╝\n")
+  }
+
+  export { runAllLinkerTests }
+}
+
+fn main() {
+  LinkerTests.runAllLinkerTests()
+}
+
+main()

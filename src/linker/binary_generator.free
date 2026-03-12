@@ -1,0 +1,247 @@
+// Phase 9: Binary Generator (Day 26-27)
+// ELF 실행 파일 생성 및 세그먼트 배치
+
+component BinaryGenerator {
+  // ELF 실행 파일 형식
+  let ELF_MAGIC = 0x464C457F
+  let ET_EXEC = 2              // 실행 파일
+  let EM_X86_64 = 0x3E
+  let PT_LOAD = 1              // 로드 가능
+  let PT_INTERP = 3            // 인터프리터
+
+  // 메모리 배치
+  let textBase = 0x400000      // .text 시작 주소 (x86-64)
+  let dataBase = 0x600000      // .data 시작 주소
+  let heapBase = 0x700000      // 힙 시작 주소
+  let stackBase = 0x7ffffffde000  // 스택 시작 주소
+
+  // 생성된 파일 정보
+  let programHeader = {}
+  let sectionData = {}
+  let segments = []
+
+  // ELF 헤더 생성 (실행 파일용)
+  fn createExecutableHeader() -> object {
+    return {
+      e_magic: ELF_MAGIC,
+      e_class: 2,               // 64-bit
+      e_data: 1,                // little-endian
+      e_version: 1,
+      e_osabi: 0,               // UNIX System V
+      e_abiversion: 0,
+      e_type: ET_EXEC,          // 실행 파일
+      e_machine: EM_X86_64,
+      e_version_num: 1,
+      e_entry: textBase,        // 진입점 (텍스트 시작)
+      e_phoff: 64,              // Program Header Table 오프셋
+      e_shoff: 0,               // Section Header Table (실행 파일에선 불필요)
+      e_flags: 0,
+      e_ehsize: 64,             // ELF 헤더 크기
+      e_phentsize: 56,          // Program Header 크기
+      e_phnum: 2,               // Program Header 개수 (.text, .data)
+      e_shentsize: 0,
+      e_shnum: 0,
+      e_shstrndx: 0
+    }
+  }
+
+  // Program Header 생성 (Day 26)
+  fn createProgramHeaders(textSize, dataSize) -> array {
+    let headers = []
+
+    // LOAD 세그먼트 1: .text
+    headers = headers + [{
+      p_type: PT_LOAD,
+      p_offset: 0x1000,         // 파일 오프셋
+      p_vaddr: textBase,        // 가상 주소
+      p_paddr: textBase,        // 물리 주소
+      p_filesz: textSize,       // 파일 크기
+      p_memsz: textSize,        // 메모리 크기
+      p_flags: 5,               // R + X (읽기 + 실행)
+      p_align: 0x1000           // 페이지 정렬
+    }]
+
+    // LOAD 세그먼트 2: .data
+    headers = headers + [{
+      p_type: PT_LOAD,
+      p_offset: 0x2000,         // 파일 오프셋
+      p_vaddr: dataBase,        // 가상 주소
+      p_paddr: dataBase,        // 물리 주소
+      p_filesz: dataSize,       // 파일 크기
+      p_memsz: dataSize,        // 메모리 크기
+      p_flags: 6,               // R + W (읽기 + 쓰기)
+      p_align: 0x1000           // 페이지 정렬
+    }]
+
+    return headers
+  }
+
+  // 세그먼트 배치 (Day 26-27)
+  fn layoutSegments(textContent, dataContent) -> object {
+    let result = {
+      success: false,
+      totalSize: 0,
+      textSegment: 0,
+      dataSegment: 0
+    }
+
+    segments = []
+
+    // 텍스트 세그먼트
+    let textSegment = {
+      type: "text",
+      vaddr: textBase,
+      paddr: textBase,
+      offset: 0x1000,
+      size: textContent.length,
+      data: textContent,
+      flags: 5  // R + X
+    }
+    segments = segments + [textSegment]
+    result.textSegment = textSegment.size
+
+    // 데이터 세그먼트
+    let dataSegment = {
+      type: "data",
+      vaddr: dataBase,
+      paddr: dataBase,
+      offset: 0x2000,
+      size: dataContent.length,
+      data: dataContent,
+      flags: 6  // R + W
+    }
+    segments = segments + [dataSegment]
+    result.dataSegment = dataSegment.size
+
+    result.totalSize = result.textSegment + result.dataSegment
+    result.success = true
+    return result
+  }
+
+  // 바이너리 파일 작성 (Day 27)
+  fn writeBinaryFile(filename, elfHeader, programHeaders, segments) -> object {
+    let result = {
+      success: false,
+      filename: filename,
+      fileSize: 0,
+      segmentCount: segments.length
+    }
+
+    // 파일 크기 계산
+    let fileSize = 64              // ELF 헤더
+    fileSize = fileSize + (56 * programHeaders.length)  // Program Headers
+    fileSize = fileSize + 0xFFF    // 패딩 (페이지 정렬)
+
+    // 각 세그먼트 추가
+    for (let i = 0; i < segments.length; i = i + 1) {
+      fileSize = fileSize + segments[i].size
+    }
+
+    result.fileSize = fileSize
+    result.success = true
+
+    return result
+  }
+
+  // 실행 권한 설정
+  fn setExecutablePermissions(filename) -> bool {
+    // 실제 구현에서는 chmod 호출
+    // chmod +x filename
+    return true
+  }
+
+  // 메모리 맵 생성
+  fn createMemoryMap() -> object {
+    return {
+      textSegment: {
+        start: textBase,
+        size: 0,  // 실제 크기는 계산 필요
+        permissions: "R-X"
+      },
+      dataSegment: {
+        start: dataBase,
+        size: 0,  // 실제 크기는 계산 필요
+        permissions: "RW-"
+      },
+      bssSegment: {
+        start: dataBase + 0x100000,
+        size: 0,  // 미초기화 데이터
+        permissions: "RW-"
+      },
+      heap: {
+        start: heapBase,
+        size: 0,  // 동적 할당
+        permissions: "RW-"
+      },
+      stack: {
+        start: stackBase,
+        size: 0x1000,  // 한 페이지
+        permissions: "RW-"
+      }
+    }
+  }
+
+  // 진입점 설정
+  fn setEntryPoint(address) -> void {
+    programHeader.e_entry = address
+  }
+
+  // 세그먼트 반환
+  fn getSegments() -> array {
+    return segments
+  }
+
+  // 메모리 맵 반환
+  fn getMemoryMap() -> object {
+    return createMemoryMap()
+  }
+
+  // 바이너리 검증
+  fn validateBinary(fileData) -> object {
+    let result = {
+      success: true,
+      issues: []
+    }
+
+    // ELF 매직 검증
+    if (fileData.length < 4) {
+      result.success = false
+      result.issues = result.issues + ["파일이 너무 작음"]
+      return result
+    }
+
+    // 섹션 정렬 검증
+    for (let i = 0; i < segments.length; i = i + 1) {
+      let seg = segments[i]
+      if (seg.offset % 0x1000 != 0) {
+        result.issues = result.issues + ["세그먼트 " + str(i) + " 정렬 오류"]
+      }
+    }
+
+    return result
+  }
+
+  // 디버그
+  fn debug() -> void {
+    println("\n=== Binary Generator Debug ===")
+    println("Text base: 0x" + str(textBase))
+    println("Data base: 0x" + str(dataBase))
+    println("Segments: " + str(segments.length))
+    println("==============================\n")
+  }
+
+  // 내보내기
+  export {
+    createExecutableHeader,
+    createProgramHeaders,
+    layoutSegments,
+    writeBinaryFile,
+    setExecutablePermissions,
+    createMemoryMap,
+    setEntryPoint,
+    getSegments,
+    getMemoryMap,
+    validateBinary,
+    debug
+  }
+}

@@ -1,0 +1,251 @@
+// Phase 9: Relocation Processor (Day 24-25)
+// 재배치 항목 처리 및 주소 계산
+
+component RelocationProcessor {
+  // 재배치 항목
+  let relocations = []
+  let processedRelocations = []
+
+  // 재배치 타입 상수
+  let R_X86_64_64 = 1
+  let R_X86_64_PC32 = 2
+  let R_X86_64_GOT64 = 3
+  let R_X86_64_PLT32 = 4
+  let R_X86_64_RELATIVE = 8
+
+  // 재배치 추가
+  fn addRelocation(offset, type, symbolName, addend, sectionBase) -> void {
+    relocations = relocations + [{
+      offset: offset,
+      type: type,
+      symbol: symbolName,
+      addend: addend,
+      sectionBase: sectionBase,
+      processed: false,
+      finalValue: 0
+    }]
+  }
+
+  // 재배치 처리 (Day 24-25)
+  fn processRelocations(symbolResolver, textBase, dataBase) -> object {
+    let result = {
+      success: false,
+      processed: 0,
+      failed: 0,
+      warnings: 0
+    }
+
+    processedRelocations = []
+
+    for (let i = 0; i < relocations.length; i = i + 1) {
+      let reloc = relocations[i]
+      let processed = false
+
+      // 심볼 주소 조회
+      let symbolAddress = symbolResolver.getSymbolAddress(reloc.symbol)
+
+      if (symbolAddress == 0 && reloc.symbol != "") {
+        // 심볼을 찾을 수 없음
+        result.warnings = result.warnings + 1
+        continue
+      }
+
+      // 재배치 타입별 처리
+      if (reloc.type == R_X86_64_64) {
+        // 절대 64비트 재배치 (S + A)
+        reloc.finalValue = symbolAddress + reloc.addend
+        processed = true
+      } else if (reloc.type == R_X86_64_PC32) {
+        // RIP-relative 재배치 (S + A - P)
+        // P = 재배치 위치의 절대 주소
+        let relocationAddress = reloc.sectionBase + reloc.offset
+        reloc.finalValue = symbolAddress + reloc.addend - relocationAddress
+        processed = true
+      } else if (reloc.type == R_X86_64_RELATIVE) {
+        // 상대 재배치 (B + A)
+        let baseAddress = textBase
+        reloc.finalValue = baseAddress + reloc.addend
+        processed = true
+      } else {
+        // 지원하지 않는 재배치 타입
+        result.warnings = result.warnings + 1
+      }
+
+      if (processed) {
+        reloc.processed = true
+        processedRelocations = processedRelocations + [reloc]
+        result.processed = result.processed + 1
+      } else {
+        result.failed = result.failed + 1
+      }
+    }
+
+    result.success = true
+    return result
+  }
+
+  // 재배치 검증
+  fn validateRelocations() -> object {
+    let result = {
+      success: true,
+      validCount: 0,
+      invalidCount: 0,
+      issues: []
+    }
+
+    for (let i = 0; i < processedRelocations.length; i = i + 1) {
+      let reloc = processedRelocations[i]
+
+      // 재배치 오프셋 검증
+      if (reloc.offset < 0) {
+        result.invalidCount = result.invalidCount + 1
+        result.issues = result.issues + ["Negative offset at reloc " + str(i)]
+        result.success = false
+        continue
+      }
+
+      // 재배치 값 검증
+      if (reloc.finalValue == 0 && reloc.symbol != "") {
+        result.invalidCount = result.invalidCount + 1
+        result.issues = result.issues + ["Zero value for symbol " + reloc.symbol]
+        result.success = false
+        continue
+      }
+
+      result.validCount = result.validCount + 1
+    }
+
+    return result
+  }
+
+  // GOT (Global Offset Table) 재배치
+  fn createGOTRelocations(symbolList, gotBase) -> array {
+    let gotRelocations = []
+
+    for (let i = 0; i < symbolList.length; i = i + 1) {
+      let sym = symbolList[i]
+
+      if (sym.section == "UNDEF") {
+        // 외부 심볼의 GOT 항목
+        let gotEntry = {
+          symbol: sym.name,
+          offset: gotBase + (i * 8),
+          relocationType: R_X86_64_GLOB_DAT
+        }
+        gotRelocations = gotRelocations + [gotEntry]
+      }
+    }
+
+    return gotRelocations
+  }
+
+  // PLT (Procedure Linkage Table) 재배치
+  fn createPLTRelocations(symbolList, pltBase) -> array {
+    let pltRelocations = []
+    let pltOffset = 16  // PLT[0] 제외
+
+    for (let i = 0; i < symbolList.length; i = i + 1) {
+      let sym = symbolList[i]
+
+      if (sym.section == "UNDEF" && sym.type == 2) {  // 함수
+        let pltEntry = {
+          symbol: sym.name,
+          offset: pltBase + pltOffset,
+          relocationType: R_X86_64_JUMP_SLOT
+        }
+        pltRelocations = pltRelocations + [pltEntry]
+        pltOffset = pltOffset + 16  // 각 PLT 항목은 16바이트
+      }
+    }
+
+    return pltRelocations
+  }
+
+  // 재배치 적용 (바이너리에 쓰기)
+  fn applyRelocations(binaryData) -> object {
+    let result = {
+      success: false,
+      appliedCount: 0,
+      modifiedBytes: 0
+    }
+
+    for (let i = 0; i < processedRelocations.length; i = i + 1) {
+      let reloc = processedRelocations[i]
+
+      // 재배치 위치에 최종 값 쓰기
+      // 실제 구현에서는 바이너리 데이터에 쓰기
+      result.appliedCount = result.appliedCount + 1
+
+      // 재배치 크기에 따라 바이트 수 누적
+      if (reloc.type == R_X86_64_64) {
+        result.modifiedBytes = result.modifiedBytes + 8
+      } else if (reloc.type == R_X86_64_PC32) {
+        result.modifiedBytes = result.modifiedBytes + 4
+      }
+    }
+
+    result.success = true
+    return result
+  }
+
+  // 모든 재배치 반환
+  fn getAllRelocations() -> array {
+    return relocations
+  }
+
+  // 처리된 재배치 반환
+  fn getProcessedRelocations() -> array {
+    return processedRelocations
+  }
+
+  // 재배치 통계
+  fn getStatistics() -> object {
+    let r64Count = 0
+    let pc32Count = 0
+    let otherCount = 0
+
+    for (let i = 0; i < relocations.length; i = i + 1) {
+      let reloc = relocations[i]
+      if (reloc.type == R_X86_64_64) {
+        r64Count = r64Count + 1
+      } else if (reloc.type == R_X86_64_PC32) {
+        pc32Count = pc32Count + 1
+      } else {
+        otherCount = otherCount + 1
+      }
+    }
+
+    return {
+      totalRelocations: relocations.length,
+      processedRelocations: processedRelocations.length,
+      r64Relocations: r64Count,
+      pc32Relocations: pc32Count,
+      otherRelocations: otherCount
+    }
+  }
+
+  // 디버그
+  fn debug() -> void {
+    println("\n=== Relocation Processor Debug ===")
+    println("Total relocations: " + str(relocations.length))
+    println("Processed: " + str(processedRelocations.length))
+    let stats = getStatistics()
+    println("R_X86_64_64: " + str(stats.r64Relocations))
+    println("R_X86_64_PC32: " + str(stats.pc32Relocations))
+    println("===================================\n")
+  }
+
+  // 내보내기
+  export {
+    addRelocation,
+    processRelocations,
+    validateRelocations,
+    createGOTRelocations,
+    createPLTRelocations,
+    applyRelocations,
+    getAllRelocations,
+    getProcessedRelocations,
+    getStatistics,
+    debug
+  }
+}

@@ -1,0 +1,266 @@
+// Phase 9: Symbol Resolver (Day 22-23)
+// 심볼 테이블 병합 및 심볼 해석
+
+component SymbolResolver {
+  // 병합된 심볼 테이블
+  let mergedSymbols = []
+  let symbolMap = {}
+  let objectFiles = []
+
+  // 심볼 정보
+  let STB_LOCAL = 0
+  let STB_GLOBAL = 1
+  let STB_WEAK = 2
+  let STB_UNDEFINED = 3
+
+  // 해석 결과
+  let resolvedSymbols = []
+  let unresolvedSymbols = []
+  let conflictSymbols = []
+
+  // 객체 파일 추가
+  fn addObjectFile(filename, symbols, relocations) -> void {
+    objectFiles = objectFiles + [{
+      filename: filename,
+      symbols: symbols,
+      relocations: relocations,
+      baseAddress: 0
+    }]
+  }
+
+  // 심볼 테이블 병합 (Day 22)
+  fn mergeSymbolTables() -> object {
+    let result = {
+      success: false,
+      totalSymbols: 0,
+      globalSymbols: 0,
+      localSymbols: 0,
+      weakSymbols: 0,
+      undefinedSymbols: 0,
+      conflicts: 0
+    }
+
+    mergedSymbols = []
+    symbolMap = {}
+    conflictSymbols = []
+
+    // 각 객체 파일의 심볼 처리
+    for (let i = 0; i < objectFiles.length; i = i + 1) {
+      let objFile = objectFiles[i]
+      let symbols = objFile.symbols
+
+      for (let j = 0; j < symbols.length; j = j + 1) {
+        let sym = symbols[j]
+        let key = sym.name
+
+        // 이미 존재하는 심볼 확인
+        if (symbolMap[key] != nil) {
+          // 충돌 처리: GLOBAL > WEAK > LOCAL
+          let existing = symbolMap[key]
+
+          if (sym.binding == STB_GLOBAL && existing.binding == STB_GLOBAL) {
+            // 중복 GLOBAL 심볼 - 충돌!
+            conflictSymbols = conflictSymbols + [{
+              name: key,
+              file1: existing.filename,
+              file2: objFile.filename,
+              type: "duplicate_global"
+            }]
+            result.conflicts = result.conflicts + 1
+          } else if (sym.binding == STB_GLOBAL) {
+            // GLOBAL > 다른 바인딩
+            symbolMap[key] = sym
+            sym.filename = objFile.filename
+          } else if (existing.binding != STB_GLOBAL && sym.binding == STB_WEAK) {
+            // WEAK > LOCAL
+            symbolMap[key] = sym
+            sym.filename = objFile.filename
+          }
+        } else {
+          // 새로운 심볼
+          symbolMap[key] = sym
+          sym.filename = objFile.filename
+          sym.objectFileIndex = i
+        }
+      }
+    }
+
+    // 병합된 심볼 배열 생성
+    for (let key in symbolMap) {
+      let sym = symbolMap[key]
+      mergedSymbols = mergedSymbols + [sym]
+
+      if (sym.binding == STB_GLOBAL) {
+        result.globalSymbols = result.globalSymbols + 1
+      } else if (sym.binding == STB_LOCAL) {
+        result.localSymbols = result.localSymbols + 1
+      } else if (sym.binding == STB_WEAK) {
+        result.weakSymbols = result.weakSymbols + 1
+      } else if (sym.binding == STB_UNDEFINED) {
+        result.undefinedSymbols = result.undefinedSymbols + 1
+      }
+    }
+
+    result.totalSymbols = mergedSymbols.length
+    result.success = true
+    return result
+  }
+
+  // 심볼 해석 (Day 22-23)
+  fn resolveSymbols() -> object {
+    let result = {
+      success: false,
+      resolved: 0,
+      unresolved: 0,
+      warnings: 0
+    }
+
+    resolvedSymbols = []
+    unresolvedSymbols = []
+
+    // 모든 심볼 해석
+    for (let i = 0; i < mergedSymbols.length; i = i + 1) {
+      let sym = mergedSymbols[i]
+
+      if (sym.section == "UNDEF") {
+        // undefined 심볼
+        let resolved = false
+
+        // 다른 심볼 테이블에서 찾기
+        for (let j = 0; j < mergedSymbols.length; j = j + 1) {
+          let candidate = mergedSymbols[j]
+          if (candidate.name == sym.name && candidate.section != "UNDEF") {
+            sym.resolvedAddress = candidate.offset
+            sym.resolvedFile = candidate.filename
+            resolvedSymbols = resolvedSymbols + [sym]
+            resolved = true
+            result.resolved = result.resolved + 1
+            break
+          }
+        }
+
+        if (!resolved) {
+          // 미해결 심볼
+          unresolvedSymbols = unresolvedSymbols + [sym]
+          result.unresolved = result.unresolved + 1
+
+          // 약한 심볼이면 경고, 아니면 오류
+          if (sym.binding != STB_WEAK) {
+            result.warnings = result.warnings + 1
+          }
+        }
+      } else {
+        // 정의된 심볼
+        resolvedSymbols = resolvedSymbols + [sym]
+        result.resolved = result.resolved + 1
+      }
+    }
+
+    result.success = true
+    return result
+  }
+
+  // 심볼 주소 할당 (Day 23)
+  fn assignSymbolAddresses(textBase, dataBase) -> object {
+    let result = {
+      success: false,
+      textSymbols: 0,
+      dataSymbols: 0,
+      assignedAddresses: 0
+    }
+
+    let textOffset = 0
+    let dataOffset = 0
+
+    for (let i = 0; i < resolvedSymbols.length; i = i + 1) {
+      let sym = resolvedSymbols[i]
+
+      if (sym.section == ".text") {
+        sym.finalAddress = textBase + textOffset
+        textOffset = textOffset + sym.size
+        result.textSymbols = result.textSymbols + 1
+      } else if (sym.section == ".data") {
+        sym.finalAddress = dataBase + dataOffset
+        dataOffset = dataOffset + sym.size
+        result.dataSymbols = result.dataSymbols + 1
+      } else {
+        // 다른 섹션
+        sym.finalAddress = sym.offset
+      }
+
+      result.assignedAddresses = result.assignedAddresses + 1
+    }
+
+    result.success = true
+    return result
+  }
+
+  // 심볼 찾기
+  fn findSymbol(name) -> object {
+    return symbolMap[name]
+  }
+
+  // 심볼 주소 조회
+  fn getSymbolAddress(name) -> i64 {
+    let sym = findSymbol(name)
+    if (sym != nil && sym.finalAddress != nil) {
+      return sym.finalAddress
+    }
+    return 0
+  }
+
+  // 모든 해석된 심볼 반환
+  fn getResolvedSymbols() -> array {
+    return resolvedSymbols
+  }
+
+  // 미해결 심볼 반환
+  fn getUnresolvedSymbols() -> array {
+    return unresolvedSymbols
+  }
+
+  // 심볼 충돌 반환
+  fn getConflicts() -> array {
+    return conflictSymbols
+  }
+
+  // 해석 통계
+  fn getStatistics() -> object {
+    return {
+      totalObjectFiles: objectFiles.length,
+      totalMergedSymbols: mergedSymbols.length,
+      totalResolvedSymbols: resolvedSymbols.length,
+      totalUnresolvedSymbols: unresolvedSymbols.length,
+      totalConflicts: conflictSymbols.length,
+      globalSymbolCount: 0,  // 계산 필요
+      localSymbolCount: 0,   // 계산 필요
+      weakSymbolCount: 0     // 계산 필요
+    }
+  }
+
+  // 디버그
+  fn debug() -> void {
+    println("\n=== Symbol Resolver Debug ===")
+    println("Object files: " + str(objectFiles.length))
+    println("Merged symbols: " + str(mergedSymbols.length))
+    println("Resolved symbols: " + str(resolvedSymbols.length))
+    println("Unresolved symbols: " + str(unresolvedSymbols.length))
+    println("Conflicts: " + str(conflictSymbols.length))
+    println("=============================\n")
+  }
+
+  // 내보내기
+  export {
+    addObjectFile,
+    mergeSymbolTables,
+    resolveSymbols,
+    assignSymbolAddresses,
+    findSymbol,
+    getSymbolAddress,
+    getResolvedSymbols,
+    getUnresolvedSymbols,
+    getConflicts,
+    getStatistics,
+    debug
+  }
+}
