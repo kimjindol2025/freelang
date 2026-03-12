@@ -42,9 +42,40 @@ component X86_64Backend {
     "call": { prefix: "", opcode: "e8", modrm: nil },          // call rel32
     "ret": { prefix: "", opcode: "c3", modrm: nil },           // ret
 
+    // 시프트 연산
+    "shl_r_i": { prefix: "48", opcode: "c1", modrm: true },    // shl r64, imm8
+    "shr_r_i": { prefix: "48", opcode: "c1", modrm: true },    // shr r64, imm8
+    "sar_r_i": { prefix: "48", opcode: "c1", modrm: true },    // sar r64, imm8
+    "rol_r_i": { prefix: "48", opcode: "c1", modrm: true },    // rol r64, imm8
+    "ror_r_i": { prefix: "48", opcode: "c1", modrm: true },    // ror r64, imm8
+
+    // 테스트 및 플래그
+    "test_r_r": { prefix: "48", opcode: "85", modrm: true },   // test r64, r64
+    "test_r_i": { prefix: "48", opcode: "f7", modrm: true },   // test r64, imm32
+
+    // 부호 확장
+    "movsx_r_m": { prefix: "48", opcode: "63", modrm: true },  // movsxd r64, [m32]
+    "movzx_r_m": { prefix: "48", opcode: "8b", modrm: true },  // mov r64, [m64]
+    "cdq": { prefix: "", opcode: "99", modrm: nil },           // cdq (sign extend)
+
+    // 교환
+    "xchg_r_r": { prefix: "48", opcode: "87", modrm: true },   // xchg r64, r64
+    "xchg_r_m": { prefix: "48", opcode: "87", modrm: true },   // xchg r64, [m64]
+
+    // 바이트 연산
+    "movb_r_m": { prefix: "", opcode: "8a", modrm: true },     // mov r8, [m8]
+    "movb_m_r": { prefix: "", opcode: "88", modrm: true },     // mov [m8], r8
+    "movw_r_m": { prefix: "66", opcode: "8b", modrm: true },   // mov r16, [m16]
+    "movw_m_r": { prefix: "66", opcode: "89", modrm: true },   // mov [m16], r16
+
+    // LEA (Load Effective Address)
+    "lea_r_m": { prefix: "48", opcode: "8d", modrm: true },    // lea r64, [m]
+
     // 특수 명령어
     "nop": { prefix: "", opcode: "90", modrm: nil },           // nop
     "halt": { prefix: "", opcode: "f4", modrm: nil },          // hlt
+    "pause": { prefix: "", opcode: "f0", modrm: nil },         // pause (SSE)
+    "clflush": { prefix: "", opcode: "ae", modrm: true },      // clflush [m]
   }
 
   // 레지스터 인코딩 (REX.B 적용 전)
@@ -131,7 +162,42 @@ component X86_64Backend {
     return asm
   }
 
-  // 내보내기
+  // SysV 호출 규약에 따라 인자 배치
+  fn setupFunctionCall(argCount) -> string {
+    let asm = ""
+    if (argCount >= 1) { asm = asm + "mov rdi, rax\n" }  // arg1
+    if (argCount >= 2) { asm = asm + "mov rsi, rbx\n" }  // arg2
+    if (argCount >= 3) { asm = asm + "mov rdx, rcx\n" }  // arg3
+    if (argCount >= 4) { asm = asm + "mov rcx, r8\n" }   // arg4
+    if (argCount >= 5) { asm = asm + "mov r8, r9\n" }    // arg5
+    if (argCount >= 6) { asm = asm + "mov r9, r10\n" }   // arg6
+    return asm
+  }
+
+  // 기계어 인코딩: ModR/M 바이트를 계산
+  fn encodeModRMByte(mod, reg, rm) -> string {
+    let byte = (mod << 6) | (reg << 3) | rm
+    return intToHex(byte)
+  }
+
+  // 기계어 인코딩: SIB (Scale-Index-Base) 바이트
+  fn encodeSIBByte(scale, index, base) -> string {
+    // scale: 0(x1), 1(x2), 2(x4), 3(x8)
+    let byte = (scale << 6) | (index << 3) | base
+    return intToHex(byte)
+  }
+
+  // 디버그: Opcode 테이블 크기
+  fn getOpcodeCount() -> i64 {
+    return 40  // 현재 ~40개 opcode
+  }
+
+  // 디버그: 레지스터 수
+  fn getRegisterCount() -> i64 {
+    return 16  // 16개 x86-64 범용 레지스터
+  }
+
+  // 내보내기 (확장)
   export {
     opcodeTable,
     regEncoding,
@@ -142,6 +208,11 @@ component X86_64Backend {
     getRegCode,
     abi,
     emitPrologue,
-    emitEpilogue
+    emitEpilogue,
+    setupFunctionCall,
+    encodeModRMByte,
+    encodeSIBByte,
+    getOpcodeCount,
+    getRegisterCount
   }
 }
